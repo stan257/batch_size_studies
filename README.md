@@ -2,13 +2,6 @@
 
 This project provides a robust framework for conducting and analyzing machine learning experiments, with a focus on studying the effects of hyperparameters like batch size, learning rate, and model parameterization.
 
-## Key Features
-
-- **Centralized Configuration**: All experiment parameters and hyperparameter grids are defined in a single source of truth, `configs.py`.
-- **Automated Sweeps**: Simple command-line scripts allow for running large, multi-CPU hyperparameter sweeps.
-- **Resumable Training**: A robust checkpointing system automatically saves progress, allowing long-running experiments to be stopped and resumed without losing work.
-- **Powerful Analysis Tools**: A suite of data utilities in `src/batch_size_studies/data_utils.py` for filtering, smoothing, and processing raw results for analysis.
-- **Automated Reporting**: Generate self-contained HTML reports with publication-ready visualizations (heatmaps, loss curves) with a single command.
 
 ## Setup
 
