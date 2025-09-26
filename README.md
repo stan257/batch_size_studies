@@ -1,159 +1,112 @@
 # Batch Size Studies
 
-This project provides a robust framework for conducting and analyzing machine learning experiments, with a focus on studying the effects of hyperparameters like batch size, learning rate, and model parameterization.
+This repository contains a framework for systematically studying the effects of hyperparameters—primarily `batch_size` and `learning_rate`—on the training dynamics of neural networks, with a focus on Standard (SP) and µ-Parametrization (µP).
 
+The codebase is designed to be modular and extensible, allowing for easy definition of new experiments, models, and analysis routines.
 
-## Setup
+## Installation
 
 1.  **Clone the repository and navigate into it:**
     ```bash
-    git clone <repository-url>
+    git clone https://github.com/stan257/batch_size_studies.git
     cd batch_size_studies
     ```
 
 2.  **Create and activate a Python environment:**
-    A virtual environment (like conda or venv) is recommended.
     ```bash
-    conda create -n batch_size_env python=3.11
-    conda activate batch_size_env
+    python3 -m venv .venv
+    source .venv/bin/activate
     ```
 
 3.  **Install dependencies:**
-    Install the project in editable mode. This will also install all required packages from `pyproject.toml`.
+    Install the project in editable mode, which is recommended for development:
     ```bash
     pip install -e .
     ```
 
-4.  **(Optional) Prepare the MNIST-1M Dataset:**
-    To run experiments on the `mnist1m` dataset, download the 10 raw `.zip` files from the source and place them in `data/mnist1m/raw/`. Then, process them by running:
+## Data Setup
+
+This project uses the MNIST and MNIST-1M datasets.
+
+*   The standard **MNIST** dataset will be downloaded automatically by `tensorflow_datasets` on the first run.
+*   The **MNIST-1M** dataset must be processed first. After downloading the raw data, run the provided script to create a consolidated `.npz` file:
     ```bash
+    # (Instructions on where to get the raw MNIST-1M data)
     python scripts/process_mnist1m.py
     ```
-    This creates the `data/mnist1m/mnist1m.npz` file required for training.
 
-## Workflow
+## Usage
 
-The typical workflow involves defining, running, and analyzing experiments.
+The `scripts/` directory contains high-level scripts to run experiments and generate reports.
 
-### 1. Define an Experiment
-All experiment configurations are defined as dataclasses in `configs.py`. This is the single source of truth for what to run.
+#### Running Experiments
 
-### 2. Run Experiments
+The main script for running hyperparameter sweeps is `run_experiments.py`. You can run all defined experiments or select specific ones by name.
 
-Use the scripts in the `scripts/` directory to execute experiment sweeps. Results and checkpoints are saved to the `experiments/` directory. If a run is interrupted, it will automatically resume from the last checkpoint when you run the script again.
-
-#### Main Experiments
-
-Use `scripts/run_experiments.py` to run the main suite of experiments.
-
-*   **Run all experiments:**
+To run all main experiments:
     ```bash
     python scripts/run_experiments.py
     ```
 
-*   **Run one or more specific experiments by name:**
+To run a specific experiment (e.g., `mnist_classification_mup`):
     ```bash
-    python scripts/run_experiments.py -n <experiment_name_1> <experiment_name_2>
-    ```
-    *(See `get_main_experiment_configs()` in `configs.py` for available names.)*
-
-*   **Override parameters for a quick test:**
-    ```bash
-    # Run with 5 epochs instead of the configured value
-    python scripts/run_experiments.py -n <experiment_name> -o num_epochs=5
-    ```
-*   **Run without saving results (for debugging):**
-    ```bash
-    python scripts/run_experiments.py --no-save
+    python scripts/run_experiments.py --name mnist_classification_mup
     ```
 
+Other specialized runner scripts are also available:
+*   `run_small_muP_experiments.py`: Runs experiments designed to find the smallest widths at which µP properties emerge.
+*   `run_width_sweep.py`: Sweeps over model width for a fixed `batch_size` and `eta`.
+*   `run_experimental_sweep.py`: Runs a 2D sweep over `gamma` and `eta` for a fixed batch size.
 
-#### Small µP Experiments
+For example, to run a width sweep:
+```bash
+python scripts/run_width_sweep.py \
+    --base_experiment mnist1m_sampled_mup_L3_N64_gamma1p0 \
+    --widths 64 128 256 512 \
+    --batch_size 256 \
+    --eta 0.01
+```
 
-A smaller suite of experiments can be run in parallel.
+#### Analyzing Results and Generating Reports
 
-*   **Run all small µP experiments (using all available CPU cores):**
-    ```bash
-    python scripts/run_small_muP_experiments.py
-    ```
+After running experiments, you can analyze the results and generate plots or HTML reports.
 
-*   **Limit the number of parallel workers:**
-    ```bash
-    python scripts/run_small_muP_experiments.py --max_workers 4
-    ```
-
-#### Experimental Sweeps
-
-The `scripts/run_experimental_sweep.py` script is designed for targeted sweeps over `gamma` and `eta` for a **fixed batch size**, which is useful for sanity checks and detailed analysis of specific regions of the hyperparameter space.
-
-*   **Run a sweep for a fixed batch size:**
-    ```bash
-    # Example: Sweep gamma and eta for a fixed batch size of 256
-    python scripts/run_experimental_sweep.py --batch-size 256
-    ```
-
-*   **Customize sweep ranges and resolution:**
-    ```bash
-    python scripts/run_experimental_sweep.py --batch-size 256 --gamma-range 3 --eta-range 10
-    ```
-
-### 3. Generate Reports and Analyze Results
-
-After experiments have run, use the analysis scripts to process the raw data and generate visualizations.
-
-#### Main Experiment Reports
-
-Generate a self-contained HTML report with visualizations from the main experiments.
-
-*   **Generate a report for all experiments:**
-    ```bash
-    python scripts/generate_reports.py
-    ```
-
-*   **Generate a report for specific experiments:**
-    ```bash
-    python scripts/generate_reports.py -n <experiment_name_1> <experiment_name_2>
-    ```
-
-*   **Customize included plots:**
-    ```bash
-    python scripts/generate_reports.py --plots heatmap_batch losscurve_temp_samples
-    ```
-    *(See `PLOT_REGISTRY` in `scripts/generate_reports.py` for available plots.)*
-
-Reports are saved in the `reports/` directory.
-
-#### Small µP Experiment Analysis
-
-Analysis for the small µP experiments is a two-step process using `scripts/analyze_small_muP_results.py`.
-
-1.  **Aggregate Results**: Process the raw experiment outputs into a single analysis file.
+1.  **Analyze Raw Results**:
+    This script processes the raw experiment data into a structured format for easier plotting.
     ```bash
     python scripts/analyze_small_muP_results.py --mode analyze
     ```
 
-2.  **Generate Plots**: Create specific loss curve plots from the aggregated data.
+2.  **Generate Plots**:
+    You can generate individual plots from the analyzed data.
     ```bash
-    # Example: Plot loss curves for a specific configuration.
-    # Note: Requires experiment_type, gamma, batch_size, and eta.
-    python scripts/analyze_small_muP_results.py --mode plot \
-        --experiment_type "fixed_time_poly_teacher" \
+    python scripts/analyze_small_muP_results.py \
+        --mode plot \
+        --experiment_type mnist1m_sampled_classification \
         --gamma 1.0 \
-        --batch_size 64 \
-        --eta 0.1
+        --batch_size 256 \
+        --eta 0.01
     ```
-    Plots are saved as `.png` images in the `plots/` directory.
 
-## Codebase Tour
+3.  **Generate HTML Report**:
+    This creates a self-contained HTML report with embedded plots for easy sharing.
+    ```bash
+    python scripts/generate_reports.py
+    ```
 
-Key files and directories:
+## Project Structure
 
-*   `configs.py`: **The single source of truth.** Defines all experiment configurations and hyperparameter grids.
-*   `scripts/`: Contains all runnable scripts for experiments, analysis, and data processing.
-*   `src/batch_size_studies/`: The core library code.
-    *   `mnist_training.py` & `synthetic_training.py`: Contain the core JAX/Optax training loops for the different experiment types.
-    *   `data_utils.py`: A collection of functions for post-processing experiment data.
-*   `experiments/`: Default output directory for all raw experiment results (`.pkl` files) and checkpoints.
-*   `reports/`: Default output directory for generated HTML reports.
-*   `plots/`: Default output directory for individual plots.
-*   `tests/`: Contains unit and integration tests for the framework.
+The codebase is organized into three main components:
+
+*   `src/batch_size_studies/`: The core library.
+    *   `configs.py`: Defines all experiment configurations and hyperparameter grids. This is the main entry point for defining new studies.
+    *   `experiments.py`: Contains the `dataclass` definitions for different experiment types.
+    *   `runner.py`: A unified, high-level function (`run_experiment_sweep`) that orchestrates all experiment runs.
+    *   `trainer.py`: Contains the `TrialRunner` class hierarchy, which encapsulates the detailed training and evaluation logic for each experiment family (e.g., `MNISTTrialRunner`, `SyntheticTrialRunner`).
+    *   `models.py`: Defines the MLP model and its parameterizations (SP and µP).
+    *   `data_loading.py`: Handles loading and pre-processing of datasets.
+    *   `checkpoint_utils.py`: Manages saving and loading for resumability and analysis.
+
+*   `scripts/`: Executable scripts that provide the command-line interface for running experiments and analysis. These scripts use the core library.
+
+*   `tests/`: The `pytest` test suite, including unit tests, integration tests, and reproducibility tests to ensure the correctness of the training logic.

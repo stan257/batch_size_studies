@@ -6,10 +6,10 @@ import numpy as np
 import pytest
 
 from batch_size_studies.checkpoint_utils import CheckpointManager
+from batch_size_studies.data_loading import load_mnist1m_dataset
 from batch_size_studies.definitions import LossType, Parameterization, RunKey
 from batch_size_studies.experiments import MNIST1MSampledExperiment, SyntheticExperimentFixedData
-from batch_size_studies.mnist_training import load_mnist1m_dataset, run_mnist_experiment
-from batch_size_studies.synthetic_training import run_experiment as run_synthetic_experiment
+from batch_size_studies.runner import run_experiment_sweep
 
 # Location to store golden data files.
 GOLDEN_DATA_DIR = os.path.join(os.path.dirname(__file__), "golden_data")
@@ -66,21 +66,22 @@ def compare_results(golden: dict, current: dict):
 
 def run_and_get_all_data(config, batch_sizes, etas, tmp_path, **kwargs) -> dict:
     """A helper to run an experiment and load all its generated data."""
+    run_kwargs = {
+        "experiment": config,
+        "batch_sizes": batch_sizes,
+        "etas": etas,
+        "directory": str(tmp_path),
+    }
+
     if isinstance(config, SyntheticExperimentFixedData):
-        run_synthetic_experiment(
-            experiment=config, batch_sizes=batch_sizes, etas=etas, directory=str(tmp_path), num_epochs=2
-        )
+        run_kwargs["num_epochs"] = 2
     elif isinstance(config, MNIST1MSampledExperiment):
-        run_mnist_experiment(
-            experiment=config,
-            batch_sizes=batch_sizes,
-            etas=etas,
-            directory=str(tmp_path),
-            init_key=42,
-            dataset_loader=kwargs.get("dataset_loader"),
-        )
+        run_kwargs["init_key"] = 42
+        run_kwargs["dataset_loader"] = kwargs.get("dataset_loader")
     else:
         raise TypeError(f"Unsupported config type for reproducibility test: {type(config)}")
+
+    run_experiment_sweep(**run_kwargs)
 
     # After running, load the results and weights
     results_dict, failed_runs = config.load_results(directory=str(tmp_path))

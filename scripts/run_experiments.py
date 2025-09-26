@@ -8,6 +8,7 @@ It supports parallel execution, automatic completion checking, and dynamic
 parameter overrides from the command line.
 """
 
+import argparse
 import logging
 import os
 from collections import defaultdict
@@ -17,16 +18,9 @@ from datetime import datetime
 
 from batch_size_studies.configs import get_main_experiment_configs, get_main_hyperparameter_grids
 from batch_size_studies.definitions import Parameterization
-from batch_size_studies.experiments import (
-    MNIST1MExperiment,
-    MNISTExperiment,
-    SyntheticExperimentFixedData,
-    SyntheticExperimentFixedTime,
-    SyntheticExperimentMLPTeacher,
-)
-from batch_size_studies.mnist_training import load_mnist1m_dataset, run_mnist_experiment
+from batch_size_studies.experiments import MNIST1MExperiment
 from batch_size_studies.paths import EXPERIMENTS_DIR
-from batch_size_studies.synthetic_training import run_experiment as run_synthetic_experiment
+from batch_size_studies.runner import run_experiment_sweep
 
 
 def setup_logging(log_dir="logs"):
@@ -72,31 +66,12 @@ def run_single_experiment(
 
     run_options = {"num_epochs": num_epochs_for_fixed_data, "directory": directory, "no_save": no_save}
 
-    match experiment_config:
-        case SyntheticExperimentFixedTime() | SyntheticExperimentFixedData() | SyntheticExperimentMLPTeacher():
-            run_synthetic_experiment(
-                experiment=experiment_config,
-                batch_sizes=batch_sizes,
-                etas=etas,
-                **run_options,
-            )
-        case MNISTExperiment():
-            run_mnist_experiment(
-                experiment=experiment_config,
-                batch_sizes=batch_sizes,
-                etas=etas,
-                **run_options,
-            )
-        case MNIST1MExperiment():
-            run_mnist_experiment(
-                experiment=experiment_config,
-                batch_sizes=batch_sizes,
-                etas=etas,
-                dataset_loader=load_mnist1m_dataset,
-                **run_options,
-            )
-        case _:
-            logging.error(f"Unknown experiment type for '{name}': {type(experiment_config).__name__}")
+    if isinstance(experiment_config, MNIST1MExperiment):
+        from batch_size_studies.data_loading import load_mnist1m_dataset
+
+        run_options["dataset_loader"] = load_mnist1m_dataset
+
+    run_experiment_sweep(experiment=experiment_config, batch_sizes=batch_sizes, etas=etas, **run_options)
 
     logging.info(f"--- Finished Experiment: {name} ---")
     return name

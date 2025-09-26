@@ -13,12 +13,12 @@ import optax
 from tqdm.auto import tqdm
 
 from .checkpoint_utils import CheckpointManager
-from .definitions import LossType, Parameterization, RunKey
-from .experiments import MNIST1MExperiment, MNIST1MSampledExperiment, MNISTExperiment
-from .mnist_training import (
+from .data_loading import (
     load_datasets,
     load_mnist1m_dataset,
 )
+from .definitions import LossType, Parameterization, RunKey
+from .experiments import MNIST1MExperiment, MNIST1MSampledExperiment, MNISTExperiment
 from .models import MLP
 from .paths import EXPERIMENTS_DIR
 

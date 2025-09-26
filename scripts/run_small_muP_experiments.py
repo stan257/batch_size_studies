@@ -15,9 +15,7 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from datetime import datetime
 
 from batch_size_studies.configs import get_small_mup_experiment_configs, get_small_mup_hyperparameter_grids
-from batch_size_studies.experiments import MNIST1MSampledExperiment, MNISTExperiment, SyntheticExperimentFixedTime
-from batch_size_studies.mnist_training import run_mnist_experiment
-from batch_size_studies.synthetic_training import run_experiment as run_synthetic_experiment
+from batch_size_studies.runner import run_experiment_sweep
 
 
 def setup_logging(log_dir="logs"):
@@ -51,25 +49,13 @@ def run_single_experiment(name, experiment_config, batch_sizes, etas, directory=
     logging.info(f"--- Starting Experiment: {name} ---")
     logging.info(f"Parameters: {experiment_config}")
 
-    match experiment_config:
-        case SyntheticExperimentFixedTime():
-            run_synthetic_experiment(
-                experiment=experiment_config,
-                batch_sizes=batch_sizes,
-                etas=etas,
-                directory=directory,
-            )
-        case MNISTExperiment() | MNIST1MSampledExperiment():
-            run_mnist_experiment(
-                experiment=experiment_config,
-                batch_sizes=batch_sizes,
-                etas=etas,
-                directory=directory,
-                num_epochs=num_epochs,
-            )
-        case _:
-            logging.error(f"Experiment type {type(experiment_config)} not supported by this runner.")
-
+    run_experiment_sweep(
+        experiment=experiment_config,
+        batch_sizes=batch_sizes,
+        etas=etas,
+        directory=directory,
+        num_epochs=num_epochs,
+    )
     logging.info(f"--- Finished Experiment: {name} ---")
     return name
 
