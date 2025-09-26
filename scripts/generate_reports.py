@@ -1,4 +1,11 @@
-import argparse
+"""
+Generate HTML Reports from Experiment Results
+
+This script automates the creation of self-contained HTML reports that visualize
+the results of hyperparameter sweeps. It loads raw experiment data, generates
+various plots (like heatmaps and loss curves) into a single HTML file.
+"""
+
 import base64
 import os
 import types
@@ -33,7 +40,6 @@ def _fig_to_base64(fig):
 
 
 def _build_heatmap_args(loss_dict, plot_title, batch_sizes, etas, base_kwargs):
-    """Prepares arguments for plot_loss_heatmap."""
     plot_args = {
         "loss_dict": loss_dict,
         "title_exp": plot_title,
@@ -44,7 +50,6 @@ def _build_heatmap_args(loss_dict, plot_title, batch_sizes, etas, base_kwargs):
 
 
 def _build_losscurve_args(loss_dict, plot_title, batch_sizes, etas, base_kwargs):
-    """Prepares arguments for plot_loss_curves, ensuring display_now=False."""
     plot_args = {"loss_dict": loss_dict, "title_exp": plot_title}
     # For automated report generation, we never want to display plots interactively.
     current_kwargs = base_kwargs.copy()
@@ -229,7 +234,6 @@ def generate_html_report(
 
 
 def main():
-    """Main function to generate reports with a command-line interface."""
     parser = argparse.ArgumentParser(description="Generate a self-contained HTML report of experiment heatmaps.")
     parser.add_argument(
         "--results_dir",

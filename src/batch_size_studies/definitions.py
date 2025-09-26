@@ -29,9 +29,6 @@ class RunKey:
     eta: float
 
     def __post_init__(self):
-        """
-        Validates the types of the fields after initialization.
-        """
         if not isinstance(self.batch_size, int):
             raise TypeError(f"RunKey 'batch_size' must be an integer, but got type {type(self.batch_size).__name__}.")
         if not isinstance(self.eta, float):

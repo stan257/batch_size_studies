@@ -1,5 +1,5 @@
 from collections import defaultdict
-from typing import Any, Callable, Literal
+from typing import Any, Callable, Generator, Literal
 
 import matplotlib.lines as mlines
 import matplotlib.pyplot as plt
@@ -81,10 +81,6 @@ def _prepare_grouped_curves(
     return grouped_curves
 
 
-def moving_average(data: np.ndarray, window_size: int):
-    return np.convolve(data, np.ones(window_size), "valid") / window_size
-
-
 def plot_loss_heatmap(
     loss_dict: dict[RunKey, Any],
     batch_sizes: list[int],
@@ -94,8 +90,8 @@ def plot_loss_heatmap(
     use_ratio_axis: bool = False,
     clim: tuple[float, float] | None = None,
     cmap: str = "rocket",
-    ax=None,
-):
+    ax: plt.Axes | None = None,
+) -> tuple[plt.Figure, plt.Axes]:
     """
     Generates a formatted 2D heatmap of loss values.
 
@@ -196,17 +192,17 @@ def plot_loss_heatmap(
 def plot_loss_curves(
     loss_dict: dict[RunKey, Any],
     title_exp: str = "",
-    group_by: str = "B",
-    group_values: list | Any | None = None,
+    group_by: Literal["B", "eta", "temp"] = "B",
+    group_values: list[Any] | Any | None = None,
     plot_on_single_ax: bool = False,
     use_eff_steps: bool = False,
     use_samples_seen: bool = False,
-    x_scale: str = "linear",
-    y_scale: str = "log",
+    x_scale: Literal["linear", "log"] = "linear",
+    y_scale: Literal["linear", "log"] = "log",
     cmap: str = "rocket",
-    ax=None,
+    ax: plt.Axes | None = None,
     display_now: bool = True,
-):
+) -> tuple[plt.Figure, plt.Axes] | Generator[tuple[plt.Figure, plt.Axes], None, None] | None:
     """
     Plots loss curves over training steps, grouped by a specified parameter.
 
@@ -257,7 +253,7 @@ def plot_loss_curves(
     )
 
     # --- Helper to plot a pre-grouped set of curves ---
-    def _plot_group(ax, value_to_fix, curves_in_group, linestyle="-"):
+    def _plot_group(ax: plt.Axes, value_to_fix: Any, curves_in_group: list[dict], linestyle: str = "-") -> bool:
         if not curves_in_group:
             return False  # Indicate no plots were made
 
@@ -376,7 +372,7 @@ def plot_loss_curves(
 
     else:
         # --- Multi-plot generator mode ---
-        def plot_generator():
+        def plot_generator() -> Generator[tuple[plt.Figure, plt.Axes], None, None]:
             if display_now:
                 try:
                     from IPython.display import display
@@ -432,13 +428,13 @@ def plot_loss_curves(
 def plot_all_loss_curves(
     loss_dict: dict[RunKey, Any],
     title_exp: str = "",
-    plot_group_by: str = "temp",
+    plot_group_by: Literal["B", "eta", "temp"] = "temp",
     use_eff_steps: bool = False,
     use_samples_seen: bool = False,
-    x_scale: str = "linear",
-    y_scale: str = "log",
-    ax=None,
-):
+    x_scale: Literal["linear", "log"] = "linear",
+    y_scale: Literal["linear", "log"] = "log",
+    ax: plt.Axes | None = None,
+) -> tuple[plt.Figure, plt.Axes]:
     """
     Plots all loss curves on a single axis with a structured grid legend.
 

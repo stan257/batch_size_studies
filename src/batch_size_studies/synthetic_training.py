@@ -30,7 +30,6 @@ def _synthetic_loss_fn(params, x_batch, y_batch, mlp_instance, params0):
 
 
 def _create_update_step(optimizer, mlp_instance, params0):
-    """Creates a JIT-compiled function for a single training step."""
     # Use partial to bake in the static arguments for the loss function.
     # This makes the resulting function picklable for multiprocessing.
     partial_loss_fn = partial(_synthetic_loss_fn, mlp_instance=mlp_instance, params0=params0)

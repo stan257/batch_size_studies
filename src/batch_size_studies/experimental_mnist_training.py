@@ -24,7 +24,6 @@ from .paths import EXPERIMENTS_DIR
 
 
 def _create_classification_loss_fn(apply_fn, experiment: MNISTExperiment | MNIST1MSampledExperiment, params0):
-    """Creates a loss function based on the experiment's loss_type."""
     match experiment.loss_type:
         case LossType.XENT:
 
@@ -50,8 +49,6 @@ def _create_classification_loss_fn(apply_fn, experiment: MNISTExperiment | MNIST
 
 
 def _create_update_step(loss_fn, optimizer):
-    """Creates a JIT-compiled function for a single training step."""
-
     @jax.jit
     def update_step(params, opt_state, x_batch, y_batch):
         (loss, logits), grads = jax.value_and_grad(loss_fn, has_aux=True)(params, x_batch, y_batch)
@@ -64,8 +61,6 @@ def _create_update_step(loss_fn, optimizer):
 
 
 def _create_eval_step(apply_fn, params0):
-    """Creates a JIT-compiled function for evaluation."""
-
     @jax.jit
     def eval_step(params, x_batch, y_batch):
         # Evaluation should also be on the centered function

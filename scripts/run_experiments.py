@@ -1,4 +1,13 @@
-import argparse
+"""
+Run Main Experiment Sweeps
+
+This script orchestrates the main hyperparameter sweeps over batch size and
+learning rate for all experiment configurations defined in `configs.py`.
+
+It supports parallel execution, automatic completion checking, and dynamic
+parameter overrides from the command line.
+"""
+
 import logging
 import os
 from collections import defaultdict
@@ -21,9 +30,6 @@ from batch_size_studies.synthetic_training import run_experiment as run_syntheti
 
 
 def setup_logging(log_dir="logs"):
-    """
-    Sets up a logger that writes to both the console and a timestamped file.
-    """
     os.makedirs(log_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -97,7 +103,6 @@ def run_single_experiment(
 
 
 def get_experiment_dir_by_name(name: str, base_dir: str = EXPERIMENTS_DIR) -> str | None:
-    """Utility to get the results directory for a given experiment name."""
     all_configs = get_main_experiment_configs()
     config = all_configs.get(name)
     if config is None:
@@ -107,8 +112,6 @@ def get_experiment_dir_by_name(name: str, base_dir: str = EXPERIMENTS_DIR) -> st
 
 
 def main():
-    """Main function to run experiments with a command-line interface."""
-    # Best Practice: Use argparse to create a flexible and self-documenting CLI.
     parser = argparse.ArgumentParser(description="Run a series of ML experiments.")
     parser.add_argument(
         "-n",

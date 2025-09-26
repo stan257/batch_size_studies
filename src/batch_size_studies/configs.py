@@ -21,16 +21,12 @@ from .experiments import (
 
 
 def get_main_hyperparameter_grids():
-    """Returns the standardized hyperparameter grids for the main sweeps."""
     batch_sizes = (2 ** np.arange(0, 17)).tolist()
     etas = np.power(2.0, np.arange(-12, 13)).tolist()
     return batch_sizes, etas
 
 
 def get_main_experiment_configs():
-    """
-    Defines and returns a dictionary of all main experiment configurations.
-    """
     # --- Centralized Configuration ---
     P = 100_000
     D = 25
@@ -56,9 +52,7 @@ def get_main_experiment_configs():
     )
     for g in gammas:
         name = f"poly_gamma{str(g).replace('.', 'p')}_fixed_time"
-        experiments_to_run[name] = SyntheticExperimentFixedTime(
-            **(kwargs_exp | {"gamma": float(g)})
-        )
+        experiments_to_run[name] = SyntheticExperimentFixedTime(**(kwargs_exp | {"gamma": float(g)}))
 
     # MLP teacher experiments
     mlp_teacher_kwargs = dict(
@@ -75,9 +69,7 @@ def get_main_experiment_configs():
     )
     for g in gammas:
         name = f"mlp_teacher_gamma{str(g).replace('.', 'p')}_fixed_time"
-        experiments_to_run[name] = SyntheticExperimentMLPTeacher(
-            **(mlp_teacher_kwargs | {"gamma": float(g)})
-        )
+        experiments_to_run[name] = SyntheticExperimentMLPTeacher(**(mlp_teacher_kwargs | {"gamma": float(g)}))
 
     # --- MNIST Experiment ---
     # A single experiment definition for MNIST classification.
@@ -93,9 +85,7 @@ def get_main_experiment_configs():
     classification_loss_types = [LossType.MSE]  # , LossType.XENT]
     for lt in classification_loss_types:
         for g in gammas:
-            name = (
-                f"mnist1m_classification_mup_{lt.value}_gamma{str(g).replace('.', 'p')}"
-            )
+            name = f"mnist1m_classification_mup_{lt.value}_gamma{str(g).replace('.', 'p')}"
             experiments_to_run[name] = MNIST1MExperiment(
                 N=128,
                 L=3,
@@ -113,16 +103,12 @@ def get_main_experiment_configs():
 
 
 def get_small_mup_hyperparameter_grids():
-    """Returns the hyperparameter grids for the small muP sweeps."""
     batch_sizes = (2 ** np.arange(7, 9)).tolist()
     etas = np.power(2.0, np.arange(4, 6)).tolist()
     return batch_sizes, etas
 
 
 def get_small_mup_experiment_configs():
-    """
-    Defines experiment configurations for small muP models.
-    """
     P = 30_000
     D = 25
     K = 2
@@ -163,7 +149,7 @@ def get_small_mup_experiment_configs():
                 gamma=float(g),
                 parameterization=Parameterization.MUP,
                 max_train_samples=max_train_samples,
-                loss_type=LossType.MSE,  # Be explicit, though it's the default
+                loss_type=LossType.MSE,
             )
 
     return experiments_to_run

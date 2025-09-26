@@ -1,4 +1,14 @@
-import argparse
+"""
+Run Small-muP Experiment Sweeps
+
+This script is dedicated to running the "small-muP" experiments, which are
+designed to find the smallest network widths at which mu-Parametrization
+properties (like mu-transfer) become apparent.
+
+It sweeps over the hyperparameter grids defined in `get_small_mup_...`
+functions in `configs.py` and runs the corresponding experiments in parallel.
+"""
+
 import logging
 import os
 from concurrent.futures import ProcessPoolExecutor, as_completed
@@ -11,9 +21,6 @@ from batch_size_studies.synthetic_training import run_experiment as run_syntheti
 
 
 def setup_logging(log_dir="logs"):
-    """
-    Sets up a logger that writes to both the console and a timestamped file.
-    """
     os.makedirs(log_dir, exist_ok=True)
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
@@ -68,7 +75,6 @@ def run_single_experiment(name, experiment_config, batch_sizes, etas, directory=
 
 
 def main():
-    """Main function to run the small muP experiments."""
     parser = argparse.ArgumentParser(description="Run a series of small muP experiments.")
     parser.add_argument(
         "--max_workers",

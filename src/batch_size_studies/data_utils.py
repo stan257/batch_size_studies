@@ -18,15 +18,12 @@ def apply_to_list_of_dicts(func: Callable) -> Callable:
     def wrapper(data: D | list[D], *args, **kwargs) -> D | list[D]:
         if isinstance(data, list):
             return [func(item, *args, **kwargs) for item in data]
-        # We've established it's not a list, so it must be a dict.
-        # The type hint `D | list[D]` helps communicate this.
         return func(data, *args, **kwargs)
 
     return wrapper
 
 
 def moving_average(data: np.ndarray, window_size: int) -> np.ndarray:
-    """Computes the moving average of a 1D array using convolution."""
     return np.convolve(data, np.ones(window_size), "valid") / window_size
 
 
@@ -55,9 +52,6 @@ def get_loss_history_from_result(result: Any) -> Any:
 
 
 def _get_run_key_value(rk: RunKey, by: str) -> float | int | None:
-    """
-    Extracts a value from a RunKey based on the 'by' parameter.
-    """
     if by == "B":
         return rk.batch_size
     if by == "eta":
@@ -96,14 +90,6 @@ def filter_loss_dicts(loss_dict: dict, filter_by: str, values: list, keep: bool 
 
 @apply_to_list_of_dicts
 def uniform_smooth_loss_dicts(loss_dict: dict[RunKey, Any], smoother: Callable[[Any], Any]) -> dict[RunKey, Any]:
-    """
-    Applies a smoothing function to each loss history in a results dictionary.
-
-    Returns a new dictionary mapping each RunKey to its smoothed loss history.
-    Runs without a valid loss history are omitted.
-
-    This function is decorated to also handle a list of dictionaries.
-    """
     return {
         run_key: smoother(loss_history)
         for run_key, result_obj in loss_dict.items()
@@ -246,18 +232,6 @@ def filter_loss_dict_by_cutoff(
 def extract_loss_histories(
     results_dict: dict[RunKey, Any],
 ) -> dict[RunKey, list[float]]:
-    """
-    Extracts 'loss_history' lists from a results dictionary into a new dictionary.
-
-    Args:
-        results_dict: A dictionary mapping RunKey to a results object.
-                      The result object can be a dictionary containing a
-                      'loss_history' key, or a list of losses.
-
-    Returns:
-        A dictionary mapping each RunKey to its corresponding loss history list.
-        Runs without a valid loss history are omitted.
-    """
     return {
         run_key: loss_history
         for run_key, result_obj in results_dict.items()

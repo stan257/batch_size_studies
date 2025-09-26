@@ -1,4 +1,15 @@
-import argparse
+"""
+Run Experimental Gamma-Eta Sweep for MNIST
+
+This script is designed for a specific type of hyperparameter exploration:
+a 2D sweep over the richness parameter (gamma) and the learning rate (eta)
+for a *fixed batch size*.
+
+It is particularly useful for generating the characteristic phase portrait of
+model performance in the γ-η plane from "Optimization Landscape Across Feature
+Learning Strength" by Atanasov et al.
+"""
+
 import logging
 
 from batch_size_studies.definitions import LossType, Parameterization
@@ -8,9 +19,6 @@ from batch_size_studies.paths import EXPERIMENTS_DIR
 
 
 def main():
-    """
-    Main function to parse arguments and run the experimental sweep.
-    """
     parser = argparse.ArgumentParser(
         description="Run a gamma-eta hyperparameter sweep for MNIST experiments with a fixed batch size."
     )

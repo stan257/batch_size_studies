@@ -31,7 +31,6 @@ class CheckpointManager:
         self.weights_filepath = os.path.join(self.exp_dir, f"{base_filename}_weights.pkl")
 
     def _get_resume_filepath(self, run_key: RunKey):
-        """Generates a unique filepath for a trial's live checkpoint."""
         run_key_str = f"B={run_key.batch_size}_eta={str(run_key.eta).replace('.', 'p')}"
         return os.path.join(self.checkpoint_dir, f"resume_{run_key_str}.pkl")
 
@@ -103,7 +102,6 @@ class CheckpointManager:
             pickle.dump(weights_data, f)
 
     def load_initial_params(self):
-        """Loads the shared initial parameters for the experiment."""
         if not os.path.exists(self.weights_filepath):
             return None
         try:
@@ -171,7 +169,6 @@ class CheckpointManager:
             return {}
 
     def cleanup_live_checkpoint(self, run_key: RunKey):
-        """Removes the temporary checkpoint file for a completed run."""
         filepath = self._get_resume_filepath(run_key)
         if os.path.exists(filepath):
             try:

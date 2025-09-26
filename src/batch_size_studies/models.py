@@ -29,9 +29,6 @@ class MLP:
     _apply_fn: Callable = field(init=False, repr=False)
 
     def __post_init__(self):
-        """
-        Selects the correct forward pass function after the instance is created.
-        """
         if not isinstance(self.parameterization, Parameterization):
             raise TypeError(
                 f"parameterization must be a member of the Parameterization enum, "
@@ -68,7 +65,6 @@ class MLP:
         return params
 
     def _mlp_forward_pass_sp(self, params: List[jnp.ndarray], x: jnp.ndarray) -> jnp.ndarray:
-        """The forward pass logic for Standard Parameterization (SP)."""
         for i in range(len(params) - 1):
             x = jnp.dot(x, params[i]) / jnp.sqrt(x.shape[-1])
             x = relu(x)
@@ -78,7 +74,6 @@ class MLP:
         return x
 
     def _mlp_forward_pass_mup(self, params: List[jnp.ndarray], x: jnp.ndarray) -> jnp.ndarray:
-        """The forward pass logic for Maximal Update Parameterization (muP)."""
         for i in range(len(params) - 1):
             x = jnp.dot(x, params[i]) / jnp.sqrt(x.shape[-1])
             x = relu(x)

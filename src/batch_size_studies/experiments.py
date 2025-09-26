@@ -226,7 +226,6 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, SyntheticExperiment):
         return X_data, y_data
 
     def plot_title(self, task_name="MLP teacher", model_name="MLP"):
-        """Generates a formatted title for plots."""
         line1 = f"$T* = {self.num_steps}$ steps, {task_name} T(N={self.teacher_N}, L={self.teacher_L}), D={self.D}"
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
@@ -259,7 +258,6 @@ class MNISTExperiment(ExperimentBase):
         super().__post_init__()
 
     def plot_title(self, task_name="MNIST Classification", model_name="MLP"):
-        """Generates a formatted title for plots."""
         line1 = (
             f"{task_name} ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
         )
@@ -290,7 +288,6 @@ class MNIST1MExperiment(ExperimentBase):
         super().__post_init__()
 
     def plot_title(self, task_name="MNIST-1M Classification", model_name="MLP"):
-        """Generates a formatted title for plots."""
         line1 = (
             f"{task_name} ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
         )
@@ -321,7 +318,6 @@ class MNIST1MSampledExperiment(ExperimentBase):
         super().__post_init__()
 
     def plot_title(self, task_name="MNIST-1M Sampled", model_name="MLP"):
-        """Generates a formatted title for plots."""
         line1 = (
             f"{task_name} ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
         )

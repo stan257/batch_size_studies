@@ -16,7 +16,6 @@ class CustomUnpickler(pickle.Unpickler):
 
 
 def generate_experiment_filename(params, prefix="results", extension="pkl"):
-    """Generates a standardized, deterministic filename from a params dict."""
     filename_parts = [prefix]
     for key, value in sorted(params.items()):
         if isinstance(value, float):
@@ -29,7 +28,6 @@ def generate_experiment_filename(params, prefix="results", extension="pkl"):
 
 
 def load_experiment(filepath):
-    """Loads experiment data from a pickle file."""
     if not os.path.exists(filepath):
         return None
     try:

@@ -1,4 +1,15 @@
-import argparse
+"""
+Pre-process the MNIST-1M Dataset
+
+This script handles the one-time conversion of the raw MNIST-1M dataset, which
+is distributed as 10 separate zip files (one for each digit class), into a
+single, consolidated `mnist1m.npz` file.
+
+The processing involves unzipping, loading images, performing a standard
+train/test split, and saving the result in a compressed NumPy format for
+efficient loading during training.
+"""
+
 import os
 import zipfile
 
@@ -98,7 +109,7 @@ def process_mnist1m(raw_data_dir, output_dir, test_size=50000, seed=42):
     print("--- Pre-processing complete! ---")
 
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Pre-process the MNIST-1M dataset from raw zip files.")
     parser.add_argument(
         "--raw_dir",
@@ -115,3 +126,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     process_mnist1m(args.raw_dir, args.output_dir)
+
+
+if __name__ == "__main__":
+    main()
