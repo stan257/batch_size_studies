@@ -1,0 +1,77 @@
+[tool.ruff]
+# Define the minimum Python version to target.
+target-version = "py311"
+# Use a line length of 88, like Black.
+line-length = 120
+
+[tool.ruff.lint]
+# E = pycodestyle errors
+# W = pycodestyle warnings
+# F = Pyflakes (includes unused-import checks)
+# I = isort (import sorting)
+select = ["E", "F", "W", "I"]
+
+# Allow ruff to automatically fix all fixable issues.
+# This is what enables removing unused imports (F401).
+fixable = ["ALL"]
+
+# Exclude commonly ignored directories, plus your project's output folders.
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".hg",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "venv",
+    "*.ipynb",
+    "experiments",
+    "reports",
+    "logs",
+]
+
+[tool.ruff.format]
+# Use double quotes for strings, like Black.
+quote-style = "double"
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "batch-size-studies"
+version = "0.1.0"
+description = "A framework for studying batch size effects in deep learning."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Stanislav Atanasov", email = "stanislav.atan@gmail.com"},
+]
+dependencies = [
+    "numpy",
+    "matplotlib",
+    "jax",
+    "jaxlib",
+    "optax",
+    "tensorflow-datasets",
+    "tqdm",
+    "seaborn",
+    "pytest",
+    "Pillow",
+    "scikit-learn",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
