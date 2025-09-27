@@ -115,6 +115,7 @@ def run_experiment_sweep(
     # 6. Main sweep loop
     sorted_etas = sorted(etas, reverse=True)
 
+    eta_pbar = tqdm(total=len(sorted_etas), desc="Eta Sweep", leave=False)
     for batch_size in tqdm(batch_sizes, desc="Batch Size Sweep"):
         consecutive_converged_count = 0
 
@@ -127,19 +128,21 @@ def run_experiment_sweep(
                 )
                 continue
 
-        eta_pbar = tqdm(sorted_etas, desc=f"Eta Sweep (B={batch_size})", leave=False)
-        for eta in eta_pbar:
+        eta_pbar.reset()
+        eta_pbar.set_description(f"Eta Sweep (B={batch_size})")
+
+        # Determine num_steps for completion check
+        num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
+        if is_synthetic_fixed_time:
+            num_steps = experiment.num_steps
+        else:
+            num_train_samples = len(train_ds["image"]) if is_mnist else experiment.P
+            steps_per_epoch = num_train_samples // batch_size
+            num_steps = num_epochs * steps_per_epoch
+
+        for eta in sorted_etas:
             run_key = RunKey(batch_size=batch_size, eta=eta)
             is_successful_run = False  # Assume failure until proven otherwise
-
-            # Determine num_steps for completion check
-            num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
-            if is_synthetic_fixed_time:
-                num_steps = experiment.num_steps
-            else:
-                num_train_samples = len(train_ds["image"]) if is_mnist else experiment.P
-                steps_per_epoch = num_train_samples // batch_size
-                num_steps = num_epochs * steps_per_epoch
 
             # Check if we can skip this run
             should_run_trial = True
@@ -208,10 +211,9 @@ def run_experiment_sweep(
                             checkpoint_manager.cleanup_live_checkpoint(run_key)
                         elif not is_mnist:
                             checkpoint_manager.cleanup_live_checkpoint(run_key)
-
-            # Save results after each trial (or after loading a skipped one)
-            if not no_save:
-                experiment.save_results(results_dict, failed_runs, directory)
+                # Save results only if a trial was actually run and state has changed.
+                if not no_save:
+                    experiment.save_results(results_dict, failed_runs, directory)
 
             # Stability search logic
             if eta_stability_search_depth is not None and eta_stability_search_depth > 0:
@@ -227,4 +229,7 @@ def run_experiment_sweep(
                     )
                     break  # Exit eta loop for this batch size
 
+            eta_pbar.update(1)
+
+    eta_pbar.close()
     return dict(results_dict), failed_runs
