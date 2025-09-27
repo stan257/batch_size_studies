@@ -43,6 +43,7 @@ def run_experiment_sweep(
     init_key: int = 0,
     directory=EXPERIMENTS_DIR,
     no_save: bool = False,
+    eta_stability_search_depth: int | None = None,
     **kwargs,
 ):
     """
@@ -112,89 +113,118 @@ def run_experiment_sweep(
         train_ds = (X_data, y_data)
 
     # 6. Main sweep loop
-    run_combinations = [(bs, e) for bs in batch_sizes for e in etas]
-    pbar = tqdm(run_combinations, desc="Hyperparameter Sweep")
+    sorted_etas = sorted(etas, reverse=True)
 
-    for batch_size, eta in pbar:
-        run_key = RunKey(batch_size=batch_size, eta=eta)
-        pbar.set_description(f"Sweep (B={batch_size}, eta={eta:.2g})")
+    for batch_size in tqdm(batch_sizes, desc="Batch Size Sweep"):
+        consecutive_converged_count = 0
 
-        # 7. Completion Check
-        num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
-        if is_synthetic_fixed_time:
-            num_steps = experiment.num_steps
-        else:  # Epoch-based experiments
+        # Pre-check for invalid batch size
+        if not is_synthetic_fixed_time:
             num_train_samples = len(train_ds["image"]) if is_mnist else experiment.P
             if batch_size > num_train_samples:
                 logging.warning(
-                    f"Skipping run {run_key}: batch_size ({batch_size}) > dataset size ({num_train_samples})."
+                    f"Skipping run configurations for batch_size ({batch_size}) > dataset size ({num_train_samples})."
                 )
                 continue
-            steps_per_epoch = num_train_samples // batch_size
-            num_steps = num_epochs * steps_per_epoch
 
-        if not no_save:
-            if run_key in failed_runs or (
-                run_key in results_dict and len(results_dict[run_key].get("loss_history", [])) >= num_steps
-            ):
-                logging.info(f"Skipping completed run {run_key}")
-                continue
+        eta_pbar = tqdm(sorted_etas, desc=f"Eta Sweep (B={batch_size})", leave=False)
+        for eta in eta_pbar:
+            run_key = RunKey(batch_size=batch_size, eta=eta)
+            is_successful_run = False  # Assume failure until proven otherwise
 
-        # 8. Dispatch to the appropriate trial runner
-        runner = None
-        runner_kwargs = {
-            "experiment": experiment,
-            "run_key": run_key,
-            "params0": params0,
-            "mlp_instance": mlp_instance,
-            "checkpoint_manager": checkpoint_manager,
-            "pbar": pbar,
-            "no_save": no_save,
-            "init_key": init_key,
-        }
+            # Determine num_steps for completion check
+            num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
+            if is_synthetic_fixed_time:
+                num_steps = experiment.num_steps
+            else:
+                num_train_samples = len(train_ds["image"]) if is_mnist else experiment.P
+                steps_per_epoch = num_train_samples // batch_size
+                num_steps = num_epochs * steps_per_epoch
 
-        if is_mnist:
-            current_experiment = experiment
-            if "num_epochs" in kwargs and kwargs["num_epochs"] != experiment.num_epochs:
-                current_experiment = replace(experiment, num_epochs=kwargs["num_epochs"])
-            runner_kwargs["experiment"] = current_experiment
-            runner_kwargs["train_ds"] = train_ds
-            runner_kwargs["test_ds"] = test_ds
-            runner = MNISTTrialRunner(**runner_kwargs)
-
-        elif is_synthetic_fixed_data:
-            runner_kwargs["num_epochs"] = num_epochs
-            runner_kwargs["X_data"] = train_ds[0]
-            runner_kwargs["y_data"] = train_ds[1]
-            runner = SyntheticFixedDataTrialRunner(**runner_kwargs)
-
-        elif is_synthetic_fixed_time:
-            runner_kwargs["num_steps"] = num_steps
-            runner = SyntheticFixedTimeTrialRunner(**runner_kwargs)
-
-        if runner:
-            result = runner.run()
-        else:
-            result = None
-
-        # 9. Process and save results
-        is_mnist_success = (
-            is_mnist and result and "final_test_accuracy" in result and np.isfinite(result["final_test_accuracy"])
-        )
-        if result is None or (is_mnist and not is_mnist_success):
-            failed_runs.add(run_key)
-            if run_key in results_dict:
-                del results_dict[run_key]
-        else:
-            results_dict[run_key] = result
+            # Check if we can skip this run
+            should_run_trial = True
             if not no_save:
-                original_epochs = getattr(experiment, "num_epochs", 1)
-                if is_mnist and len(result.get("epoch_test_accuracies", [])) >= original_epochs:
-                    checkpoint_manager.cleanup_live_checkpoint(run_key)
-                elif not is_mnist:
-                    checkpoint_manager.cleanup_live_checkpoint(run_key)
+                if run_key in failed_runs:
+                    logging.info(f"Skipping previously failed run {run_key}")
+                    is_successful_run = False
+                    should_run_trial = False
+                elif run_key in results_dict and len(results_dict[run_key].get("loss_history", [])) >= num_steps:
+                    logging.info(f"Skipping completed run {run_key}")
+                    is_successful_run = True
+                    should_run_trial = False
 
-        if not no_save:
-            experiment.save_results(results_dict, failed_runs, directory)
+            if should_run_trial:
+                # 8. Dispatch to the appropriate trial runner
+                runner = None
+                runner_kwargs = {
+                    "experiment": experiment,
+                    "run_key": run_key,
+                    "params0": params0,
+                    "mlp_instance": mlp_instance,
+                    "checkpoint_manager": checkpoint_manager,
+                    "pbar": eta_pbar,
+                    "no_save": no_save,
+                    "init_key": init_key,
+                }
+
+                if is_mnist:
+                    current_experiment = experiment
+                    if "num_epochs" in kwargs and kwargs["num_epochs"] != experiment.num_epochs:
+                        current_experiment = replace(experiment, num_epochs=kwargs["num_epochs"])
+                    runner_kwargs["experiment"] = current_experiment
+                    runner_kwargs["train_ds"] = train_ds
+                    runner_kwargs["test_ds"] = test_ds
+                    runner = MNISTTrialRunner(**runner_kwargs)
+                elif is_synthetic_fixed_data:
+                    runner_kwargs["num_epochs"] = num_epochs
+                    runner_kwargs["X_data"] = train_ds[0]
+                    runner_kwargs["y_data"] = train_ds[1]
+                    runner = SyntheticFixedDataTrialRunner(**runner_kwargs)
+                elif is_synthetic_fixed_time:
+                    runner_kwargs["num_steps"] = num_steps
+                    runner = SyntheticFixedTimeTrialRunner(**runner_kwargs)
+
+                result = runner.run() if runner else None
+
+                # 9. Process and save results
+                is_mnist_success = (
+                    is_mnist
+                    and result
+                    and "final_test_accuracy" in result
+                    and np.isfinite(result["final_test_accuracy"])
+                )
+                is_successful_run = result is not None and (not is_mnist or is_mnist_success)
+
+                if not is_successful_run:
+                    failed_runs.add(run_key)
+                    if run_key in results_dict:
+                        del results_dict[run_key]
+                else:
+                    results_dict[run_key] = result
+                    failed_runs.discard(run_key)
+                    if not no_save:
+                        original_epochs = getattr(experiment, "num_epochs", 1)
+                        if is_mnist and len(result.get("epoch_test_accuracies", [])) >= original_epochs:
+                            checkpoint_manager.cleanup_live_checkpoint(run_key)
+                        elif not is_mnist:
+                            checkpoint_manager.cleanup_live_checkpoint(run_key)
+
+            # Save results after each trial (or after loading a skipped one)
+            if not no_save:
+                experiment.save_results(results_dict, failed_runs, directory)
+
+            # Stability search logic
+            if eta_stability_search_depth is not None and eta_stability_search_depth > 0:
+                if is_successful_run:
+                    consecutive_converged_count += 1
+                else:
+                    consecutive_converged_count = 0  # Reset on failure
+
+                if consecutive_converged_count >= eta_stability_search_depth:
+                    logging.info(
+                        f"Found {eta_stability_search_depth} consecutive stable etas for batch size {batch_size}. "
+                        f"Skipping remaining etas for this batch size."
+                    )
+                    break  # Exit eta loop for this batch size
 
     return dict(results_dict), failed_runs

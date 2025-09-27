@@ -1,6 +1,6 @@
 import logging
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 import pytest
@@ -149,6 +149,77 @@ class TestSyntheticRunner:
         assert RunKey(64, 0.1) not in losses
         assert RunKey(64, 0.1) not in failures
         assert "Skipping run" in caplog.text and "batch_size (64) > dataset size (32)" in caplog.text
+
+    def test_sweep_runs_all_combinations_by_default(self, fixed_data_config, tmp_path):
+        """
+        Tests that without eta_stability_search_depth, the sweep runs all combinations.
+        """
+        batch_sizes = [8, 16]
+        etas = [0.1, 0.01]
+
+        # Use a config that is known to converge and has enough data
+        converging_config = replace(fixed_data_config, P=32)
+
+        results, failures = run_experiment_sweep(
+            experiment=converging_config,
+            batch_sizes=batch_sizes,
+            etas=etas,
+            num_epochs=1,
+            directory=str(tmp_path),
+            # NOTE: eta_stability_search_depth is intentionally omitted
+        )
+
+        # Check that the number of successful runs matches the total number of combinations
+        assert len(results) == len(batch_sizes) * len(etas)
+        assert not failures
+
+        # Verify that every specific run key is present in the results
+        for bs in batch_sizes:
+            for eta in etas:
+                assert RunKey(bs, eta) in results
+
+    def test_eta_stability_search_stops_early(self, fixed_data_config, tmp_path, monkeypatch):
+        """
+        Tests that the eta stability search correctly stops after a consecutive number of successes,
+        and that the counter resets upon failure.
+        """
+        batch_sizes = [16]
+        # Etas are sorted descending by the runner
+        etas = [1.0, 0.5, 0.25, 0.125, 0.06]
+        # Define which etas will "converge". 0.5 will fail, resetting the counter.
+        converging_etas = {1.0, 0.25, 0.125, 0.06}
+        eta_stability_search_depth = 2
+
+        # Keep track of which etas were actually run
+        run_etas = []
+
+        def mock_run(self):
+            run_etas.append(self.run_key.eta)
+            if self.run_key.eta in converging_etas:
+                return {"loss_history": [0.5, 0.4]}  # Minimal success result
+            return None  # Failure result
+
+        # Patch the trial runner's run method to control convergence
+        monkeypatch.setattr("batch_size_studies.trainer.SyntheticFixedDataTrialRunner.run", mock_run)
+
+        results, failures = run_experiment_sweep(
+            experiment=fixed_data_config,
+            batch_sizes=batch_sizes,
+            etas=etas,
+            num_epochs=1,
+            directory=str(tmp_path),
+            eta_stability_search_depth=eta_stability_search_depth,
+        )
+
+        # The sweep should proceed as follows for B=16:
+        # eta=1.0:   Converges. consecutive_successes = 1.
+        # eta=0.5:   Fails.     consecutive_successes = 0. (Counter reset)
+        # eta=0.25:  Converges. consecutive_successes = 1.
+        # eta=0.125: Converges. consecutive_successes = 2. -> STOP.
+        # eta=0.06:  Should not be run.
+        expected_run_etas = [1.0, 0.5, 0.25, 0.125]
+        assert run_etas == expected_run_etas, "The sweep did not run the expected sequence of etas."
+        assert RunKey(16, 0.06) not in results and RunKey(16, 0.06) not in failures
 
 
 class TestMNISTRunner:
