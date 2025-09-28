@@ -55,7 +55,6 @@ def run_experiment_sweep(
     is_synthetic_fixed_data = isinstance(experiment, SyntheticExperimentFixedData)
     is_synthetic_fixed_time = isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher))
 
-    # 2. Common setup for results and checkpointing
     if no_save:
         results_dict, failed_runs = defaultdict(list), set()
     else:
@@ -63,11 +62,9 @@ def run_experiment_sweep(
     checkpoint_manager = CheckpointManager(experiment, directory=directory)
     mlp_instance = MLP(experiment.parameterization, experiment.gamma)
 
-    # 3. Configure model output dimension
     output_dim = experiment.num_outputs if is_mnist else 1
     widths = [experiment.D] + [experiment.N] * (experiment.L - 1) + [output_dim]
 
-    # 4. Setup initial parameters (params0)
     if no_save:
         params0 = mlp_instance.init_params(init_key, widths)
     else:
@@ -79,7 +76,6 @@ def run_experiment_sweep(
             with open(checkpoint_manager.weights_filepath, "wb") as f:
                 pickle.dump(weights_data, f)
 
-    # 5. Load data based on experiment type
     train_ds, test_ds = None, None
     if is_mnist:
         dataset_loader = kwargs.get("dataset_loader")
@@ -112,7 +108,6 @@ def run_experiment_sweep(
         X_data, y_data = experiment.generate_data(data_key)
         train_ds = (X_data, y_data)
 
-    # 6. Main sweep loop
     sorted_etas = sorted(etas, reverse=True)
 
     eta_pbar = tqdm(total=len(sorted_etas), desc="Eta Sweep", leave=False)
@@ -131,7 +126,6 @@ def run_experiment_sweep(
         eta_pbar.reset()
         eta_pbar.set_description(f"Eta Sweep (B={batch_size})")
 
-        # Determine num_steps for completion check
         num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
         if is_synthetic_fixed_time:
             num_steps = experiment.num_steps
@@ -144,7 +138,6 @@ def run_experiment_sweep(
             run_key = RunKey(batch_size=batch_size, eta=eta)
             is_successful_run = False  # Assume failure until proven otherwise
 
-            # Check if we can skip this run
             should_run_trial = True
             if not no_save:
                 if run_key in failed_runs:
@@ -157,7 +150,6 @@ def run_experiment_sweep(
                     should_run_trial = False
 
             if should_run_trial:
-                # 8. Dispatch to the appropriate trial runner
                 runner = None
                 runner_kwargs = {
                     "experiment": experiment,
@@ -189,7 +181,6 @@ def run_experiment_sweep(
 
                 result = runner.run() if runner else None
 
-                # 9. Process and save results
                 is_mnist_success = (
                     is_mnist
                     and result
@@ -211,11 +202,9 @@ def run_experiment_sweep(
                             checkpoint_manager.cleanup_live_checkpoint(run_key)
                         elif not is_mnist:
                             checkpoint_manager.cleanup_live_checkpoint(run_key)
-                # Save results only if a trial was actually run and state has changed.
                 if not no_save:
                     experiment.save_results(results_dict, failed_runs, directory)
 
-            # Stability search logic
             if eta_stability_search_depth is not None and eta_stability_search_depth > 0:
                 if is_successful_run:
                     consecutive_converged_count += 1

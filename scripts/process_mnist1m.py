@@ -15,7 +15,6 @@ import zipfile
 
 import numpy as np
 
-# --- Check for dependencies and provide helpful error messages ---
 try:
     from PIL import Image
 except ImportError:

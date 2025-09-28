@@ -17,8 +17,6 @@ from .experiments import (
     SyntheticExperimentMLPTeacher,
 )
 
-# --- Main Experiment Suite ---
-
 
 def get_main_hyperparameter_grids():
     batch_sizes = (2 ** np.arange(0, 17)).tolist()
@@ -27,7 +25,6 @@ def get_main_hyperparameter_grids():
 
 
 def get_main_experiment_configs():
-    # --- Centralized Configuration ---
     P = 100_000
     D = 25
     N = 100
@@ -37,7 +34,6 @@ def get_main_experiment_configs():
 
     gammas = [1e-5, 0.01, 0.1, 1.0, 10.0, 100.0, 1e5]
 
-    # --- Define the Set of Experiments to Run ---
     experiments_to_run = {}
 
     # Polynomial teacher experiments

@@ -17,10 +17,6 @@ import numpy as np
 from jax import jit
 from jax.tree_util import tree_leaves, tree_map, tree_structure, tree_unflatten
 
-# =============================================================================
-# Pytree Utility Functions
-# =============================================================================
-
 
 def tree_dot(xs, ys):
     """Computes the dot product of two pytrees of arrays."""
@@ -62,11 +58,6 @@ def tree_random_like(key, target_tree, rademacher=False):
         keys = jax.random.split(key, len(leaves))
         new_leaves = [jax.random.normal(k, shape=l.shape, dtype=l.dtype) for k, l in zip(keys, leaves)]
     return tree_unflatten(target_struct, new_leaves)
-
-
-# =============================================================================
-# JaxHessian Class
-# =============================================================================
 
 
 class JaxHessian:

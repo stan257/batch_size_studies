@@ -23,7 +23,6 @@ def main():
         description="Run a gamma-eta hyperparameter sweep for MNIST experiments with a fixed batch size."
     )
 
-    # --- Base Experiment Arguments ---
     parser.add_argument("--N", type=int, default=128, help="Hidden layer width of the MLP.")
     parser.add_argument("--L", type=int, default=3, help="Number of layers in the MLP.")
     parser.add_argument(
@@ -48,7 +47,6 @@ def main():
         help="Number of training samples to use (from MNIST-1M). If 0, use the full dataset.",
     )
 
-    # --- Sweep Control Arguments ---
     parser.add_argument("--batch-size", type=int, required=True, help="Fixed batch size for all trials.")
     parser.add_argument("--gamma-range", type=int, default=5, help="Log10 range for the gamma sweep.")
     parser.add_argument("--gamma-res", type=int, default=2, help="Resolution (points per decade) for the gamma sweep.")
@@ -61,7 +59,6 @@ def main():
         help="How many decades to search below the first stable learning rate.",
     )
 
-    # --- Execution and I/O Arguments ---
     parser.add_argument("--init-key", type=int, default=0, help="Base random key for parameter initialization.")
     parser.add_argument(
         "--save-subfolder",
@@ -79,10 +76,8 @@ def main():
 
     args = parser.parse_args()
 
-    # --- Configure Logging ---
     logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 
-    # --- Construct the Base Experiment ---
     base_experiment = MNIST1MSampledExperiment(
         N=args.N,
         L=args.L,
@@ -98,7 +93,6 @@ def main():
         f"Sweep parameters: Batch Size={args.batch_size}, Gamma Range={args.gamma_range}, Eta Range={args.eta_range}"
     )
 
-    # --- Run the Experiment ---
     results, failures = run_mnist_gamma_eta_sweep(
         base_experiment=base_experiment,
         batch_size=args.batch_size,

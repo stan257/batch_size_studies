@@ -115,15 +115,14 @@ def main():
     batch_sizes, etas = get_main_hyperparameter_grids()
     experiments_to_run = get_main_experiment_configs()
 
-    # --- Apply CLI Arguments ---
-    # 1. Filter experiments by name if provided
+    # Filter experiments by name if provided
     if args.name:
         experiments_to_run = {name: config for name, config in experiments_to_run.items() if name in args.name}
         if not experiments_to_run:
             logging.error(f"No experiments found with name(s): {args.name}. Aborting.")
             return
 
-    # 2. Apply parameter overrides if provided
+    # Apply parameter overrides if provided
     if args.override:
         overrides = {}
         for override_str in args.override:
@@ -145,7 +144,6 @@ def main():
         # Use dataclasses.replace to create new, modified experiment objects
         experiments_to_run = {name: replace(config, **overrides) for name, config in experiments_to_run.items()}
 
-    # --- Pre-flight Safety and Completion Checks ---
     filepaths = defaultdict(list)
     experiments_that_need_running = {}
     logging.info("--- Pre-flight check: Verifying experiments ---")
@@ -182,7 +180,6 @@ def main():
         logging.info("\n--- All experiments are already complete. Nothing to do. ---")
         return
 
-    # --- Main Experiment Loop (Parallel Execution) ---
     logging.info(f"\n--- Starting Pipeline for {len(experiments_that_need_running)} Incomplete Experiments ---")
     with ProcessPoolExecutor() as executor:
         future_to_name = {

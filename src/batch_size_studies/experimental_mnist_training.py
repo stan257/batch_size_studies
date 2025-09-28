@@ -131,14 +131,12 @@ def run_mnist_gamma_eta_sweep(
     gammas = np.logspace(-gamma_range, gamma_range, 1 + 2 * gamma_range * gamma_res)
     etas = np.logspace(eta_range, -eta_range, 1 + 2 * eta_range * eta_res)  # Descending
 
-    # --- 1a. Create Initial Parameters (gamma-independent) ---
     # Since params0 are gamma-independent, we generate them once before the sweep.
     mlp_for_init = MLP(base_experiment.parameterization, gamma=1.0)  # Gamma doesn't affect init
     widths = [base_experiment.D] + [base_experiment.N] * (base_experiment.L - 1) + [base_experiment.num_outputs]
     if no_save:
         params0 = mlp_for_init.init_params(init_key, widths)
     else:
-        # Use a manager for the base experiment to handle the shared params0
         base_checkpoint_manager = CheckpointManager(base_experiment, directory=directory)
         params0 = base_checkpoint_manager.load_initial_params()
         if params0 is None:
@@ -148,11 +146,9 @@ def run_mnist_gamma_eta_sweep(
             with open(base_checkpoint_manager.weights_filepath, "wb") as f:
                 pickle.dump(weights_data, f)
 
-    # These will store the aggregated results from all gamma-specific files.
     all_results = defaultdict(dict)
     all_failed_runs = defaultdict(dict)
 
-    # --- 1. Load Dataset ---
     # Load dataset once to avoid repeated I/O during the sweep.
     if dataset_loader is None:
         if isinstance(base_experiment, MNIST1MExperiment | MNIST1MSampledExperiment):
@@ -188,7 +184,6 @@ def run_mnist_gamma_eta_sweep(
         logging.error(f"Dataset not found: {e}")
         return dict(all_results), dict(all_failed_runs)
 
-    # --- 2. Main Sweep Loop ---
     for gamma in tqdm(gammas, desc="Gamma Sweep"):
         found_first_stable_eta = False
         log_eta_lower_bound = -eta_range
@@ -216,7 +211,6 @@ def run_mnist_gamma_eta_sweep(
                 if runtime_epochs != experiment.num_epochs:
                     experiment = replace(experiment, num_epochs=runtime_epochs)
 
-            # Check for existing results
             if not no_save:
                 if (
                     run_key in results_dict
@@ -232,7 +226,6 @@ def run_mnist_gamma_eta_sweep(
                     logging.info(f"Skipping failed run {run_key} for γ={gamma}")
                     continue
 
-            # --- Inlined Training Trial ---
             if no_save:
                 params, opt_state, trial_results, start_epoch = None, None, {}, 0
             else:
@@ -290,7 +283,6 @@ def run_mnist_gamma_eta_sweep(
                     checkpoint_manager.save_live_checkpoint(run_key, epoch, params, opt_state, trial_results)
                     checkpoint_manager.save_analysis_snapshot(run_key, epoch, params, params0)
 
-            # --- Process Results & Stability Logic ---
             if diverged:
                 all_failed_runs[gamma][eta] = run_key
                 failed_runs.add(run_key)

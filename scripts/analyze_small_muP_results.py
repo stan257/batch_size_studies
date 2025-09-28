@@ -53,7 +53,6 @@ def analyze_results(directory=EXPERIMENTS_DIR):
 
         exp_type = config.experiment_type
 
-        # Initialize structure for this experiment type if not present
         if exp_type not in nested_results:
             loss_name = getattr(config, "loss_type", LossType.MSE).name
             loss_label = f"Loss ({loss_name})"
@@ -90,11 +89,9 @@ def analyze_results(directory=EXPERIMENTS_DIR):
             print(f"  No complete loss histories found for '{name}'.")
             continue
 
-        # Store it in the nested structure
         nested_results[exp_type]["data"][gamma][N].update(loss_histories)
 
     print("\n--- Analysis Complete ---")
-    # Convert defaultdicts to regular dicts for the final output
     final_results = {}
     for et, data_dict in nested_results.items():
         final_results[et] = {
@@ -109,7 +106,6 @@ def plot_losses_for_gamma_and_runkey(results_file, experiment_type, gamma, batch
     Loads the analyzed results and plots the training loss curves for a specific
     gamma and run_key, with one line for each network width (N).
     """
-    # 1. Load the data
     if not os.path.exists(results_file):
         print(f"Error: Results file not found at '{results_file}'")
         print("Please run the analysis mode first (`--mode analyze`).")
@@ -118,7 +114,6 @@ def plot_losses_for_gamma_and_runkey(results_file, experiment_type, gamma, batch
     with open(results_file, "rb") as f:
         results = pickle.load(f)
 
-    # 2. Select the specific experiment_type, gamma and run_key
     if experiment_type not in results:
         print(f"Error: Experiment type '{experiment_type}' not found in results.")
         print(f"Available types: {list(results.keys())}")
@@ -137,13 +132,11 @@ def plot_losses_for_gamma_and_runkey(results_file, experiment_type, gamma, batch
 
     gamma_results = exp_results[gamma]
 
-    # 3. Create the plot
     plt.figure(figsize=(12, 7))
 
     found_data = False
     sorted_widths = sorted(gamma_results.keys())
 
-    # 4. Iterate through widths (N) and plot
     for N in sorted_widths:
         run_data = gamma_results.get(N, {})
         if run_key_to_plot in run_data:
@@ -160,7 +153,6 @@ def plot_losses_for_gamma_and_runkey(results_file, experiment_type, gamma, batch
         plt.close()
         return
 
-    # 5. Add plot details and save
     plt.title(f"Training Loss for {experiment_type}, γ={gamma}, B={batch_size}, η={eta}")
     plt.xlabel("Training Step")
     plt.ylabel(loss_label)
