@@ -9,13 +9,19 @@ def eta_adjustment_fn(experiment, eta: float):
     "The Optimization Landscape of SGD Across the Feature Learning Strength"
     Atanasov et al. (2025, arXiv:2410.04642)
 
-    For muP, this is scaled by the width N.
+    For muP, we scale by the width N to ensure μ-transfer across width.
     """
     gamma = experiment.gamma
     depth = experiment.L
-
-    base_lr = eta * gamma ** (2 / depth) if gamma > 1 else eta * gamma**2
-
+    match experiment.optimizer:
+        case OptimizerType.SGD:
+            mult = gamma ** (2 / depth) if gamma > 1 else gamma**2
+        case OptimizerType.ADAM:
+            mult = gamma ** (1 / depth) if gamma > 1 else gamma
+        case _:
+            # Default to returning the base eta if no specific rule is defined.
+            mult = 1.0
+    base_lr = eta * mult
     if experiment.parameterization == Parameterization.MUP:
         return base_lr * experiment.N
     return base_lr
@@ -24,15 +30,13 @@ def eta_adjustment_fn(experiment, eta: float):
 def create_optimizer(experiment, eta: float):
     """
     Creates an optax optimizer based on the experiment configuration.
-    Handles the eta adjustment for SGD (TODO: later ADAM) internally.
+    The learning rate is determined by `eta_adjustment_fn`.
     """
+    learning_rate = eta_adjustment_fn(experiment, eta)
     match experiment.optimizer:
         case OptimizerType.SGD:
-            # The learning rate adjustment is specific to the SGD theory.
-            learning_rate = eta_adjustment_fn(experiment, eta)
             return optax.sgd(learning_rate)
         case OptimizerType.ADAM:
-            learning_rate = eta  # TODO: Update adjust the rate accordingly for ADAM
             return optax.adam(learning_rate)
         case _:
             raise NotImplementedError(f"Optimizer {experiment.optimizer} not implemented.")

@@ -17,7 +17,7 @@ from .data_loading import (
     load_datasets,
     load_mnist1m_dataset,
 )
-from .definitions import LossType, Parameterization, RunKey
+from .definitions import LossType, OptimizerType, Parameterization, RunKey
 from .experiments import MNIST1MExperiment, MNIST1MSampledExperiment, MNISTExperiment
 from .models import MLP
 from .paths import EXPERIMENTS_DIR
@@ -232,7 +232,11 @@ def run_mnist_gamma_eta_sweep(
                 params, opt_state, trial_results, start_epoch = checkpoint_manager.load_live_checkpoint(run_key)
             # NB: we do not adjust eta in terms of gamma by design -- this differs from the main mnist_training routine!
             lr = eta * experiment.N if experiment.parameterization == Parameterization.MUP else eta
-            optimizer = optax.sgd(learning_rate=lr)
+            optimizer = (
+                optax.sgd(learning_rate=lr)
+                if experiment.optimizer == OptimizerType.SGD
+                else optax.adam(learning_rate=lr)
+            )
             loss_fn = _create_classification_loss_fn(jax.jit(mlp_instance), experiment, params0)
             update_step = _create_update_step(loss_fn, optimizer)
             eval_step = _create_eval_step(jax.jit(mlp_instance), params0)
