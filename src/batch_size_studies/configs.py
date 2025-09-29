@@ -8,13 +8,10 @@ import their configurations from here.
 
 import numpy as np
 
-from .definitions import LossType, Parameterization
+from .definitions import LossType, OptimizerType, Parameterization
 from .experiments import (
     MNIST1MExperiment,
     MNIST1MSampledExperiment,
-    MNISTExperiment,
-    SyntheticExperimentFixedTime,
-    SyntheticExperimentMLPTeacher,
 )
 
 
@@ -46,50 +43,57 @@ def get_main_experiment_configs():
         L=depth,
         parameterization=Parameterization.SP,
     )
-    for g in gammas:
-        name = f"poly_gamma{str(g).replace('.', 'p')}_fixed_time"
-        experiments_to_run[name] = SyntheticExperimentFixedTime(**(kwargs_exp | {"gamma": float(g)}))
+    # for g in gammas:
+    #     name = f"poly_gamma{str(g).replace('.', 'p')}_fixed_time"
+    #     experiments_to_run[name] = SyntheticExperimentFixedTime(**(kwargs_exp | {"gamma": float(g)}))
 
     # MLP teacher experiments
-    mlp_teacher_kwargs = dict(
-        D=D,
-        P=P,
-        N=N,
-        L=depth,
-        parameterization=Parameterization.SP,
-        num_steps=NUM_STEPS,
-        teacher_N=64,
-        teacher_L=2,
-        teacher_gamma=1.0,
-        teacher_parameterization=Parameterization.SP,
-    )
-    for g in gammas:
-        name = f"mlp_teacher_gamma{str(g).replace('.', 'p')}_fixed_time"
-        experiments_to_run[name] = SyntheticExperimentMLPTeacher(**(mlp_teacher_kwargs | {"gamma": float(g)}))
+    # mlp_teacher_kwargs = dict(
+    #     D=D,
+    #     P=P,
+    #     N=N,
+    #     L=depth,
+    #     parameterization=Parameterization.SP,
+    #     num_steps=NUM_STEPS,
+    #     teacher_N=64,
+    #     teacher_L=2,
+    #     teacher_gamma=1.0,
+    #     teacher_parameterization=Parameterization.SP,
+    # )
+    # for g in gammas:
+    #     name = f"mlp_teacher_gamma{str(g).replace('.', 'p')}_fixed_time"
+    #     experiments_to_run[name] = SyntheticExperimentMLPTeacher(**(mlp_teacher_kwargs | {"gamma": float(g)}))
 
-    # --- MNIST Experiment ---
-    # A single experiment definition for MNIST classification.
-    experiments_to_run["mnist_classification_mup"] = MNISTExperiment(
-        N=512,
-        L=2,
-        num_epochs=1,
-        parameterization=Parameterization.MUP,
-    )
+    # # --- MNIST Experiment ---
+    # # A single experiment definition for MNIST classification.
+    # experiments_to_run["mnist_classification_mup"] = MNISTExperiment(
+    #     N=512,
+    #     L=2,
+    #     num_epochs=1,
+    #     parameterization=Parameterization.MUP,
+    # )
 
     # --- MNIST-1M Experiment ---
-    # Note: We demand L = 3, so two hidden layers for this experiment type
-    classification_loss_types = [LossType.MSE]  # , LossType.XENT]
-    for lt in classification_loss_types:
-        for g in gammas:
-            name = f"mnist1m_classification_mup_{lt.value}_gamma{str(g).replace('.', 'p')}"
-            experiments_to_run[name] = MNIST1MExperiment(
-                N=128,
-                L=3,
-                num_epochs=1,
-                parameterization=Parameterization.MUP,
-                loss_type=lt,
-                gamma=g,
-            )
+    mnist1m_kwargs = dict(
+        N=128,
+        L=3,  # two hidden layers for this experiment type
+        num_epochs=1,
+        parameterization=Parameterization.MUP,  # we default to muP for experiments
+    )
+    for opt in OptimizerType:
+        for loss_type in LossType:
+            for g in gammas:
+                name = f"mnist1m_mup_{loss_type.value}_{opt.value}_gamma{str(g).replace('.', 'p')}"
+                experiments_to_run[name] = MNIST1MExperiment(
+                    **(
+                        mnist1m_kwargs
+                        | dict(
+                            optimizer=opt,
+                            loss_type=loss_type,
+                            gamma=g,
+                        )
+                    )
+                )
 
     return experiments_to_run
 

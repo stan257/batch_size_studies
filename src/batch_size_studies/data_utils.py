@@ -1,9 +1,10 @@
 from functools import wraps
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, Type, TypeVar
 
 import numpy as np
 
-from .definitions import RunKey
+from .definitions import LossType, OptimizerType, RunKey
+from .experiments import ExperimentBase
 
 D = TypeVar("D", bound=dict)
 
@@ -197,6 +198,36 @@ def subsample_loss_dict_periodic(loss_dict: dict[RunKey, Any], subsample_by: str
     }
 
     return new_dict
+
+
+def filter_experiments(
+    experiments: dict[str, ExperimentBase],
+    experiment_type: Type[ExperimentBase],
+    loss_type: LossType | None = None,
+    optimizer: OptimizerType | None = None,
+) -> dict[str, ExperimentBase]:
+    """
+    Filters experiments based on experiment type, and optionally on loss type and/or optimizer.
+    Loss type (resp. optimizers) defaults to MSE (resp None) for experiments that don't specify it.
+    """
+
+    def matches_criteria(experiment: ExperimentBase) -> bool:
+        if not isinstance(experiment, experiment_type):
+            return False
+
+        if loss_type is not None:
+            exp_loss_type = getattr(experiment, "loss_type", LossType.MSE)
+            if exp_loss_type != loss_type:
+                return False
+
+        if optimizer is not None:
+            exp_optimizer = getattr(experiment, "optimizer", None)
+            if exp_optimizer != optimizer:
+                return False
+
+        return True
+
+    return {name: exp for name, exp in experiments.items() if matches_criteria(exp)}
 
 
 @apply_to_list_of_dicts

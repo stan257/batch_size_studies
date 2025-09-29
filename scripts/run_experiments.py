@@ -54,6 +54,7 @@ def run_single_experiment(
     num_epochs_for_fixed_data=1,
     directory=EXPERIMENTS_DIR,
     no_save: bool = False,
+    eta_stability_search_depth: int | None = None,
 ):
     """
     A wrapper function to run a single experiment trial. This is designed
@@ -64,7 +65,12 @@ def run_single_experiment(
         logging.warning(f"Running in no-save mode for {name}. Results will NOT be saved.")
     logging.info(f"Parameters: {experiment_config}")
 
-    run_options = {"num_epochs": num_epochs_for_fixed_data, "directory": directory, "no_save": no_save}
+    run_options = {
+        "num_epochs": num_epochs_for_fixed_data,
+        "directory": directory,
+        "no_save": no_save,
+        "eta_stability_search_depth": eta_stability_search_depth,
+    }
 
     if isinstance(experiment_config, MNIST1MExperiment):
         from batch_size_studies.data_loading import load_mnist1m_dataset
@@ -105,6 +111,12 @@ def main():
         "--no-save",
         action="store_true",
         help="Run experiments without saving results to disk. Useful for validation and notebook runs.",
+    )
+    parser.add_argument(
+        "--eta-stability-depth",
+        type=int,
+        default=None,
+        help="Number of consecutive stable etas to find before stopping the sweep for a given batch size. If not set, all etas are run.",
     )
     args = parser.parse_args()
 
@@ -192,6 +204,7 @@ def main():
                 num_epochs_for_fixed_data,
                 directory,
                 args.no_save,
+                args.eta_stability_depth,
             ): name
             for name, config in experiments_that_need_running.items()
         }
