@@ -15,6 +15,8 @@ from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
 
+import jax
+
 from batch_size_studies.configs import get_main_experiment_configs, get_main_hyperparameter_grids
 from batch_size_studies.definitions import Parameterization
 from batch_size_studies.experiments import MNIST1MExperiment
@@ -118,6 +120,10 @@ def main():
         help="Number of consecutive stable etas to find before stopping the sweep for a given batch size. If not set, all etas are run.",
     )
     args = parser.parse_args()
+
+    # Force JAX to initialize its backend once at the start.
+    # This prevents race conditions and OOM errors in multi-experiment runs on a single GPU.
+    jax.devices()
 
     setup_logging()
 

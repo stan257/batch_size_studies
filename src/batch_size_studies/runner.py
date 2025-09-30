@@ -122,7 +122,7 @@ def initialize_results_and_checkpoints(experiment, directory: str, no_save: bool
     if no_save:
         results_dict, failed_runs = defaultdict(list), set()
     else:
-        results_dict, failed_runs = experiment.load_results(directory=directory)
+        results_dict, failed_runs = experiment.load_results(directory=directory, silent=True)
 
     checkpoint_manager = CheckpointManager(experiment, directory=directory)
     return results_dict, failed_runs, checkpoint_manager

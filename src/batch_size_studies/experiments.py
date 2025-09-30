@@ -75,16 +75,18 @@ class ExperimentBase:
         filename = self.generate_filename(prefix, extension)
         return os.path.join(type_specific_directory, filename)
 
-    def load_results(self, directory="experiments", prefix="results", extension="pkl"):
+    def load_results(self, directory="experiments", prefix="results", extension="pkl", silent: bool = False):
         filepath = self.get_filepath(directory, prefix, extension)
         data = load_experiment(filepath)
         if data:
-            logging.info(f"Results file found, loading from: {os.path.basename(filepath)}")
+            if not silent:
+                logging.info(f"Results file found, loading from: {os.path.basename(filepath)}")
             losses = defaultdict(list, data.get("losses", {}))
             failed_runs = data.get("failed_runs", set())
             return losses, failed_runs
         else:
-            logging.info("No results file found for this experiment. Initializing new results.")
+            if not silent:
+                logging.info("No results file found for this experiment. Initializing new results.")
             return defaultdict(list), set()
 
     def save_results(
