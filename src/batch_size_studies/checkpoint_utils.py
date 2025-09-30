@@ -35,7 +35,6 @@ class CheckpointManager:
         return os.path.join(self.checkpoint_dir, f"resume_{run_key_str}.pkl")
 
     def save_live_checkpoint(self, run_key: RunKey, step: int, params, opt_state, results: dict):
-        """Saves the complete state needed to resume a trial."""
         filepath = self._get_resume_filepath(run_key)
         data = {
             "step": step,
@@ -47,12 +46,11 @@ class CheckpointManager:
             pickle.dump(data, f)
 
     def load_live_checkpoint(self, run_key: RunKey):
-        """Loads the state for a trial. Returns defaults if no checkpoint exists."""
         filepath = self._get_resume_filepath(run_key)
         if not os.path.exists(filepath):
             return None, None, {}, 0
 
-        try:  # Catch specific, expected errors during file loading
+        try:
             with open(filepath, "rb") as f:
                 data = CustomUnpickler(f).load()
 
@@ -70,7 +68,6 @@ class CheckpointManager:
 
     def save_analysis_snapshot(self, run_key: RunKey, step: int, params, initial_params):
         """Saves the delta of the weights for post-experiment analysis."""
-        # Load existing weights data
         weights_data = {}
         if os.path.exists(self.weights_filepath):
             try:
@@ -82,13 +79,11 @@ class CheckpointManager:
                 )
                 weights_data = {}
 
-        # Initialize structure if not present
         if "initial_params" not in weights_data:
             weights_data["initial_params"] = initial_params
         if "weight_snapshots" not in weights_data:
             weights_data["weight_snapshots"] = {}
 
-        # Compute and store delta
         delta_params = jax.tree_util.tree_map(lambda p, p0: p - p0, params, initial_params)
 
         # Manually handle nesting for regular dicts
@@ -97,7 +92,6 @@ class CheckpointManager:
             snapshots[run_key] = {}
         snapshots[run_key][step] = delta_params
 
-        # Save back
         with open(self.weights_filepath, "wb") as f:
             pickle.dump(weights_data, f)
 

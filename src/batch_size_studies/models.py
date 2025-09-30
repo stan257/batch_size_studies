@@ -44,23 +44,11 @@ class MLP:
         object.__setattr__(self, "_apply_fn", forward_pass)
 
     def init_params(self, init_key: int, widths: List[int], sigma_w: float = 1.0) -> List[jnp.ndarray]:
-        """
-        Initializes the parameters (weights) for the MLP.
-
-        Args:
-            init_key (int): A single integer seed to generate all JAX random keys.
-            widths (List[int]): A list of layer widths, e.g., [input_dim, hidden_1, ..., output_dim].
-            sigma_w (float, optional): The standard deviation of the initial weights. Defaults to 1.0.
-
-        Returns:
-            List[jnp.ndarray]: A list of weight matrices for the MLP.
-        """
         depth = len(widths) - 1
         keys = jr.split(jr.key(init_key), depth)
 
         params = []
         for i in range(len(widths) - 1):
-            # These are initialized with mean 0 and variance sigma_w^2
             params.append(jr.normal(keys[i], (widths[i], widths[i + 1])) * sigma_w)
         return params
 
@@ -69,7 +57,6 @@ class MLP:
             x = jnp.dot(x, params[i]) / jnp.sqrt(x.shape[-1])
             x = relu(x)
 
-        # Output layer scaling with sqrt(width)
         x = jnp.dot(x, params[-1]) / (self.gamma * jnp.sqrt(x.shape[-1]))
         return x
 
@@ -78,18 +65,8 @@ class MLP:
             x = jnp.dot(x, params[i]) / jnp.sqrt(x.shape[-1])
             x = relu(x)
 
-        # Output layer scaling with width
         x = jnp.dot(x, params[-1]) / (self.gamma * x.shape[-1])
         return x
 
     def __call__(self, params: List[jnp.ndarray], x: jnp.ndarray) -> jnp.ndarray:
-        """
-        Makes the MLP instance callable, executing the forward pass.
-
-        This allows you to treat an instance of this class like a function:
-
-        Example:
-            model = MLP(parametrization=Parameterization.SP)
-            output = model(params, input_data)
-        """
         return self._apply_fn(params, x)

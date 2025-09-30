@@ -1,3 +1,4 @@
+import logging
 import os
 import pickle
 
@@ -34,30 +35,30 @@ def load_experiment(filepath):
         with open(filepath, "rb") as f:
             return CustomUnpickler(f).load()
     except (pickle.UnpicklingError, EOFError, ModuleNotFoundError) as e:
-        print(f"Warning: Could not load or unpickle file: {filepath}. Error: {e}")
+        logging.warning(f"Could not load or unpickle file: {filepath}. Error: {e}")
         return None
 
 
-def save_experiment(data_to_save, params, directory, prefix, extension, overwrite=False):
+def save_experiment(data_to_save, filepath: str):
     """
-    Saves a data dictionary, safely merging with existing data by default.
+    Saves a data dictionary to a given filepath using an atomic write.
+
+    This function writes to a temporary file first, then renames it to the
+    final destination. This prevents file corruption if the process is
+    interrupted during the write operation.
     """
-    filepath = os.path.join(directory, generate_experiment_filename(params, prefix, extension))
-
-    # If not overwriting, merge with existing data
-    if not overwrite and os.path.exists(filepath):
-        existing_data = load_experiment(filepath)
-        if existing_data:
-            # Deep merge logic for the specific structure {'losses': ..., 'failed_runs': ...}
-            merged_losses = existing_data.get("losses", {})
-            merged_losses.update(data_to_save.get("losses", {}))
-
-            merged_failed = existing_data.get("failed_runs", set())
-            merged_failed.update(data_to_save.get("failed_runs", set()))
-
-            data_to_save = {"losses": merged_losses, "failed_runs": merged_failed}
-
+    directory = os.path.dirname(filepath)
     os.makedirs(directory, exist_ok=True)
-    with open(filepath, "wb") as f:
-        pickle.dump(data_to_save, f)
+
+    temp_filepath = filepath + ".tmp"
+    try:
+        with open(temp_filepath, "wb") as f:
+            pickle.dump(data_to_save, f)
+        # os.replace is atomic on most systems
+        os.replace(temp_filepath, filepath)
+    except Exception as e:
+        logging.error(f"Failed to save data to {filepath}: {e}")
+        if os.path.exists(temp_filepath):
+            os.remove(temp_filepath)
+        raise
     return filepath

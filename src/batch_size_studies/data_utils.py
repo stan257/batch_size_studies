@@ -10,11 +10,6 @@ D = TypeVar("D", bound=dict)
 
 
 def apply_to_list_of_dicts(func: Callable) -> Callable:
-    """
-    A decorator to allow a function that processes a single dictionary to
-    transparently handle a list of dictionaries as well.
-    """
-
     @wraps(func)
     def wrapper(data: D | list[D], *args, **kwargs) -> D | list[D]:
         if isinstance(data, list):
@@ -29,22 +24,9 @@ def moving_average(data: np.ndarray, window_size: int) -> np.ndarray:
 
 
 def get_loss_history_from_result(result: Any) -> Any:
-    """
-    Robustly extracts a loss history list from a result object.
-    Handles list, numpy/jax array, and dict-of-results formats.
-
-    Args:
-        result: The result object, which can be a list of losses, a numpy/jax
-                array, or a dictionary containing a 'loss_history' key.
-
-    Returns:
-        A list or array representing the loss history, or None if not found.
-    """
     if isinstance(result, dict):
-        # Handles new format: {'loss_history': [...], 'other_metric': ...}
         return result.get("loss_history")
     if isinstance(result, (list, np.ndarray)):
-        # Handles old format: [...] or np.array(...)
         return result
     # A simple check for other array-like objects (like JAX arrays)
     if hasattr(result, "shape") and hasattr(result, "dtype"):
@@ -59,27 +41,16 @@ def _get_run_key_value(rk: RunKey, by: str) -> float | int | None:
         return rk.eta
     if by == "temp":
         temp = rk.temp
-        # Use rounding for floating point comparisons
         return round(temp, 8) if temp is not None else None
     return None
 
 
 @apply_to_list_of_dicts
 def filter_loss_dicts(loss_dict: dict, filter_by: str, values: list, keep: bool = True) -> dict:
-    """
-    Filters a dictionary by keeping or removing specified values for a given parameter.
-
-    Args:
-        loss_dict (dict): The dictionary to filter.
-        filter_by (str): The parameter to filter on ('B', 'eta', or 'temp').
-        values (list): The list of values to filter by.
-        keep (bool): If True, keeps items with values in the list.
-                     If False, removes them.
-    """
+    """Filters a dictionary by keeping or removing specified values for a given parameter."""
     if filter_by not in ("B", "eta", "temp"):
         raise ValueError("filter_by must be one of 'B', 'eta', or 'temp'")
 
-    # Round values for 'temp' to handle potential floating point inaccuracies
     value_set = {round(v, 8) if filter_by == "temp" else v for v in values}
 
     return {
@@ -102,15 +73,7 @@ def uniform_smooth_loss_dicts(loss_dict: dict[RunKey, Any], smoother: Callable[[
 def sample_aware_smooth_loss_dicts(
     loss_dict: dict[RunKey, Any], smoother: Callable[[RunKey, Any], Any]
 ) -> dict[RunKey, Any]:
-    """
-    Applies a smoothing function to each loss history in a results dictionary,
-    where the smoother also receives the RunKey.
-
-    Returns a new dictionary mapping each RunKey to its smoothed loss history.
-    Runs without a valid loss history are omitted.
-
-    This function is decorated to also handle a list of dictionaries.
-    """
+    """Applies a sample-aware smoothing function to each loss history in a results dictionary."""
     return {
         run_key: smoother(run_key, loss_history)
         for run_key, result_obj in loss_dict.items()
@@ -122,27 +85,7 @@ def sample_aware_smooth_loss_dicts(
 def extract_noise_loss_dicts(
     loss_dict: dict[RunKey, Any], smoother: Callable[[RunKey, Any], Any]
 ) -> dict[RunKey, np.ndarray]:
-    """
-    Calculates the 'noise' for each loss history by subtracting a smoothed version.
-
-    The noise is defined as the element-wise difference between the original
-    loss history and the output of the provided smoother function. If the
-    smoothed history is shorter than the original, it is padded with zeros
-    at the beginning to match the length before subtraction.
-
-    Args:
-        loss_dict: A dictionary mapping RunKey to a results object.
-        smoother: A callable that takes a RunKey and a loss history and returns
-                  a smoothed version of the history.
-
-    Returns:
-        A dictionary mapping each RunKey to a numpy array representing the
-        noise. Runs without a valid loss history are omitted.
-
-    Raises:
-        ValueError: If the smoother returns a history that is longer than the
-                    original history for any run.
-    """
+    """Calculates the 'noise' for each loss history by subtracting a smoothed version."""
     noise_dict = {}
     for run_key, result_obj in loss_dict.items():
         loss_history = get_loss_history_from_result(result_obj)
@@ -155,8 +98,6 @@ def extract_noise_loss_dicts(
         smoothed = np.array(smoothed_history)
 
         if len(original) > len(smoothed):
-            # Pad the beginning of the smoothed array with zeros to match length.
-            # This is useful for 'valid' convolutions that shorten the signal.
             padding_width = len(original) - len(smoothed)
             smoothed = np.pad(smoothed, (padding_width, 0), mode="constant", constant_values=0)
         elif len(original) < len(smoothed):
@@ -189,7 +130,6 @@ def subsample_loss_dict_periodic(loss_dict: dict[RunKey, Any], subsample_by: str
         all_etas = sorted(list({key.eta for key in loss_dict.keys()}))
         subsampled_etas = set(all_etas[::every])
 
-    # Create the new dictionary with only the keys that match the subsampled values
     new_dict = {
         key: value
         for key, value in loss_dict.items()
@@ -237,19 +177,7 @@ def filter_loss_dict_by_cutoff(
     cutoff: float,
     filter_below: bool = True,
 ) -> dict[RunKey, Any]:
-    """
-    Filters a dictionary by a cutoff value for a specified parameter.
-
-    Args:
-        loss_dict (dict): The dictionary to filter.
-        filter_by (str): The parameter to filter on ('B', 'eta', or 'temp').
-        cutoff (float): The threshold value.
-        filter_below (bool): If True (default), removes entries with values
-            *below* the cutoff. If False, removes entries with values
-            *above* the cutoff.
-
-    This function is decorated to also handle a list of dictionaries.
-    """
+    """Filters a dictionary by a cutoff value for a specified parameter."""
     if filter_by not in ("B", "eta", "temp"):
         raise ValueError("filter_by must be one of 'B', 'eta', or 'temp'")
 

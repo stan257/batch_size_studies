@@ -80,20 +80,22 @@ def get_main_experiment_configs():
         num_epochs=1,
         parameterization=Parameterization.MUP,  # we default to muP for experiments
     )
-    for opt in OptimizerType:
-        for loss_type in LossType:
-            for g in gammas:
-                name = f"mnist1m_mup_{loss_type.value}_{opt.value}_gamma{str(g).replace('.', 'p')}"
-                experiments_to_run[name] = MNIST1MExperiment(
-                    **(
-                        mnist1m_kwargs
-                        | dict(
-                            optimizer=opt,
-                            loss_type=loss_type,
-                            gamma=g,
-                        )
-                    )
+    # for opt in OptimizerType:
+    opt = OptimizerType.ADAM
+    # for loss_type in LossType:
+    loss_type = LossType.MSE
+    for g in gammas:
+        name = f"mnist1m_mup_{loss_type.value}_{opt.value}_gamma{str(g).replace('.', 'p')}"
+        experiments_to_run[name] = MNIST1MExperiment(
+            **(
+                mnist1m_kwargs
+                | dict(
+                    optimizer=opt,
+                    loss_type=loss_type,
+                    gamma=g,
                 )
+            )
+        )
 
     return experiments_to_run
 

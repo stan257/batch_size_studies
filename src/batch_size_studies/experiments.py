@@ -95,10 +95,9 @@ class ExperimentBase:
         prefix="results",
         extension="pkl",
     ):
-        params = self.to_params_dict()
         data_to_save = {"losses": losses, "failed_runs": failed_runs}
         filepath = self.get_filepath(directory, prefix, extension)
-        return save_experiment(data_to_save, params, os.path.dirname(filepath), prefix, extension)
+        return save_experiment(data_to_save, filepath)
 
 
 class SyntheticExperiment(ABC):

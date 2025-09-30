@@ -1,4 +1,5 @@
 import os
+from unittest.mock import patch
 
 import pytest
 
@@ -35,9 +36,11 @@ def test_save_and_load_experiment(sample_params, tmp_path):
     Uses pytest's tmp_path fixture to avoid creating files in the project.
     """
     data_to_save = {"losses": {(16, 0.1): [0.5, 0.4]}, "failed_runs": set()}
-    directory = tmp_path
+    directory = str(tmp_path)
+    filename = generate_experiment_filename(sample_params, "test_run", "pkl")
+    filepath = os.path.join(directory, filename)
 
-    filepath = save_experiment(data_to_save, sample_params, directory, "test_run", "pkl")
+    save_experiment(data_to_save, filepath)
     assert os.path.exists(filepath)
 
     loaded_data = load_experiment(filepath)
@@ -46,40 +49,54 @@ def test_save_and_load_experiment(sample_params, tmp_path):
 
 def test_load_nonexistent_file_returns_none(tmp_path):
     """Tests that trying to load a file that doesn't exist returns None."""
-    non_existent_path = os.path.join(tmp_path, "non_existent_file.pkl")
+    non_existent_path = str(tmp_path / "non_existent_file.pkl")
     assert not os.path.exists(non_existent_path)
     loaded_data = load_experiment(non_existent_path)
     assert loaded_data is None
 
 
-def test_save_merges_data_correctly(sample_params, tmp_path):
-    """Tests that saving without overwrite correctly merges new and existing data."""
-    directory = tmp_path
+def test_save_overwrites_existing_file(sample_params, tmp_path):
+    """Tests that saving again to the same path overwrites the file."""
+    directory = str(tmp_path)
+    filename = generate_experiment_filename(sample_params, "results", "pkl")
+    filepath = os.path.join(directory, filename)
 
     initial_data = {"losses": {(16, 0.1): [0.5, 0.4]}, "failed_runs": {(32, 1.0)}}
-    save_experiment(initial_data, sample_params, directory, "results", "pkl")
-
-    new_data = {"losses": {(16, 0.01): [0.3, 0.2]}, "failed_runs": {(64, 1.0)}}
-    filepath = save_experiment(new_data, sample_params, directory, "results", "pkl", overwrite=False)
-
-    merged_data = load_experiment(filepath)
-
-    expected_losses = {(16, 0.1): [0.5, 0.4], (16, 0.01): [0.3, 0.2]}
-    expected_failed = {(32, 1.0), (64, 1.0)}
-
-    assert merged_data["losses"] == expected_losses
-    assert merged_data["failed_runs"] == expected_failed
-
-
-def test_save_overwrite_works_correctly(sample_params, tmp_path):
-    """Tests that saving with overwrite=True replaces the existing file."""
-    directory = tmp_path
-
-    initial_data = {"losses": {(16, 0.1): [0.5, 0.4]}, "failed_runs": set()}
-    filepath = save_experiment(initial_data, sample_params, directory, "results", "pkl")
+    save_experiment(initial_data, filepath)
 
     new_data = {"losses": {(32, 0.01): [0.1, 0.05]}, "failed_runs": set()}
-    save_experiment(new_data, sample_params, directory, "results", "pkl", overwrite=True)
+    save_experiment(new_data, filepath)
 
     loaded_data = load_experiment(filepath)
     assert loaded_data == new_data
+
+
+@patch("batch_size_studies.storage_utils.os.replace")
+@patch("batch_size_studies.storage_utils.pickle.dump")
+def test_atomic_write_sequence(mock_pickle_dump, mock_os_replace, sample_params, tmp_path):
+    """Tests that save_experiment uses the atomic write pattern (write to .tmp, then rename)."""
+    data_to_save = {"test": "data"}
+    directory = str(tmp_path)
+    filename = generate_experiment_filename(sample_params, "results", "pkl")
+    filepath = os.path.join(directory, filename)
+    temp_filepath = filepath + ".tmp"
+
+    save_experiment(data_to_save, filepath)
+
+    mock_pickle_dump.assert_called_once()
+    mock_os_replace.assert_called_once_with(temp_filepath, filepath)
+
+
+@patch("batch_size_studies.storage_utils.pickle.dump", side_effect=IOError("Disk full"))
+def test_atomic_write_cleans_up_on_failure(mock_pickle_dump, sample_params, tmp_path):
+    """Tests that the temporary file is removed if an error occurs during writing."""
+    data_to_save = {"test": "data"}
+    directory = str(tmp_path)
+    filename = generate_experiment_filename(sample_params, "results", "pkl")
+    filepath = os.path.join(directory, filename)
+    temp_filepath = filepath + ".tmp"
+
+    with pytest.raises(IOError):
+        save_experiment(data_to_save, filepath)
+
+    assert not os.path.exists(temp_filepath)
