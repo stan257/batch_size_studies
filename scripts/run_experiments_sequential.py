@@ -8,14 +8,14 @@ This version runs experiments sequentially in a single process, which is
 required for single-GPU environments like Google Colab to prevent memory errors.
 """
 
+import jax  # noqa: I001
+
 import argparse
 import logging
 import os
 from collections import defaultdict
 from dataclasses import replace
 from datetime import datetime
-
-import jax
 
 from batch_size_studies.configs import get_main_experiment_configs, get_main_hyperparameter_grids
 from batch_size_studies.definitions import Parameterization
