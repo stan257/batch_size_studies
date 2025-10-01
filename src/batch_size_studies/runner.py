@@ -9,9 +9,8 @@ dispatching to type-specific trial runners.
 
 import logging
 import os
-import pickle
 from collections import defaultdict
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 import jax.random as jr
 import numpy as np
@@ -135,14 +134,8 @@ def initialize_model_params(
     if no_save:
         return mlp_instance.init_params(init_key, widths)
 
-    params0 = checkpoint_manager.load_initial_params()
-    if params0 is None:
-        logging.info("No initial parameters found. Generating and saving.")
-        params0 = mlp_instance.init_params(init_key, widths)
-        weights_data = {"initial_params": params0, "weight_snapshots": {}}
-        with open(checkpoint_manager.weights_filepath, "wb") as f:
-            pickle.dump(weights_data, f)
-    return params0
+    # This method handles both loading and safe, locked initialization.
+    return checkpoint_manager.initialize_and_save_initial_params(init_key, mlp_instance, widths)
 
 
 # ============================================================================
@@ -306,12 +299,9 @@ def run_experiment_sweep(
                 }
                 # Add data/runtime specific kwargs
                 if type_checker.is_mnist:
-                    current_experiment = experiment
-                    if "num_epochs" in kwargs and kwargs["num_epochs"] != experiment.num_epochs:
-                        current_experiment = replace(experiment, num_epochs=kwargs["num_epochs"])
                     runner_kwargs.update(
                         {
-                            "experiment": current_experiment,
+                            "num_epochs": kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1)),
                             "train_ds": train_ds,
                             "test_ds": test_ds,
                         }

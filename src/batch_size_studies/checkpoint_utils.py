@@ -3,9 +3,11 @@ import os
 import pickle
 
 import jax
+from filelock import FileLock
 
 from .definitions import RunKey
-from .storage_utils import CustomUnpickler, generate_experiment_filename
+from .models import MLP
+from .storage_utils import CustomUnpickler, generate_experiment_filename, save_experiment
 
 
 class CheckpointManager:
@@ -35,6 +37,7 @@ class CheckpointManager:
         return os.path.join(self.checkpoint_dir, f"resume_{run_key_str}.pkl")
 
     def save_live_checkpoint(self, run_key: RunKey, step: int, params, opt_state, results: dict):
+        """Saves the complete state needed to resume a trial using an atomic write."""
         filepath = self._get_resume_filepath(run_key)
         data = {
             "step": step,
@@ -42,8 +45,7 @@ class CheckpointManager:
             "opt_state": opt_state,
             "results": results,
         }
-        with open(filepath, "wb") as f:
-            pickle.dump(data, f)
+        save_experiment(data, filepath)
 
     def load_live_checkpoint(self, run_key: RunKey):
         filepath = self._get_resume_filepath(run_key)
@@ -67,33 +69,37 @@ class CheckpointManager:
             return None, None, {}, 0
 
     def save_analysis_snapshot(self, run_key: RunKey, step: int, params, initial_params):
-        """Saves the delta of the weights for post-experiment analysis."""
-        weights_data = {}
-        if os.path.exists(self.weights_filepath):
-            try:
-                with open(self.weights_filepath, "rb") as f:
-                    weights_data = CustomUnpickler(f).load()
-            except (pickle.UnpicklingError, EOFError):
-                logging.warning(
-                    f"Could not load corrupted weights file {self.weights_filepath}. A new one will be created."
-                )
-                weights_data = {}
+        """
+        Saves the delta of the weights for post-experiment analysis.
+        """
+        lock_path = self.weights_filepath + ".lock"
+        with FileLock(lock_path):
+            weights_data = {}
+            if os.path.exists(self.weights_filepath):
+                try:
+                    with open(self.weights_filepath, "rb") as f:
+                        weights_data = CustomUnpickler(f).load()
+                except (pickle.UnpicklingError, EOFError):
+                    logging.warning(
+                        f"Could not load corrupted weights file {self.weights_filepath}. A new one will be created."
+                    )
+                    weights_data = {}
 
-        if "initial_params" not in weights_data:
-            weights_data["initial_params"] = initial_params
-        if "weight_snapshots" not in weights_data:
-            weights_data["weight_snapshots"] = {}
+            if "initial_params" not in weights_data:
+                weights_data["initial_params"] = initial_params
+            if "weight_snapshots" not in weights_data:
+                weights_data["weight_snapshots"] = {}
 
-        delta_params = jax.tree_util.tree_map(lambda p, p0: p - p0, params, initial_params)
+            delta_params = jax.tree_util.tree_map(lambda p, p0: p - p0, params, initial_params)
 
-        # Manually handle nesting for regular dicts
-        snapshots = weights_data["weight_snapshots"]
-        if run_key not in snapshots:
-            snapshots[run_key] = {}
-        snapshots[run_key][step] = delta_params
+            # Manually handle nesting for regular dicts
+            snapshots = weights_data["weight_snapshots"]
+            if run_key not in snapshots:
+                snapshots[run_key] = {}
+            snapshots[run_key][step] = delta_params
 
-        with open(self.weights_filepath, "wb") as f:
-            pickle.dump(weights_data, f)
+            # Use atomic save_experiment to write back the updated data
+            save_experiment(weights_data, self.weights_filepath)
 
     def load_initial_params(self):
         if not os.path.exists(self.weights_filepath):
@@ -105,6 +111,21 @@ class CheckpointManager:
         except (pickle.UnpicklingError, EOFError) as e:
             logging.warning(f"Could not load initial params from {self.weights_filepath}. Error: {e}")
             return None
+
+    def initialize_and_save_initial_params(self, init_key: int, mlp_instance: MLP, widths: list[int]):
+        """Generates and saves initial parameters if they don't exist, using a lock."""
+        lock_path = self.weights_filepath + ".lock"
+        with FileLock(lock_path):
+            # Re-check if params were created by another process while waiting for the lock
+            params0 = self.load_initial_params()
+            if params0 is not None:
+                return params0
+
+            logging.info("No initial parameters found. Generating and saving.")
+            params0 = mlp_instance.init_params(init_key, widths)
+            weights_data = {"initial_params": params0, "weight_snapshots": {}}
+            save_experiment(weights_data, self.weights_filepath)
+            return params0
 
     def load_analysis_snapshot(self, run_key: RunKey, step: int):
         """

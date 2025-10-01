@@ -705,7 +705,7 @@ class TestInitializeResultsAndCheckpoints:
 
         results, failed, manager = initialize_results_and_checkpoints(mock_experiment, str(tmp_path), no_save=False)
 
-        mock_experiment.load_results.assert_called_once_with(directory=str(tmp_path))
+        mock_experiment.load_results.assert_called_once_with(directory=str(tmp_path), silent=True)
         assert results == {"some": "data"}
         assert failed == {"a", "b"}
         assert isinstance(manager, CheckpointManager)
@@ -714,8 +714,8 @@ class TestInitializeResultsAndCheckpoints:
 class TestInitializeModelParams:
     """Tests for the model parameter initialization helper."""
 
-    def test_no_save_mode_always_initializes(self):
-        """Test that no_save=True always generates new parameters."""
+    def test_no_save_mode_always_initializes_directly(self):
+        """Test that no_save=True always generates new parameters directly."""
         mock_mlp = Mock()
         mock_mlp.init_params.return_value = "new_params"
         mock_manager = Mock()
@@ -724,39 +724,20 @@ class TestInitializeModelParams:
 
         assert params == "new_params"
         mock_mlp.init_params.assert_called_once_with(0, [10, 1])
-        mock_manager.load_initial_params.assert_not_called()
+        # Ensure the manager's more complex logic is not invoked
+        mock_manager.initialize_and_save_initial_params.assert_not_called()
 
-    def test_load_mode_with_existing_params(self):
-        """Test that existing parameters are loaded correctly."""
+    def test_save_mode_delegates_to_manager(self):
+        """Test that in save mode, parameter initialization is delegated to the CheckpointManager."""
         mock_mlp = Mock()
         mock_manager = Mock()
-        mock_manager.load_initial_params.return_value = "existing_params"
-
-        params = initialize_model_params(mock_mlp, mock_manager, init_key=0, widths=[10, 1], no_save=False)
-
-        assert params == "existing_params"
-        mock_manager.load_initial_params.assert_called_once()
-        mock_mlp.init_params.assert_not_called()
-
-    @patch("batch_size_studies.runner.pickle.dump")
-    @patch("builtins.open")
-    def test_load_mode_generates_and_saves_new_params(self, mock_open, mock_pickle_dump):
-        """Test that new parameters are generated and saved if none exist."""
-        mock_mlp = Mock()
-        mock_mlp.init_params.return_value = "generated_params"
-        mock_manager = Mock()
-        mock_manager.load_initial_params.return_value = None
-        mock_manager.weights_filepath = "/fake/weights.pkl"
+        mock_manager.initialize_and_save_initial_params.return_value = "params_from_manager"
 
         params = initialize_model_params(mock_mlp, mock_manager, init_key=42, widths=[10, 1], no_save=False)
 
-        assert params == "generated_params"
-        mock_manager.load_initial_params.assert_called_once()
-        mock_mlp.init_params.assert_called_once_with(42, [10, 1])
-        mock_open.assert_called_once_with("/fake/weights.pkl", "wb")
-        mock_pickle_dump.assert_called_once()
-        dumped_data = mock_pickle_dump.call_args[0][0]
-        assert dumped_data == {"initial_params": "generated_params", "weight_snapshots": {}}
+        assert params == "params_from_manager"
+        mock_manager.initialize_and_save_initial_params.assert_called_once_with(42, mock_mlp, [10, 1])
+        mock_mlp.init_params.assert_not_called()
 
 
 # ============================================================================

@@ -163,8 +163,9 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
 
                 def loss_fn(params, x_batch, y_batch_labels):
                     logits = apply_fn(params, x_batch) - apply_fn(self.params0, x_batch)
-                    one_hot_labels = jax.nn.one_hot(y_batch_labels, num_classes=self.experiment.num_outputs)
-                    loss = jnp.mean(optax.softmax_cross_entropy(logits=logits, labels=one_hot_labels))
+                    loss = jnp.mean(
+                        optax.softmax_cross_entropy_with_integer_labels(logits=logits, labels=y_batch_labels)
+                    )
                     return loss, logits
 
                 return loss_fn

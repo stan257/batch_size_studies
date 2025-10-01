@@ -8,8 +8,6 @@ It supports parallel execution, automatic completion checking, and dynamic
 parameter overrides from the command line.
 """
 
-import jax  # noqa: F401, I001
-
 import argparse
 import logging
 import os
