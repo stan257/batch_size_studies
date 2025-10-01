@@ -237,6 +237,105 @@ def validate_and_store_result(
 
 
 # ============================================================================
+# TRIAL EXECUTION HELPERS
+# ============================================================================
+
+
+def _create_runner_kwargs(
+    experiment,
+    run_key: RunKey,
+    type_checker: ExperimentTypeChecker,
+    params0,
+    mlp_instance: MLP,
+    checkpoint_manager: CheckpointManager,
+    train_ds,
+    test_ds,
+    pbar,
+    no_save: bool,
+    init_key: int,
+    num_steps: int,
+    **kwargs,
+) -> dict:
+    """Assembles the keyword arguments for creating a TrialRunner."""
+    base_kwargs = {
+        "experiment": experiment,
+        "run_key": run_key,
+        "params0": params0,
+        "mlp_instance": mlp_instance,
+        "checkpoint_manager": checkpoint_manager,
+        "pbar": pbar,
+        "no_save": no_save,
+        "init_key": init_key,
+        "num_steps": num_steps,
+    }
+
+    num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
+
+    if type_checker.is_mnist:
+        base_kwargs.update({"num_epochs": num_epochs, "train_ds": train_ds, "test_ds": test_ds})
+    elif type_checker.is_synthetic_fixed_data:
+        base_kwargs.update({"num_epochs": num_epochs, "X_data": train_ds[0], "y_data": train_ds[1]})
+
+    return base_kwargs
+
+
+def _run_single_trial(
+    experiment,
+    run_key: RunKey,
+    type_checker: ExperimentTypeChecker,
+    results_dict: dict,
+    failed_runs: set,
+    checkpoint_manager: CheckpointManager,
+    params0,
+    mlp_instance: MLP,
+    train_ds,
+    test_ds,
+    pbar,
+    no_save: bool,
+    init_key: int,
+    **kwargs,
+) -> bool:
+    """
+    Checks the status of, runs, and validates a single trial configuration.
+    Returns True if the run was successful (or already was), False otherwise.
+    """
+    num_steps = compute_num_steps(experiment, type_checker, run_key.batch_size, train_ds, **kwargs)
+    status = RunStatus(run_key, results_dict, failed_runs, num_steps, no_save)
+
+    if not status.should_run:
+        return status.is_successful
+
+    runner_kwargs = _create_runner_kwargs(
+        experiment,
+        run_key,
+        type_checker,
+        params0,
+        mlp_instance,
+        checkpoint_manager,
+        train_ds,
+        test_ds,
+        pbar,
+        no_save,
+        init_key,
+        num_steps,
+        **kwargs,
+    )
+
+    trial_runner = _get_trial_runner(type_checker, **runner_kwargs)
+
+    if trial_runner:
+        result = trial_runner.run()
+        is_successful = validate_and_store_result(
+            result, run_key, type_checker, results_dict, failed_runs, experiment, checkpoint_manager, no_save
+        )
+    else:
+        failed_runs.add(run_key)
+        is_successful = False
+
+    return is_successful
+
+
+# ============================================================================
 # MAIN SWEEP ORCHESTRATION
 # ============================================================================
 
@@ -281,65 +380,27 @@ def run_experiment_sweep(
         eta_pbar.set_description(f"Eta Sweep (B={batch_size})")
 
         for eta in sorted_etas:
-            run_key = RunKey(batch_size=batch_size, eta=eta)
-            num_steps = compute_num_steps(experiment, type_checker, batch_size, train_ds, **kwargs)
-
-            status = RunStatus(run_key, results_dict, failed_runs, num_steps, no_save)
-
-            if status.should_run:
-                runner_kwargs = {
-                    "experiment": experiment,
-                    "run_key": run_key,
-                    "params0": params0,
-                    "mlp_instance": mlp_instance,
-                    "checkpoint_manager": checkpoint_manager,
-                    "pbar": eta_pbar,
-                    "no_save": no_save,
-                    "init_key": init_key,
-                }
-                # Add data/runtime specific kwargs
-                if type_checker.is_mnist:
-                    runner_kwargs.update(
-                        {
-                            "num_epochs": kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1)),
-                            "train_ds": train_ds,
-                            "test_ds": test_ds,
-                        }
-                    )
-                elif type_checker.is_synthetic_fixed_data:
-                    runner_kwargs.update(
-                        {
-                            "num_epochs": kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1)),
-                            "X_data": train_ds[0],
-                            "y_data": train_ds[1],
-                        }
-                    )
-                elif type_checker.is_synthetic_fixed_time:
-                    runner_kwargs["num_steps"] = num_steps
-
-                trial_runner = _get_trial_runner(type_checker, **runner_kwargs)
-
-                if trial_runner:
-                    result = trial_runner.run()
-                    is_successful = validate_and_store_result(
-                        result,
-                        run_key,
-                        type_checker,
-                        results_dict,
-                        failed_runs,
-                        experiment,
-                        checkpoint_manager,
-                        no_save,
-                    )
-                else:
-                    # Mark as failed if no runner could be created
-                    failed_runs.add(run_key)
-                    is_successful = False
-            else:
-                is_successful = status.is_successful
+            is_successful = _run_single_trial(
+                experiment=experiment,
+                run_key=RunKey(batch_size=batch_size, eta=eta),
+                type_checker=type_checker,
+                results_dict=results_dict,
+                failed_runs=failed_runs,
+                checkpoint_manager=checkpoint_manager,
+                params0=params0,
+                mlp_instance=mlp_instance,
+                train_ds=train_ds,
+                test_ds=test_ds,
+                pbar=eta_pbar,
+                no_save=no_save,
+                init_key=init_key,
+                **kwargs,
+            )
 
             if eta_tracker.update(is_successful):
-                break  # Stop eta sweep for this batch size
+                # Fast-forward the progress bar to the end for this batch size
+                eta_pbar.update(len(sorted_etas) - eta_pbar.n)
+                break
 
             eta_pbar.update(1)
 

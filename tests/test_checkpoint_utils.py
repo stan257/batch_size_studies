@@ -22,7 +22,6 @@ def assert_pytree_allclose(a, b):
 
 @pytest.fixture
 def experiment_instance():
-    """A fixture for a sample experiment dataclass."""
     return SyntheticExperimentFixedTime(
         D=10,
         P=100,
@@ -37,13 +36,11 @@ def experiment_instance():
 
 @pytest.fixture
 def checkpoint_manager(experiment_instance, tmp_path):
-    """A fixture that provides a CheckpointManager in a temporary directory."""
     return CheckpointManager(experiment_instance, directory=str(tmp_path))
 
 
 @pytest.fixture
 def mock_data():
-    """A fixture for mock JAX parameters and optimizer state."""
     key = jax.random.PRNGKey(42)
     key1, key2 = jax.random.split(key)
     params = [jax.random.normal(key1, (10, 5)), jax.random.normal(key2, (5, 2))]
@@ -53,14 +50,12 @@ def mock_data():
 
 class TestCheckpointManager:
     def test_initialization(self, checkpoint_manager, experiment_instance, tmp_path):
-        """Tests that the manager creates the correct paths and directories."""
         exp_dir = tmp_path / experiment_instance.experiment_type
         assert os.path.isdir(checkpoint_manager.checkpoint_dir)
         assert checkpoint_manager.checkpoint_dir.startswith(str(exp_dir))
         assert checkpoint_manager.weights_filepath.startswith(str(exp_dir))
 
     def test_save_and_load_live_checkpoint(self, checkpoint_manager, mock_data):
-        """Tests the full save-and-load cycle for a live checkpoint."""
         run_key = RunKey(batch_size=16, eta=0.1)
         params, opt_state = mock_data
         results = {"loss_history": [0.5, 0.4, 0.3]}
@@ -79,7 +74,6 @@ class TestCheckpointManager:
         assert_pytree_allclose(loaded_opt_state, opt_state)
 
     def test_load_nonexistent_live_checkpoint(self, checkpoint_manager):
-        """Tests that loading a non-existent checkpoint returns correct defaults."""
         run_key = RunKey(batch_size=16, eta=0.1)
         params, opt_state, results, start_step = checkpoint_manager.load_live_checkpoint(run_key)
 
@@ -89,7 +83,6 @@ class TestCheckpointManager:
         assert start_step == 0
 
     def test_load_corrupted_live_checkpoint(self, checkpoint_manager, caplog):
-        """Edge Case: Tests graceful failure when a checkpoint file is corrupted."""
         run_key = RunKey(batch_size=32, eta=0.01)
         filepath = checkpoint_manager._get_resume_filepath(run_key)
 
@@ -105,7 +98,6 @@ class TestCheckpointManager:
         assert "Warning: Could not load checkpoint" in caplog.text
 
     def test_analysis_snapshot_creation_and_delta_reconstruction(self, checkpoint_manager, mock_data):
-        """Tests saving the first snapshot and reconstructing weights from the delta."""
         run_key = RunKey(batch_size=16, eta=0.1)
         params, _ = mock_data
         # Create a slightly different initial_params
@@ -129,7 +121,6 @@ class TestCheckpointManager:
         assert_pytree_allclose(reconstructed_params, params)
 
     def test_analysis_snapshot_append(self, checkpoint_manager, mock_data):
-        """Tests that subsequent saves append to the snapshot file correctly."""
         params, _ = mock_data
         initial_params = jax.tree_util.tree_map(lambda x: x - 0.1, params)
 
@@ -151,7 +142,6 @@ class TestCheckpointManager:
         assert_pytree_allclose(weights_data["initial_params"], initial_params)
 
     def test_cleanup_live_checkpoint(self, checkpoint_manager, mock_data):
-        """Tests that the cleanup method removes the resume checkpoint file."""
         run_key = RunKey(batch_size=16, eta=0.1)
         params, opt_state = mock_data
         filepath = checkpoint_manager._get_resume_filepath(run_key)
@@ -167,7 +157,6 @@ class TestCheckpointManager:
         assert not os.path.exists(filepath)
 
     def test_load_initial_params(self, checkpoint_manager, mock_data):
-        """Tests loading of initial_params from the analysis snapshot file."""
         # 1. Before file exists, should return None
         assert checkpoint_manager.load_initial_params() is None
 
@@ -180,7 +169,6 @@ class TestCheckpointManager:
         assert_pytree_allclose(loaded_initial_params, initial_params)
 
     def test_resume_filepath_generation(self, checkpoint_manager):
-        """Tests that the resume checkpoint filename is generated correctly."""
         run_key = RunKey(batch_size=128, eta=0.05)
         filepath = checkpoint_manager._get_resume_filepath(run_key)
 
@@ -191,7 +179,6 @@ class TestCheckpointManager:
         assert filepath.startswith(checkpoint_manager.checkpoint_dir)
 
     def test_load_full_weight_history(self, checkpoint_manager, mock_data):
-        """Tests loading the entire history of weight snapshots for a run."""
         run_key = RunKey(batch_size=16, eta=0.1)
         params, _ = mock_data
         initial_params = jax.tree_util.tree_map(lambda x: x - 0.1, params)
@@ -217,7 +204,6 @@ class TestCheckpointManager:
         assert_pytree_allclose(history[200], params_step200)
 
     def test_load_full_weight_history_not_found(self, checkpoint_manager):
-        """Tests that loading history for a non-existent run returns an empty dict."""
         run_key = RunKey(batch_size=99, eta=0.99)
         history = checkpoint_manager.load_full_weight_history(run_key)
         assert history == {}
@@ -271,7 +257,6 @@ class TestLoadExperimentWeights:
 
     @pytest.fixture
     def setup_weights_file(self, checkpoint_manager, mock_data):
-        """A fixture to create a sample weights file with a few snapshots."""
         run_key = RunKey(batch_size=16, eta=0.1)
         params, _ = mock_data
         initial_params = jax.tree_util.tree_map(lambda x: x - 0.1, params)
@@ -284,7 +269,6 @@ class TestLoadExperimentWeights:
         return params, params_step200
 
     def test_load_single_step(self, experiment_instance, setup_weights_file, tmp_path):
-        """Tests loading weights for a single, specific step."""
         original_params, _ = setup_weights_file
 
         loaded_params = load_experiment_weights(
@@ -299,7 +283,6 @@ class TestLoadExperimentWeights:
         assert_pytree_allclose(loaded_params, original_params)
 
     def test_load_full_history(self, experiment_instance, setup_weights_file, tmp_path):
-        """Tests loading the full history of weights for a run."""
         _, params_step200 = setup_weights_file
 
         history = load_experiment_weights(

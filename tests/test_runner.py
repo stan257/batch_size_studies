@@ -6,11 +6,14 @@ import pytest
 
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
+from batch_size_studies.models import MLP
 from batch_size_studies.runner import (
     EtaStabilityTracker,
     ExperimentTypeChecker,
     RunStatus,
+    _create_runner_kwargs,
     _get_trial_runner,
+    _run_single_trial,
     compute_model_widths,
     compute_num_steps,
     initialize_model_params,
@@ -101,7 +104,6 @@ class TestExperimentTypeChecker:
     """Tests for experiment type detection."""
 
     def test_mnist_detection(self):
-        """Test that MNIST experiments are correctly identified."""
         from batch_size_studies.experiments import MNISTExperiment
 
         real_mnist = Mock(spec=MNISTExperiment)
@@ -113,7 +115,6 @@ class TestExperimentTypeChecker:
         assert checker.uses_dataset is True
 
     def test_synthetic_fixed_data_detection(self):
-        """Test that synthetic fixed-data experiments are correctly identified."""
         from batch_size_studies.experiments import SyntheticExperimentFixedData
 
         synthetic = Mock(spec=SyntheticExperimentFixedData)
@@ -125,7 +126,6 @@ class TestExperimentTypeChecker:
         assert checker.uses_dataset is True
 
     def test_synthetic_fixed_time_detection(self):
-        """Test that synthetic fixed-time experiments are correctly identified."""
         from batch_size_studies.experiments import SyntheticExperimentFixedTime
 
         synthetic = Mock(spec=SyntheticExperimentFixedTime)
@@ -146,7 +146,6 @@ class TestEtaStabilityTracker:
     """Tests for early stopping based on consecutive successes."""
 
     def test_threshold_reached_after_consecutive_successes(self):
-        """Test that threshold is reached after exactly N consecutive successes."""
         tracker = EtaStabilityTracker(depth=3)
 
         assert tracker.update(is_successful=True) is False
@@ -159,7 +158,6 @@ class TestEtaStabilityTracker:
         assert tracker.count == 3
 
     def test_failure_resets_counter(self):
-        """Test that a failure resets the consecutive success counter."""
         tracker = EtaStabilityTracker(depth=3)
 
         tracker.update(is_successful=True)
@@ -174,7 +172,6 @@ class TestEtaStabilityTracker:
         assert tracker.update(is_successful=True) is True
 
     def test_disabled_when_depth_is_none(self):
-        """Test that tracker is disabled when depth is None."""
         tracker = EtaStabilityTracker(depth=None)
 
         # Should never trigger regardless of successes
@@ -182,13 +179,11 @@ class TestEtaStabilityTracker:
             assert tracker.update(is_successful=True) is False
 
     def test_disabled_when_depth_is_zero(self):
-        """Test that tracker is disabled when depth is zero."""
         tracker = EtaStabilityTracker(depth=0)
 
         assert tracker.update(is_successful=True) is False
 
     def test_reset_clears_counter(self):
-        """Test that reset properly clears the counter."""
         tracker = EtaStabilityTracker(depth=3)
 
         tracker.update(is_successful=True)
@@ -199,7 +194,6 @@ class TestEtaStabilityTracker:
         assert tracker.count == 0
 
     def test_handles_alternating_success_failure(self):
-        """Test behavior with alternating success/failure pattern."""
         tracker = EtaStabilityTracker(depth=3)
 
         # Alternating pattern should never reach threshold
@@ -219,7 +213,6 @@ class TestComputeModelWidths:
     """Tests for model architecture width computation."""
 
     def test_mnist_widths_include_output_dimension(self):
-        """Test that MNIST experiments use num_outputs for final layer."""
         from batch_size_studies.experiments import MNISTExperiment
 
         mock_mnist = Mock(spec=MNISTExperiment)
@@ -235,7 +228,6 @@ class TestComputeModelWidths:
         assert widths == [784, 128, 128, 10]
 
     def test_synthetic_widths_use_single_output(self):
-        """Test that synthetic experiments use single output dimension."""
         from batch_size_studies.experiments import SyntheticExperimentFixedData
 
         mock_synthetic = Mock(spec=SyntheticExperimentFixedData)
@@ -250,7 +242,6 @@ class TestComputeModelWidths:
         assert widths == [50, 32, 1]
 
     def test_deep_network_architecture(self):
-        """Test width computation for deeper networks."""
         from batch_size_studies.experiments import MNISTExperiment
 
         mock_exp = Mock(spec=MNISTExperiment)
@@ -276,7 +267,6 @@ class TestComputeNumSteps:
     """Tests for training step computation."""
 
     def test_fixed_time_experiment_uses_num_steps(self):
-        """Test that fixed-time experiments use their num_steps directly."""
         from batch_size_studies.experiments import SyntheticExperimentFixedTime
 
         mock_exp = Mock(spec=SyntheticExperimentFixedTime)
@@ -290,7 +280,6 @@ class TestComputeNumSteps:
         assert num_steps == 10000
 
     def test_mnist_computation_with_default_epochs(self):
-        """Test step computation for MNIST with default epochs."""
         from batch_size_studies.experiments import MNISTExperiment
 
         mock_exp = Mock(spec=MNISTExperiment)
@@ -309,7 +298,6 @@ class TestComputeNumSteps:
         assert num_steps == expected_steps
 
     def test_synthetic_computation_with_custom_epochs(self):
-        """Test step computation with custom num_epochs in kwargs."""
         from batch_size_studies.experiments import SyntheticExperimentFixedData
 
         mock_exp = Mock(spec=SyntheticExperimentFixedData)
@@ -334,7 +322,6 @@ class TestComputeNumSteps:
         assert num_steps == 500
 
     def test_edge_case_single_batch_per_epoch(self):
-        """Test computation when dataset size equals batch size."""
         from batch_size_studies.experiments import MNISTExperiment
 
         mock_exp = Mock(spec=MNISTExperiment)
@@ -360,7 +347,6 @@ class TestShouldSkipBatchSize:
     """Tests for batch size validation."""
 
     def test_skip_when_batch_size_exceeds_mnist_dataset(self):
-        """Test that oversized batch sizes are skipped for MNIST."""
         from batch_size_studies.experiments import MNISTExperiment
 
         mock_exp = Mock(spec=MNISTExperiment)
@@ -376,7 +362,6 @@ class TestShouldSkipBatchSize:
         assert should_skip is True
 
     def test_allow_valid_batch_size_for_synthetic(self):
-        """Test that valid batch sizes are allowed."""
         from batch_size_studies.experiments import SyntheticExperimentFixedData
 
         mock_exp = Mock(spec=SyntheticExperimentFixedData)
@@ -392,7 +377,6 @@ class TestShouldSkipBatchSize:
         assert should_skip is False
 
     def test_fixed_time_never_skips(self):
-        """Test that fixed-time experiments never skip batch sizes."""
         from batch_size_studies.experiments import SyntheticExperimentFixedTime
 
         mock_exp = Mock(spec=SyntheticExperimentFixedTime)
@@ -406,7 +390,6 @@ class TestShouldSkipBatchSize:
         assert should_skip is False
 
     def test_boundary_case_exact_match(self):
-        """Test when batch size exactly equals dataset size."""
         from batch_size_studies.experiments import MNISTExperiment
 
         mock_exp = Mock(spec=MNISTExperiment)
@@ -431,7 +414,6 @@ class TestRunStatus:
     """Tests for run status checking."""
 
     def test_should_run_when_no_save_enabled(self):
-        """Test that runs always execute when no_save is True."""
         run_key = RunKey(batch_size=32, eta=0.1)
         results_dict = {}
         failed_runs = set()
@@ -444,7 +426,6 @@ class TestRunStatus:
         assert status.is_successful is False
 
     def test_skip_previously_failed_run(self):
-        """Test that previously failed runs are skipped."""
         run_key = RunKey(batch_size=32, eta=0.1)
         results_dict = {}
         failed_runs = {run_key}
@@ -457,7 +438,6 @@ class TestRunStatus:
         assert status.is_successful is False
 
     def test_skip_completed_run(self):
-        """Test that completed runs are skipped."""
         run_key = RunKey(batch_size=32, eta=0.1)
         results_dict = {run_key: {"loss_history": [1.0] * 1000}}
         failed_runs = set()
@@ -470,7 +450,6 @@ class TestRunStatus:
         assert status.is_successful is True
 
     def test_run_incomplete_result(self):
-        """Test that incomplete runs are re-executed."""
         run_key = RunKey(batch_size=32, eta=0.1)
         results_dict = {run_key: {"loss_history": [1.0] * 500}}
         failed_runs = set()
@@ -482,7 +461,6 @@ class TestRunStatus:
         assert status.should_run is True
 
     def test_run_missing_loss_history(self):
-        """Test handling of results without loss_history key."""
         run_key = RunKey(batch_size=32, eta=0.1)
         results_dict = {run_key: {"other_metric": 99}}
         failed_runs = set()
@@ -503,7 +481,6 @@ class TestValidateAndStoreResult:
     """Tests for result validation and storage."""
 
     def test_successful_synthetic_result_stored(self, validation_setup):
-        """Test that successful synthetic results are stored correctly."""
         s = validation_setup
 
         is_successful = validate_and_store_result(
@@ -523,7 +500,6 @@ class TestValidateAndStoreResult:
         assert s.run_key not in s.failed_runs
 
     def test_failed_mnist_result_without_accuracy(self, validation_setup):
-        """Test that MNIST results without accuracy are marked as failed."""
         from batch_size_studies.experiments import MNISTExperiment
 
         s = validation_setup
@@ -547,7 +523,6 @@ class TestValidateAndStoreResult:
         assert s.run_key in s.failed_runs
 
     def test_mnist_result_with_nan_accuracy(self, validation_setup):
-        """Test that MNIST results with NaN accuracy are marked as failed."""
         from batch_size_studies.experiments import MNISTExperiment
 
         s = validation_setup
@@ -570,7 +545,6 @@ class TestValidateAndStoreResult:
         assert s.run_key in s.failed_runs
 
     def test_checkpoint_cleanup_called_for_completed_runs(self, validation_setup):
-        """Test that checkpoints are cleaned up for completed runs."""
         s = validation_setup
 
         validate_and_store_result(
@@ -636,7 +610,6 @@ class TestValidateAndStoreResult:
         s.checkpoint_manager.cleanup_live_checkpoint.assert_not_called()
 
     def test_previous_result_removed_on_failure(self, validation_setup):
-        """Test that previous results are removed when run fails."""
         s = validation_setup
         s.results_dict[s.run_key] = {"old_result": "data"}
 
@@ -655,7 +628,6 @@ class TestValidateAndStoreResult:
         assert s.run_key in s.failed_runs
 
     def test_failed_run_discarded_from_failed_set_on_success(self, validation_setup):
-        """Test that previously failed runs are removed from failed set on success."""
         s = validation_setup
         s.failed_runs = {s.run_key}  # Previously failed
 
@@ -683,7 +655,6 @@ class TestInitializeResultsAndCheckpoints:
     """Tests for the results and checkpoint initialization helper."""
 
     def test_no_save_mode(self, tmp_path):
-        """Test that in no_save mode, new empty results are created."""
         mock_experiment = Mock()
         mock_experiment.load_results.return_value = ({"some": "data"}, {"a", "b"})
         mock_experiment.experiment_type = "test_exp"
@@ -697,7 +668,6 @@ class TestInitializeResultsAndCheckpoints:
         assert isinstance(manager, CheckpointManager)
 
     def test_load_mode(self, tmp_path):
-        """Test that in load mode, existing results are loaded."""
         mock_experiment = Mock()
         mock_experiment.load_results.return_value = ({"some": "data"}, {"a", "b"})
         mock_experiment.experiment_type = "test_exp"
@@ -715,7 +685,6 @@ class TestInitializeModelParams:
     """Tests for the model parameter initialization helper."""
 
     def test_no_save_mode_always_initializes_directly(self):
-        """Test that no_save=True always generates new parameters directly."""
         mock_mlp = Mock()
         mock_mlp.init_params.return_value = "new_params"
         mock_manager = Mock()
@@ -728,7 +697,6 @@ class TestInitializeModelParams:
         mock_manager.initialize_and_save_initial_params.assert_not_called()
 
     def test_save_mode_delegates_to_manager(self):
-        """Test that in save mode, parameter initialization is delegated to the CheckpointManager."""
         mock_mlp = Mock()
         mock_manager = Mock()
         mock_manager.initialize_and_save_initial_params.return_value = "params_from_manager"
@@ -741,6 +709,169 @@ class TestInitializeModelParams:
 
 
 # ============================================================================
+# TESTS FOR TRIAL EXECUTION HELPERS
+# ============================================================================
+
+
+class TestTrialExecutionHelpers:
+    """Tests for the refactored trial execution helper functions."""
+
+    @pytest.fixture
+    def trial_setup(self, mock_experiment, mock_run_key):
+        """Provides a common setup for trial execution tests."""
+        from batch_size_studies.experiments import MNISTExperiment
+
+        mock_exp = Mock(spec=MNISTExperiment)
+        mock_exp.num_epochs = 5
+        mock_exp.parameterization = Parameterization.SP
+        mock_exp.gamma = 1.0
+        mock_exp.D = 784
+        mock_exp.N = 128
+        mock_exp.L = 2
+        mock_exp.num_outputs = 10
+
+        return SimpleNamespace(
+            experiment=mock_exp,
+            run_key=mock_run_key,
+            type_checker=ExperimentTypeChecker(mock_exp),
+            results_dict={},
+            failed_runs=set(),
+            checkpoint_manager=Mock(spec=CheckpointManager),
+            params0=Mock(),
+            mlp_instance=Mock(spec=MLP),
+            train_ds={"image": np.zeros((100, 784)), "label": np.zeros(100)},
+            test_ds={"image": np.zeros((20, 784)), "label": np.zeros(20)},
+            pbar=Mock(),
+            no_save=True,
+            init_key=0,
+        )
+
+    def test_create_runner_kwargs_for_mnist(self, trial_setup):
+        kwargs = _create_runner_kwargs(
+            experiment=trial_setup.experiment,
+            run_key=trial_setup.run_key,
+            type_checker=trial_setup.type_checker,
+            params0=trial_setup.params0,
+            mlp_instance=trial_setup.mlp_instance,
+            checkpoint_manager=trial_setup.checkpoint_manager,
+            train_ds=trial_setup.train_ds,
+            test_ds=trial_setup.test_ds,
+            pbar=trial_setup.pbar,
+            no_save=trial_setup.no_save,
+            init_key=trial_setup.init_key,
+            num_steps=123,  # This is passed through but ignored by the runner
+            num_epochs=5,
+        )
+        assert kwargs["experiment"] is trial_setup.experiment
+        assert kwargs["train_ds"] == trial_setup.train_ds
+        assert kwargs["test_ds"] == trial_setup.test_ds
+        assert kwargs["num_epochs"] == 5
+        assert "X_data" not in kwargs
+        assert kwargs["num_steps"] == 123  # It's passed through via base_kwargs
+
+    def test_create_runner_kwargs_for_synthetic_fixed_data(self, trial_setup):
+        from batch_size_studies.experiments import SyntheticExperimentFixedData
+
+        mock_exp = Mock(spec=SyntheticExperimentFixedData)
+        mock_exp.num_epochs = 3
+        type_checker = ExperimentTypeChecker(mock_exp)
+        train_ds = (np.zeros(1), np.zeros(1))
+
+        kwargs = _create_runner_kwargs(
+            experiment=mock_exp,
+            type_checker=type_checker,
+            train_ds=train_ds,
+            test_ds=None,
+            run_key=trial_setup.run_key,
+            params0=trial_setup.params0,
+            mlp_instance=trial_setup.mlp_instance,
+            checkpoint_manager=trial_setup.checkpoint_manager,
+            pbar=trial_setup.pbar,
+            no_save=trial_setup.no_save,
+            init_key=trial_setup.init_key,
+            num_steps=123,
+            num_epochs=3,
+        )
+        assert kwargs["X_data"] is train_ds[0]
+        assert kwargs["y_data"] is train_ds[1]
+        assert kwargs["num_epochs"] == 3
+        assert "test_ds" not in kwargs
+
+    def test_create_runner_kwargs_for_synthetic_fixed_time(self, trial_setup):
+        from batch_size_studies.experiments import SyntheticExperimentFixedTime
+
+        mock_exp = Mock(spec=SyntheticExperimentFixedTime)
+        type_checker = ExperimentTypeChecker(mock_exp)
+
+        kwargs = _create_runner_kwargs(
+            experiment=mock_exp,
+            type_checker=type_checker,
+            train_ds=None,
+            test_ds=None,
+            run_key=trial_setup.run_key,
+            params0=trial_setup.params0,
+            mlp_instance=trial_setup.mlp_instance,
+            checkpoint_manager=trial_setup.checkpoint_manager,
+            pbar=trial_setup.pbar,
+            no_save=trial_setup.no_save,
+            init_key=trial_setup.init_key,
+            num_steps=500,
+        )
+        assert kwargs["num_steps"] == 500
+        assert "num_epochs" not in kwargs
+
+    @patch("batch_size_studies.runner.RunStatus")
+    def test_run_single_trial_skips_if_should_not_run(self, mock_run_status, trial_setup):
+        mock_run_status.return_value.should_run = False
+        mock_run_status.return_value.is_successful = True
+
+        is_successful = _run_single_trial(**vars(trial_setup))
+
+        assert is_successful is True
+        mock_run_status.assert_called_once()
+
+    @patch("batch_size_studies.runner.validate_and_store_result")
+    @patch("batch_size_studies.runner._get_trial_runner")
+    @patch("batch_size_studies.runner.RunStatus")
+    def test_run_single_trial_executes_and_validates(
+        self, mock_run_status, mock_get_runner, mock_validate, trial_setup
+    ):
+        mock_run_status.return_value.should_run = True
+        mock_trial_runner = Mock()
+        mock_trial_runner.run.return_value = {"loss": 0.1}
+        mock_get_runner.return_value = mock_trial_runner
+        mock_validate.return_value = True
+
+        is_successful = _run_single_trial(**vars(trial_setup))
+
+        assert is_successful is True
+        mock_get_runner.assert_called_once()
+        mock_trial_runner.run.assert_called_once()
+        mock_validate.assert_called_once_with(
+            {"loss": 0.1},
+            trial_setup.run_key,
+            trial_setup.type_checker,
+            trial_setup.results_dict,
+            trial_setup.failed_runs,
+            trial_setup.experiment,
+            trial_setup.checkpoint_manager,
+            trial_setup.no_save,
+        )
+
+    @patch("batch_size_studies.runner._get_trial_runner")
+    @patch("batch_size_studies.runner.RunStatus")
+    def test_run_single_trial_handles_runner_failure(self, mock_run_status, mock_get_runner, trial_setup):
+        mock_run_status.return_value.should_run = True
+        mock_get_runner.return_value = None  # Runner creation fails
+
+        is_successful = _run_single_trial(**vars(trial_setup))
+
+        assert is_successful is False
+        mock_get_runner.assert_called_once()
+        assert trial_setup.run_key in trial_setup.failed_runs
+
+
+# ============================================================================
 # TESTS FOR _get_trial_runner
 # ============================================================================
 
@@ -749,7 +880,6 @@ class TestGetTrialRunner:
     """Tests for the trial runner factory function."""
 
     def test_returns_mnist_runner(self, base_runner_kwargs):
-        """Test that it returns MNISTTrialRunner for MNIST experiments."""
         mock_type_checker = Mock()
         mock_type_checker.is_mnist = True
         mock_type_checker.is_synthetic_fixed_data = False
@@ -772,7 +902,6 @@ class TestGetTrialRunner:
         assert isinstance(runner, MNISTTrialRunner)
 
     def test_returns_synthetic_fixed_data_runner(self, base_runner_kwargs):
-        """Test that it returns SyntheticFixedDataTrialRunner for its experiment type."""
         mock_type_checker = Mock()
         mock_type_checker.is_mnist = False
         mock_type_checker.is_synthetic_fixed_data = True
@@ -792,7 +921,6 @@ class TestGetTrialRunner:
         assert isinstance(runner, SyntheticFixedDataTrialRunner)
 
     def test_returns_synthetic_fixed_time_runner(self, base_runner_kwargs):
-        """Test that it returns SyntheticFixedTimeTrialRunner for its experiment type."""
         mock_type_checker = Mock()
         mock_type_checker.is_mnist = False
         mock_type_checker.is_synthetic_fixed_data = False
@@ -804,7 +932,6 @@ class TestGetTrialRunner:
         assert isinstance(runner, SyntheticFixedTimeTrialRunner)
 
     def test_returns_none_for_unknown_type(self, caplog):
-        """Test that it returns None and logs an error for unknown experiment types."""
         mock_type_checker = Mock()
         mock_type_checker.is_mnist = False
         mock_type_checker.is_synthetic_fixed_data = False
@@ -828,7 +955,6 @@ class TestPrepareDatasets:
 
     @patch("batch_size_studies.runner.load_datasets")
     def test_loads_standard_mnist(self, mock_loader):
-        """Test loading for a standard MNISTExperiment."""
         from batch_size_studies.experiments import MNISTExperiment
 
         mock_exp = Mock(spec=MNISTExperiment)
@@ -848,7 +974,6 @@ class TestPrepareDatasets:
 
     @patch("batch_size_studies.runner.load_mnist1m_dataset")
     def test_loads_and_samples_mnist1m(self, mock_loader):
-        """Test loading and sampling for MNIST1MSampledExperiment."""
         from batch_size_studies.experiments import MNIST1MSampledExperiment
 
         mock_exp = Mock(spec=MNIST1MSampledExperiment)
@@ -871,7 +996,6 @@ class TestPrepareDatasets:
         assert not np.array_equal(train_ds["image"].flatten(), np.arange(50))
 
     def test_generates_synthetic_data(self):
-        """Test data generation for SyntheticExperimentFixedData."""
         from batch_size_studies.experiments import SyntheticExperimentFixedData
 
         mock_exp = Mock(spec=SyntheticExperimentFixedData)
@@ -887,7 +1011,6 @@ class TestPrepareDatasets:
         assert isinstance(train_ds, tuple) and len(train_ds) == 2
 
     def test_handles_dataset_not_found(self, caplog):
-        """Test graceful failure when a dataset file is not found."""
         from batch_size_studies.experiments import MNISTExperiment
 
         mock_exp = Mock(spec=MNISTExperiment)
@@ -902,7 +1025,6 @@ class TestPrepareDatasets:
         assert "Dataset not found" in caplog.text
 
     def test_no_data_loaded_for_fixed_time(self):
-        """Test that no data is loaded for fixed-time synthetic experiments."""
         from batch_size_studies.experiments import SyntheticExperimentFixedTime
 
         mock_exp = Mock(spec=SyntheticExperimentFixedTime)
