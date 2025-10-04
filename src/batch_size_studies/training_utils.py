@@ -52,4 +52,6 @@ def create_optimizer(experiment, eta: float):
         case OptimizerType.ADAM:
             return optax.adam(learning_rate)
         case _:
-            raise NotImplementedError(f"Optimizer {experiment.optimizer} not implemented.")
+            raise NotImplementedError(
+                f"Optimizer {experiment.optimizer} not implemented."
+            )

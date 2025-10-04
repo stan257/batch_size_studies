@@ -3,7 +3,7 @@ from typing import Any, Callable, Type, TypeVar
 
 import numpy as np
 
-from .definitions import LossType, OptimizerType, RunKey
+from .definitions import LossType, OptimizerType, Parameterization, RunKey
 from .experiments import ExperimentBase
 
 D = TypeVar("D", bound=dict)
@@ -144,6 +144,7 @@ def filter_experiments(
     experiments: dict[str, ExperimentBase],
     experiment_type: Type[ExperimentBase],
     loss_type: LossType | None = None,
+    parameterization: Parameterization | None = None,
     optimizer: OptimizerType | None = None,
 ) -> dict[str, ExperimentBase]:
     """
@@ -158,6 +159,11 @@ def filter_experiments(
         if loss_type is not None:
             exp_loss_type = getattr(experiment, "loss_type", LossType.MSE)
             if exp_loss_type != loss_type:
+                return False
+
+        if parameterization is not None:
+            exp_parameterization = getattr(experiment, "parameterization")
+            if exp_parameterization != parameterization:
                 return False
 
         if optimizer is not None:

@@ -14,7 +14,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import jit
+from jax import Array, jit
 from jax.tree_util import tree_leaves, tree_map, tree_structure, tree_unflatten
 
 
@@ -72,7 +72,7 @@ class JaxHessian:
     def __init__(self, model, loss_fn, data_loader):
         """
         Args:
-            model: A Flax nn.Module.
+            model: A JAX model (e.g., your MLP class).
             loss_fn: A loss function of the form `loss_fn(logits, targets)`.
             data_loader: A generator yielding batches of (inputs, targets).
         """
@@ -82,9 +82,9 @@ class JaxHessian:
         self.num_batches = len(data_loader)
 
     def _get_loss_fn_for_hessian(self, params, batch):
-        """A closure for the model's loss function for a single batch."""
+        """A closure for the model's loss function for a single batch, using direct model call."""
         inputs, targets = batch
-        return self.loss_fn(self.model.apply({"params": params}, inputs), targets)
+        return self.loss_fn(self.model(params, inputs), targets)
 
     @partial(jit, static_argnums=(0,))
     def _hvp_single_batch(self, params, v, batch):
@@ -96,7 +96,7 @@ class JaxHessian:
         # of that gradient function.
         return jax.jvp(jax.grad(loss_fn_for_batch), (params,), (v,))[1]
 
-    def _hvp_full_dataset(self, params, v):
+    def _hvp_full_dataset(self, params: list[Array], v: list[Array]) -> list[Array]:
         """Computes the Hessian-vector product averaged over the full dataset."""
         hvp_total = tree_map(jnp.zeros_like, params)
         for batch in self.data_loader:

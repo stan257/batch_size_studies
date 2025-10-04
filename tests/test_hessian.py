@@ -2,25 +2,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from flax import linen as nn
 
 from batch_size_studies.hessian import JaxHessian
 
 # --- Test Setup: A simple quadratic problem where the Hessian is known ---
-
-
-class SimpleLinearModel(nn.Module):
-    """A model with a single parameter vector, used for testing."""
-
-    features: int
-
-    @nn.compact
-    def __call__(self, x):
-        # The input 'x' is a dummy here. The parameter is what we care about.
-        # We use nn.initializers.zeros so that when we evaluate the Hessian at
-        # the origin, the parameters are exactly zero.
-        params = self.param("kernel", nn.initializers.zeros, (self.features,))
-        return params
 
 
 @pytest.fixture
@@ -38,14 +23,14 @@ def quadratic_problem():
     A = (A_random + A_random.T) / 2
     true_eigenvalues, _ = np.linalg.eigh(A)
 
-    # 2. Define the model and initialize parameters at the origin
-    model = SimpleLinearModel(features=dim)
-    params = model.init(key, jnp.ones((1, dim)))["params"]
+    # 2. Define a dummy model and initialize parameters with zeros
+    # The model simply returns its parameters. This allows the loss function
+    # to be defined directly on the parameters, as required for this test.
+    model = lambda params, inputs: params
+    params = jnp.zeros((dim,))
 
     # 3. Define the loss function that implements the quadratic form
     def loss_fn(w_vec, _):  # Second arg is a dummy target
-        # The model is defined to output its own parameter vector, so `w_vec`
-        # is the vector of parameters, not the full pytree.
         # Loss = 0.5 * w^T * A * w
         return 0.5 * jnp.dot(w_vec, jnp.dot(A, w_vec))
 
@@ -85,12 +70,10 @@ def test_hvp(quadratic_problem):
     key = jax.random.PRNGKey(0)
 
     # Create a random vector 'v' with the same pytree structure as params
-    v_tree = jax.tree_util.tree_map(lambda x: jax.random.normal(key, x.shape), params)
-    v_vec = v_tree["kernel"]
+    v_vec = jax.tree_util.tree_map(lambda x: jax.random.normal(key, x.shape), params)
 
     # Calculate HVP using our class
-    hvp_tree = hessian_calc._hvp_full_dataset(params, v_tree)
-    hvp_vec = hvp_tree["kernel"]
+    hvp_vec = hessian_calc._hvp_full_dataset(params, v_vec)
 
     # Calculate the true product A @ v
     true_hvp = jnp.dot(A, v_vec)
@@ -166,3 +149,54 @@ def test_density(quadratic_problem):
     # Add a small tolerance for floating point issues
     assert min_ritz >= min_true_eig - 0.1 * abs(min_true_eig)
     assert max_ritz <= max_true_eig + 0.1 * abs(max_true_eig)
+
+
+def test_mlp_model_smoke_test():
+    """
+    A smoke test to ensure JaxHessian can be initialized and run with a real
+    MLP model without crashing. This does not check for correctness of the
+    Hessian values, only that the computation graph is valid.
+    """
+
+    from batch_size_studies.definitions import Parameterization
+    from batch_size_studies.models import MLP
+
+    key = jax.random.PRNGKey(42)
+    data_key, hessian_key = jax.random.split(key, 2)
+
+    # 1. Initialize a real model and its parameters
+    model = MLP(Parameterization.SP)
+    dummy_widths = [28 * 28, 128, 10]
+    dummy_inputs = jax.random.normal(data_key, (1, 28 * 28))  # Example for MNIST
+    params = model.init_params(42, dummy_widths)
+
+    # 2. Define a realistic loss function
+    # For this test, a simple MSE loss is sufficient.
+    def mse_loss(logits, targets):
+        return jnp.mean((logits - targets) ** 2)
+
+    # 3. Create a mock data loader with appropriate shapes
+    dummy_targets = jax.random.normal(data_key, (1, 10))  # Example for 10 classes
+    mock_data_loader = [(dummy_inputs, dummy_targets)]
+
+    # 4. Initialize and run a Hessian calculation
+    hessian_calc = JaxHessian(
+        model=model,
+        loss_fn=mse_loss,
+        data_loader=mock_data_loader,
+    )
+
+    # 5. Run one of the methods to ensure it executes without error
+    try:
+        # Check if we can compute the top eigenvalue
+        eigenvalues, _ = hessian_calc.eigenvalues(params, hessian_key, top_n=1, max_iter=2)
+        # Check if we can compute the trace
+        trace, _ = hessian_calc.trace(params, hessian_key, max_iter=2)
+
+        # Check that the results have the expected types/shapes
+        assert isinstance(eigenvalues, list) and len(eigenvalues) == 1
+        assert isinstance(eigenvalues[0], jax.Array)
+        assert np.isscalar(trace)
+
+    except Exception as e:
+        pytest.fail(f"JaxHessian failed to run with MLP model: {e}")
