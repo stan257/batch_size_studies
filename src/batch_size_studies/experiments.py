@@ -57,8 +57,6 @@ class ExperimentBase:
         to their string values and excluding 'experiment_type' for cleaner filenames.
         """
         params = asdict(self)
-        params.pop("num_steps", None)  # Exclude runtime controls from filename
-        params.pop("num_epochs", None)
         params.pop("num_outputs", None)  # Exclude constants from filename
         params.pop("experiment_type", None)
         for key, value in params.items():

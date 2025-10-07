@@ -100,7 +100,6 @@ def extended_sample_loss_dict():
 class TestFilterExperiments:
     def test_filter_by_experiment_type_only(self, sample_experiments):
         filtered = filter_experiments(sample_experiments, experiment_type=MockSynthExperiment)
-
         assert len(filtered) == 2
         assert "synth_1" in filtered
         assert "synth_2" in filtered
@@ -116,9 +115,7 @@ class TestFilterExperiments:
 
     def test_filter_by_loss_type(self, sample_experiments):
         filtered_xent = filter_experiments(
-            sample_experiments,
-            experiment_type=MockMNISTExperiment,
-            loss_type=LossType.XENT,
+            sample_experiments, experiment_type=MockMNISTExperiment, loss_type=LossType.XENT
         )
 
         assert len(filtered_xent) == 2
@@ -127,9 +124,7 @@ class TestFilterExperiments:
         assert all(exp.loss_type == LossType.XENT for exp in filtered_xent.values())
 
         filtered_mse = filter_experiments(
-            sample_experiments,
-            experiment_type=MockMNISTExperiment,
-            loss_type=LossType.MSE,
+            sample_experiments, experiment_type=MockMNISTExperiment, loss_type=LossType.MSE
         )
 
         assert len(filtered_mse) == 1
@@ -138,9 +133,7 @@ class TestFilterExperiments:
 
     def test_filter_by_optimizer(self, sample_experiments):
         filtered_sgd = filter_experiments(
-            sample_experiments,
-            experiment_type=MockMNISTExperiment,
-            optimizer=OptimizerType.SGD,
+            sample_experiments, experiment_type=MockMNISTExperiment, optimizer=OptimizerType.SGD
         )
 
         assert len(filtered_sgd) == 2
@@ -149,9 +142,7 @@ class TestFilterExperiments:
         assert all(exp.optimizer == OptimizerType.SGD for exp in filtered_sgd.values())
 
         filtered_adam = filter_experiments(
-            sample_experiments,
-            experiment_type=MockMNISTExperiment,
-            optimizer=OptimizerType.ADAM,
+            sample_experiments, experiment_type=MockMNISTExperiment, optimizer=OptimizerType.ADAM
         )
 
         assert len(filtered_adam) == 1
@@ -175,36 +166,24 @@ class TestFilterExperiments:
         assert exp.optimizer == OptimizerType.ADAM
 
     def test_default_loss_type_handling(self, sample_experiments):
-        """Tests that experiments without a `loss_type` attribute are treated as MSE."""
         filtered_mse = filter_experiments(
-            sample_experiments,
-            experiment_type=MockSynthExperiment,
-            loss_type=LossType.MSE,
+            sample_experiments, experiment_type=MockSynthExperiment, loss_type=LossType.MSE
         )
-
         assert len(filtered_mse) == 2
         assert "synth_1" in filtered_mse
         assert "synth_2" in filtered_mse
 
         filtered_xent = filter_experiments(
-            sample_experiments,
-            experiment_type=MockSynthExperiment,
-            loss_type=LossType.XENT,
+            sample_experiments, experiment_type=MockSynthExperiment, loss_type=LossType.XENT
         )
-
         assert len(filtered_xent) == 0
 
     def test_missing_optimizer_handling(self, sample_experiments):
-        """
-        Tests that experiments without an `optimizer` attribute do not match when
-        an optimizer is specified in the filter.
-        """
         for optimizer_type in [OptimizerType.SGD, OptimizerType.ADAM]:
             filtered = filter_experiments(
-                sample_experiments,
-                experiment_type=MockSynthExperiment,
-                optimizer=optimizer_type,
+                sample_experiments, experiment_type=MockSynthExperiment, optimizer=optimizer_type
             )
+
             assert len(filtered) == 0
 
     def test_no_matches(self, sample_experiments):

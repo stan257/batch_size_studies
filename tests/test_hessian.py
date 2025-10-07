@@ -164,22 +164,17 @@ def test_mlp_model_smoke_test():
     key = jax.random.PRNGKey(42)
     data_key, hessian_key = jax.random.split(key, 2)
 
-    # 1. Initialize a real model and its parameters
     model = MLP(Parameterization.SP)
     dummy_widths = [28 * 28, 128, 10]
     dummy_inputs = jax.random.normal(data_key, (1, 28 * 28))  # Example for MNIST
     params = model.init_params(42, dummy_widths)
 
-    # 2. Define a realistic loss function
-    # For this test, a simple MSE loss is sufficient.
     def mse_loss(logits, targets):
         return jnp.mean((logits - targets) ** 2)
 
-    # 3. Create a mock data loader with appropriate shapes
     dummy_targets = jax.random.normal(data_key, (1, 10))  # Example for 10 classes
     mock_data_loader = [(dummy_inputs, dummy_targets)]
 
-    # 4. Initialize and run a Hessian calculation
     hessian_calc = JaxHessian(
         model=model,
         loss_fn=mse_loss,

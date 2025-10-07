@@ -46,12 +46,61 @@ def setup_logging(log_dir="logs"):
     logger.addHandler(console_handler)
 
 
+def are_all_runs_complete(config, losses, batch_sizes, etas):
+    """
+    Verifies if all trials for an experiment are complete by checking
+    the content of the results, not just the number of entries.
+    """
+    from batch_size_studies.definitions import RunKey
+    from batch_size_studies.experiments import (
+        MNIST1MExperiment,
+        MNIST1MSampledExperiment,
+        MNISTExperiment,
+        SyntheticExperimentFixedData,
+        SyntheticExperimentFixedTime,
+    )
+
+    for b in batch_sizes:
+        for e in etas:
+            run_key = RunKey(batch_size=b, eta=e)
+            result = losses.get(run_key)
+
+            if result is None:
+                return False  # A run is missing entirely
+
+            is_complete = False
+            if isinstance(config, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
+                # For MNIST, check against the number of epochs.
+                num_epochs = getattr(config, "num_epochs", 1)
+                epoch_accuracies = result.get("epoch_test_accuracies", [])
+                if len(epoch_accuracies) >= num_epochs:
+                    is_complete = True
+            elif isinstance(config, SyntheticExperimentFixedTime):
+                # For fixed-time synthetic, check against num_steps.
+                num_steps = getattr(config, "num_steps", 0)
+                loss_history = result.get("loss_history", [])
+                if len(loss_history) >= num_steps:
+                    is_complete = True
+            elif isinstance(config, SyntheticExperimentFixedData):
+                # For fixed-data synthetic, calculate expected steps.
+                num_epochs = getattr(config, "num_epochs", 1)
+                steps_per_epoch = config.P // b
+                num_steps = num_epochs * steps_per_epoch
+                loss_history = result.get("loss_history", [])
+                if len(loss_history) >= num_steps:
+                    is_complete = True
+
+            if not is_complete:
+                return False  # This specific run is incomplete
+
+    return True
+
+
 def run_single_experiment(
     name,
     experiment_config,
     batch_sizes,
     etas,
-    num_epochs_for_fixed_data=1,
     directory=EXPERIMENTS_DIR,
     no_save: bool = False,
     eta_stability_search_depth: int | None = None,
@@ -66,11 +115,16 @@ def run_single_experiment(
     logging.info(f"Parameters: {experiment_config}")
 
     run_options = {
-        "num_epochs": num_epochs_for_fixed_data,
         "directory": directory,
         "no_save": no_save,
         "eta_stability_search_depth": eta_stability_search_depth,
     }
+
+    # Selectively apply a default number of epochs only if the experiment
+    # configuration does not already specify one.
+    if not hasattr(experiment_config, "num_epochs"):
+        logging.info(f"  Applying default num_epochs=1 for {type(experiment_config).__name__} experiment.")
+        run_options["num_epochs"] = 1
 
     if isinstance(experiment_config, MNIST1MExperiment):
         from batch_size_studies.data_loading import load_mnist1m_dataset
@@ -123,7 +177,6 @@ def main():
     setup_logging()
 
     directory = EXPERIMENTS_DIR
-    num_epochs_for_fixed_data = 1
     batch_sizes, etas = get_main_hyperparameter_grids()
     experiments_to_run = get_main_experiment_configs()
 
@@ -159,21 +212,23 @@ def main():
     filepaths = defaultdict(list)
     experiments_that_need_running = {}
     logging.info("--- Pre-flight check: Verifying experiments ---")
-    total_combinations = len(batch_sizes) * len(etas)
 
     for name, config in experiments_to_run.items():
         filepath = config.get_filepath(directory=directory)
         filepaths[filepath].append(name)
 
         if args.no_save:
-            # If not saving, we intend to run everything regardless of completion status
             experiments_that_need_running[name] = config
         else:
-            losses, failed = config.load_results(directory=directory)
-            if len(losses) + len(failed) < total_combinations:
-                experiments_that_need_running[name] = config
+            losses, failed = config.load_results(directory=directory, silent=True)
+            # Rerunning failed runs is implicitly handled: they are not in `losses`.
+            if are_all_runs_complete(config, losses, batch_sizes, etas):
+                logging.info(
+                    f"  Skipping '{name}': Already complete and verified. (Found file: {os.path.basename(filepath)})"
+                )
             else:
-                logging.info(f"  Skipping '{name}': Already complete.")
+                logging.info(f"  Incomplete: '{name}'. Will run. (Checking file: {os.path.basename(filepath)})")
+                experiments_that_need_running[name] = config
 
     has_collision = False
     for filepath, names in filepaths.items():
@@ -201,7 +256,6 @@ def main():
                 config,
                 batch_sizes,
                 etas,
-                num_epochs_for_fixed_data,
                 directory,
                 args.no_save,
                 args.eta_stability_depth,

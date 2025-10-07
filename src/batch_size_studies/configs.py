@@ -81,7 +81,7 @@ def get_main_experiment_configs():
         parameterization=Parameterization.MUP,  # we default to muP for experiments
     )
     # for opt in OptimizerType:
-    opt = OptimizerType.ADAM
+    opt = OptimizerType.SGD
     # for loss_type in LossType:
     loss_type = LossType.MSE
     for g in gammas:
@@ -89,6 +89,31 @@ def get_main_experiment_configs():
         experiments_to_run[name] = MNIST1MExperiment(
             **(
                 mnist1m_kwargs
+                | dict(
+                    optimizer=opt,
+                    loss_type=loss_type,
+                    gamma=g,
+                )
+            )
+        )
+
+    # --- MNIST-1M Sampled Experiment ---
+    mnist1m_sampled_kwargs = dict(
+        N=128,
+        L=3,
+        num_epochs=20,
+        parameterization=Parameterization.MUP,
+        max_train_samples=65_536,
+    )
+    # for opt in OptimizerType:
+    opt = OptimizerType.SGD
+    # for loss_type in LossType:
+    loss_type = LossType.MSE
+    for g in gammas:
+        name = f"mnist1m_sampled_mup_{loss_type.value}_{opt.value}_gamma{str(g).replace('.', 'p')}"
+        experiments_to_run[name] = MNIST1MSampledExperiment(
+            **(
+                mnist1m_sampled_kwargs
                 | dict(
                     optimizer=opt,
                     loss_type=loss_type,
