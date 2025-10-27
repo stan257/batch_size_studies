@@ -6,6 +6,7 @@ import pytest
 from batch_size_studies.data_utils import (
     extract_loss_histories,
     filter_experiments,
+    filter_loss_dict_by_loss_threshold,
     filter_loss_dicts,
     get_loss_history_from_result,
     subsample_loss_dict_periodic,
@@ -291,3 +292,56 @@ class TestLossHistoryExtraction:
 
         result_no_history = get_loss_history_from_result(sample_results_dict[RunKey(128, 0.1)])
         assert result_no_history is None
+
+
+class TestFilterLossDictByLossThreshold:
+    @pytest.fixture
+    def loss_dict_for_thresholding(self):
+        return {
+            # Should be kept
+            RunKey(16, 0.1): {"loss_history": [1.0, 0.9, 0.8]},
+            # Should be kept (loss equals threshold)
+            RunKey(16, 0.01): {"loss_history": [1.2, 1.1, 2.0]},
+            # Should be removed (one loss > threshold)
+            RunKey(32, 0.1): {"loss_history": [0.8, 2.1, 0.6]},
+            # Should be removed (contains NaN)
+            RunKey(32, 0.01): {"loss_history": [0.9, np.nan, 0.7]},
+            # Should be removed (contains inf)
+            RunKey(64, 0.1): {"loss_history": [0.5, np.inf, 0.4]},
+            # Should be kept (empty history)
+            RunKey(64, 0.01): {"loss_history": []},
+            # Should be kept (no history key)
+            RunKey(128, 0.1): {"other_metric": 123},
+        }
+
+    def test_filters_based_on_threshold(self, loss_dict_for_thresholding):
+        threshold = 2.0
+        filtered_dict = filter_loss_dict_by_loss_threshold(loss_dict_for_thresholding, threshold)
+
+        assert RunKey(16, 0.1) in filtered_dict
+        assert RunKey(16, 0.01) in filtered_dict
+        assert RunKey(64, 0.01) in filtered_dict
+        assert RunKey(128, 0.1) in filtered_dict
+
+        assert RunKey(32, 0.1) not in filtered_dict
+        assert RunKey(32, 0.01) not in filtered_dict
+        assert RunKey(64, 0.1) not in filtered_dict
+
+        assert len(filtered_dict) == 4
+
+    def test_works_on_list_of_dicts(self, loss_dict_for_thresholding):
+        """Tests that the decorator correctly applies the function to a list."""
+        threshold = 2.0
+        list_of_dicts = [loss_dict_for_thresholding, loss_dict_for_thresholding.copy()]
+
+        filtered_list = filter_loss_dict_by_loss_threshold(list_of_dicts, threshold)
+
+        assert isinstance(filtered_list, list)
+        assert len(filtered_list) == 2
+        # Check the contents of the first filtered dict
+        assert len(filtered_list[0]) == 4
+        assert RunKey(32, 0.1) not in filtered_list[0]
+
+    def test_empty_dict_input(self):
+        filtered = filter_loss_dict_by_loss_threshold({}, threshold=10.0)
+        assert filtered == {}

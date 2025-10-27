@@ -45,7 +45,11 @@ def create_optimizer(experiment, eta: float):
     Creates an optax optimizer based on the experiment configuration.
     The learning rate is determined by `eta_adjustment_fn`.
     """
-    learning_rate = eta_adjustment_fn(experiment, eta)
+    # Only apply eta adjustment for experiments that have MLP-specific parameters.
+    if hasattr(experiment, "gamma"):
+        learning_rate = eta_adjustment_fn(experiment, eta)
+    else:
+        learning_rate = eta  # Use eta directly for other models like LinearModel
     match experiment.optimizer:
         case OptimizerType.SGD:
             return optax.sgd(learning_rate)

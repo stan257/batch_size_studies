@@ -98,13 +98,16 @@ def extract_noise_loss_dicts(
         smoothed = np.array(smoothed_history)
 
         if len(original) > len(smoothed):
-            padding_width = len(original) - len(smoothed)
-            smoothed = np.pad(smoothed, (padding_width, 0), mode="constant", constant_values=0)
+            # For a trailing smoother, the smoothed history is shorter.
+            # To align them, we drop the initial values from the original history
+            # so that both arrays start at the first point where a full window is available.
+            diff = len(original) - len(smoothed)
+            original = original[diff:]
         elif len(original) < len(smoothed):
             raise ValueError(
                 f"Smoother for RunKey {run_key} produced a history of length {len(smoothed)}, "
                 f"which is longer than the original length {len(original)}. "
-                "Padding is only supported for shorter smoothed histories."
+                "This is not supported."
             )
 
         noise = original - smoothed
@@ -205,6 +208,24 @@ def filter_loss_dict_by_cutoff(
     }
 
 
+@apply_to_list_of_dicts
+def filter_loss_dict_by_loss_threshold(
+    loss_dict: dict[RunKey, Any],
+    threshold: float,
+) -> dict[RunKey, Any]:
+    """
+    Filters a loss dictionary by removing runs where the loss exceeds a given
+    threshold at any point in the history. Any non-finite loss (NaN, inf)
+    will also cause the run to be removed.
+    """
+    return {
+        rk: result_obj
+        for rk, result_obj in loss_dict.items()
+        if (loss_history := get_loss_history_from_result(result_obj)) is None
+        or all(np.isfinite(loss) and loss <= threshold for loss in loss_history)
+    }
+
+
 def extract_loss_histories(
     results_dict: dict[RunKey, Any],
 ) -> dict[RunKey, list[float]]:
@@ -213,3 +234,32 @@ def extract_loss_histories(
         for run_key, result_obj in results_dict.items()
         if (loss_history := get_loss_history_from_result(result_obj)) is not None
     }
+
+
+def get_first_divergence_eta(divergent_runs: set[RunKey]) -> dict[int, float]:
+    """
+    Given a set of RunKeys for divergent runs, finds the smallest eta that
+    caused divergence for each batch size.
+    """
+    first_divergence: dict[int, float] = {}
+    for run_key in divergent_runs:
+        if run_key.batch_size not in first_divergence or run_key.eta < first_divergence[run_key.batch_size]:
+            first_divergence[run_key.batch_size] = run_key.eta
+    return first_divergence
+
+
+def adjust_run_keys_in_dict(
+    input_dict: dict[RunKey, Any], adjuster_fn: Callable[[RunKey], RunKey]
+) -> dict[RunKey, Any]:
+    """
+    Takes a dictionary with RunKey keys and returns a new dictionary
+    with keys adjusted according to a provided callable.
+
+    Args:
+        input_dict (dict[RunKey, Any]): The input dictionary with RunKey keys.
+        adjuster_fn (Callable[[RunKey], RunKey]): A callable that takes a RunKey
+                                                  and returns an adjusted RunKey.
+    Returns:
+        dict[RunKey, Any]: A new dictionary with adjusted RunKey keys.
+    """
+    return {adjuster_fn(run_key): value for run_key, value in input_dict.items()}

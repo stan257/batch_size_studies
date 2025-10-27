@@ -54,7 +54,8 @@ class ExperimentBase:
     def to_params_dict(self):
         """
         Helper to return dataclass attributes as a dictionary, converting Enums
-        to their string values and excluding 'experiment_type' for cleaner filenames.
+        to their string values and excluding 'experiment_type' for cleaner filenames. The
+        dictionary is sorted by key to ensure consistent filename ordering.
         """
         params = asdict(self)
         params.pop("num_outputs", None)  # Exclude constants from filename
@@ -62,7 +63,9 @@ class ExperimentBase:
         for key, value in params.items():
             if isinstance(value, Enum):
                 params[key] = value.value
-        return params
+
+        # Sort the dictionary by key for consistent filenames
+        return dict(sorted(params.items()))
 
     def generate_filename(self, prefix="results", extension="pkl"):
         params = self.to_params_dict()
@@ -227,6 +230,67 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, SyntheticExperiment):
     def plot_title(self, task_name="MLP teacher", model_name="MLP"):
         line1 = f"$T* = {self.num_steps}$ steps, {task_name} T(N={self.teacher_N}, L={self.teacher_L}), D={self.D}"
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
+        return f"{line1}\n{line2}"
+
+
+@dataclass
+class SyntheticExperimentLinearTeacher(ExperimentBase, SyntheticExperiment):
+    """
+    Defines parameters for a synthetic data experiment where the teacher is linear.
+    This is a *fixed-data* experiment.
+    y = w^T x
+    x ~ N(0, Sigma), Sigma = diag(i^-alpha for i=1..D)
+    w_i = i^(-theta), where theta = 1/2 + 1/2 * alpha * (beta - 1)
+
+    Here alpha and beta are the capacity and source exponents as defined in
+    https://abatanasov.com/Files/Scaling_Laws_Note.pdf, i.e. the decay rate of the
+    data-covariance and of the tail of Var(y), respectively.
+    """
+
+    # Student and task parameters
+    D: int
+    P: int
+    optimizer: OptimizerType
+    loss_type: LossType
+
+    # Teacher parameters
+    alpha: float
+    beta: float
+
+    seed: int = 0  # Seed for reproducible data generation
+    experiment_type: str = field(default="fixed_data_linear_teacher", init=False)
+
+    def __post_init__(self):
+        super().__post_init__()
+
+    def generate_teacher_weights(self):
+        # w_i = i^(-theta)
+        indices = np.arange(1, self.D + 1)
+        theta = 1 / 2 + 1 / 2 * self.alpha * (self.beta - 1)
+        w = indices ** (-theta)
+        return w.reshape(-1, 1)
+
+    def generate_data(self, data_key):
+        # x ~ N(0, Sigma), Sigma = diag(i^-alpha for i=1..D)
+        # w_i = i^(-theta)
+        # y = X @ w
+        w = self.generate_teacher_weights()
+
+        # Generate standard normal data∂
+        z_key, _ = jr.split(data_key, 2)
+        z_data = jr.normal(z_key, (self.P, self.D))
+
+        # Scale by sqrt(Sigma)
+        # sqrt(Sigma) is a diagonal matrix with sqrt of Sigma's diagonal elements
+        sigma_diag_sqrt = np.arange(1, self.D + 1) ** (-self.alpha / 2.0)
+        X_data = z_data * sigma_diag_sqrt  # Element-wise multiplication, broadcasting
+
+        y_data = X_data @ w
+        return X_data, y_data
+
+    def plot_title(self, task_name="linear task", model_name="Linear Model"):
+        line1 = f"$P = {self.P}$ samples, {task_name} w/ $D={self.D}, \\alpha={self.alpha}, \\beta={self.beta}$"
+        line2 = f"Student: {model_name}, Optimizer: {self.optimizer.value}, Loss: {self.loss_type.value}"
         return f"{line1}\n{line2}"
 
 

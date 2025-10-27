@@ -70,3 +70,38 @@ class MLP:
 
     def __call__(self, params: List[jnp.ndarray], x: jnp.ndarray) -> jnp.ndarray:
         return self._apply_fn(params, x)
+
+
+@dataclass(frozen=True)
+class LinearModel:
+    """
+    A simple linear model: y = x @ W, no bias.
+    """
+
+    def init_params(self, init_key: int, widths: List[int], **kwargs) -> List[jnp.ndarray]:
+        """
+        Initializes parameters with zeros.
+
+        Args:
+            init_key: A random key (ignored, as initialization is deterministic).
+            widths: A list of [input_dim, output_dim].
+            **kwargs: Ignored, for API compatibility with MLP.
+
+        Returns:
+            A list containing a zero-initialized weight matrix and bias vector.
+        """
+        if len(widths) != 2:
+            raise ValueError(
+                f"LinearModel expects `widths` to be a list of length 2 ([input_dim, output_dim]), "
+                f"but got {len(widths)}."
+            )
+        input_dim, output_dim = widths
+        # A linear model is like a single-layer network with weights and bias.
+        # We return a list to be consistent with the MLP parameter structure.
+        W = jnp.zeros((input_dim, output_dim))
+        return W
+
+    def __call__(self, params: List[jnp.ndarray], x: jnp.ndarray) -> jnp.ndarray:
+        """Forward pass for the linear model."""
+        W = params
+        return jnp.dot(x, W)

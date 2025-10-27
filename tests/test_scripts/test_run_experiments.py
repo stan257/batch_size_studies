@@ -5,7 +5,6 @@ from batch_size_studies.experiments import MNIST1MSampledExperiment
 from scripts.run_experiments import are_all_runs_complete
 
 
-# Define a sample experiment configuration for testing
 @pytest.fixture
 def sample_config():
     return MNIST1MSampledExperiment(
@@ -13,16 +12,12 @@ def sample_config():
     )
 
 
-# Define the hyperparameter grid for the test
 @pytest.fixture
 def sample_grids():
-    return [128], [0.1]  # One batch size, one eta
+    return [128], [0.1]
 
 
 def test_incomplete_epoch_run_is_not_complete(sample_config, sample_grids):
-    """
-    Verify that a run with fewer epochs than configured is marked as incomplete.
-    """
     batch_sizes, etas = sample_grids
     run_key = RunKey(batch_size=128, eta=0.1)
 
@@ -33,9 +28,6 @@ def test_incomplete_epoch_run_is_not_complete(sample_config, sample_grids):
 
 
 def test_complete_epoch_run_is_complete(sample_config, sample_grids):
-    """
-    Verify that a run with the correct number of epochs is marked as complete.
-    """
     batch_sizes, etas = sample_grids
     run_key = RunKey(batch_size=128, eta=0.1)
 
@@ -46,9 +38,6 @@ def test_complete_epoch_run_is_complete(sample_config, sample_grids):
 
 
 def test_missing_run_is_not_complete(sample_config, sample_grids):
-    """
-    Verify that if a run is missing entirely, it's marked as incomplete.
-    """
     batch_sizes, etas = sample_grids
     empty_losses = {}
 

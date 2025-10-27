@@ -10,7 +10,6 @@ import optax
 
 from .checkpoint_utils import CheckpointManager
 from .definitions import LossType, RunKey
-from .models import MLP
 from .training_utils import create_optimizer
 
 
@@ -22,7 +21,7 @@ class TrialRunner(ABC):
         experiment,
         run_key: RunKey,
         params0,
-        mlp_instance: MLP,
+        model_instance,
         checkpoint_manager: CheckpointManager,
         pbar,
         no_save: bool,
@@ -31,7 +30,7 @@ class TrialRunner(ABC):
         self.experiment = experiment
         self.run_key = run_key
         self.params0 = params0
-        self.mlp_instance = mlp_instance
+        self.model_instance = model_instance
         self.checkpoint_manager = checkpoint_manager
         self.pbar = pbar
         self.no_save = no_save
@@ -157,14 +156,18 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
         return {"epoch_test_accuracies": [], "loss_history": []}
 
     def _create_loss_fn(self):
-        apply_fn = jax.jit(self.mlp_instance)
+        apply_fn = jax.jit(self.model_instance)
         match self.experiment.loss_type:
             case LossType.XENT:
 
                 def loss_fn(params, x_batch, y_batch_labels):
                     logits = apply_fn(params, x_batch) - apply_fn(self.params0, x_batch)
-                    loss = jnp.mean(
-                        optax.softmax_cross_entropy_with_integer_labels(logits=logits, labels=y_batch_labels)
+                    loss = (
+                        1
+                        / 2
+                        * jnp.mean(
+                            optax.softmax_cross_entropy_with_integer_labels(logits=logits, labels=y_batch_labels)
+                        )
                     )
                     return loss, logits
 
@@ -193,7 +196,7 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
         return update_step
 
     def _create_eval_step(self):
-        apply_fn = jax.jit(self.mlp_instance)
+        apply_fn = jax.jit(self.model_instance)
 
         @jax.jit
         def eval_step(params, x_batch, y_batch):
@@ -249,7 +252,7 @@ class SyntheticTrialRunner(TrialRunner):
 
     def _create_loss_fn(self):
         def loss_fn(params, x_batch, y_batch):
-            pred = self.mlp_instance(params, x_batch) - self.mlp_instance(self.params0, x_batch)
+            pred = self.model_instance(params, x_batch) - self.model_instance(self.params0, x_batch)
             return jnp.mean((y_batch - pred) ** 2)
 
         return partial(loss_fn)

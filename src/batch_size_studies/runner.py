@@ -25,9 +25,10 @@ from .experiments import (
     MNISTExperiment,
     SyntheticExperimentFixedData,
     SyntheticExperimentFixedTime,
+    SyntheticExperimentLinearTeacher,
     SyntheticExperimentMLPTeacher,
 )
-from .models import MLP
+from .models import MLP, LinearModel
 from .paths import EXPERIMENTS_DIR
 from .trainer import (
     MNISTTrialRunner,
@@ -41,7 +42,9 @@ class ExperimentTypeChecker:
 
     def __init__(self, experiment):
         self.is_mnist = isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment))
-        self.is_synthetic_fixed_data = isinstance(experiment, SyntheticExperimentFixedData)
+        self.is_synthetic_fixed_data = isinstance(
+            experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)
+        )
         self.is_synthetic_fixed_time = isinstance(
             experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)
         )
@@ -128,14 +131,14 @@ def initialize_results_and_checkpoints(experiment, directory: str, no_save: bool
 
 
 def initialize_model_params(
-    mlp_instance: MLP, checkpoint_manager: CheckpointManager, init_key: int, widths: list[int], no_save: bool
+    model_instance, checkpoint_manager: CheckpointManager, init_key: int, widths: list[int], no_save: bool
 ):
     """Initializes or loads the initial model parameters (params0)."""
     if no_save:
-        return mlp_instance.init_params(init_key, widths)
+        return model_instance.init_params(init_key, widths)
 
     # This method handles both loading and safe, locked initialization.
-    return checkpoint_manager.initialize_and_save_initial_params(init_key, mlp_instance, widths)
+    return checkpoint_manager.initialize_and_save_initial_params(init_key, model_instance, widths)
 
 
 # ============================================================================
@@ -246,7 +249,7 @@ def _create_runner_kwargs(
     run_key: RunKey,
     type_checker: ExperimentTypeChecker,
     params0,
-    mlp_instance: MLP,
+    model_instance,
     checkpoint_manager: CheckpointManager,
     train_ds,
     test_ds,
@@ -261,7 +264,7 @@ def _create_runner_kwargs(
         "experiment": experiment,
         "run_key": run_key,
         "params0": params0,
-        "mlp_instance": mlp_instance,
+        "model_instance": model_instance,
         "checkpoint_manager": checkpoint_manager,
         "pbar": pbar,
         "no_save": no_save,
@@ -287,7 +290,7 @@ def _run_single_trial(
     failed_runs: set,
     checkpoint_manager: CheckpointManager,
     params0,
-    mlp_instance: MLP,
+    model_instance,
     train_ds,
     test_ds,
     pbar,
@@ -310,7 +313,7 @@ def _run_single_trial(
         run_key,
         type_checker,
         params0,
-        mlp_instance,
+        model_instance,
         checkpoint_manager,
         train_ds,
         test_ds,
@@ -357,9 +360,14 @@ def run_experiment_sweep(
     # 1. Setup
     type_checker = ExperimentTypeChecker(experiment)
     results_dict, failed_runs, checkpoint_manager = initialize_results_and_checkpoints(experiment, directory, no_save)
-    mlp_instance = MLP(experiment.parameterization, experiment.gamma)
-    widths = compute_model_widths(experiment, type_checker)
-    params0 = initialize_model_params(mlp_instance, checkpoint_manager, init_key, widths, no_save)
+    if isinstance(experiment, SyntheticExperimentLinearTeacher):
+        model_instance = LinearModel()
+        widths = [experiment.D, 1]  # Input dim D, output dim 1
+    else:
+        model_instance = MLP(experiment.parameterization, experiment.gamma)
+        widths = compute_model_widths(experiment, type_checker)
+
+    params0 = initialize_model_params(model_instance, checkpoint_manager, init_key, widths, no_save)
 
     # 2. Load Data
     train_ds, test_ds = prepare_datasets(experiment, type_checker, init_key, **kwargs)
@@ -388,7 +396,7 @@ def run_experiment_sweep(
                 failed_runs=failed_runs,
                 checkpoint_manager=checkpoint_manager,
                 params0=params0,
-                mlp_instance=mlp_instance,
+                model_instance=model_instance,
                 train_ds=train_ds,
                 test_ds=test_ds,
                 pbar=eta_pbar,

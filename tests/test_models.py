@@ -1,8 +1,9 @@
+import jax.numpy as jnp
 import jax.random as jr
 import pytest
 
 from batch_size_studies.definitions import Parameterization
-from batch_size_studies.models import MLP
+from batch_size_studies.models import MLP, LinearModel
 
 
 def test_mlp_initialization_and_validation():
@@ -53,3 +54,75 @@ def test_sp_and_mup_forward_pass_are_different():
     assert output_sp.shape == (1, 1)
     assert output_mup.shape == (1, 1)
     assert output_sp != output_mup
+
+
+class TestLinearModel:
+    """Tests for the LinearModel class."""
+
+    @pytest.fixture
+    def linear_model(self):
+        return LinearModel()
+
+    def test_init_params_returns_correct_shapes_and_zeros(self, linear_model):
+        input_dim, output_dim = 10, 3
+        widths = [input_dim, output_dim]
+        params = linear_model.init_params(init_key=0, widths=widths)
+
+        assert isinstance(params, list)
+        assert len(params) == 2
+
+        W, b = params
+        assert W.shape == (input_dim, output_dim)
+        assert b.shape == (output_dim,)
+        assert jnp.all(W == 0)
+        assert jnp.all(b == 0)
+
+    def test_init_params_raises_error_for_invalid_widths(self, linear_model):
+        with pytest.raises(ValueError, match="expects `widths` to be a list of length 2"):
+            linear_model.init_params(init_key=0, widths=[10, 5, 3])  # More than 2
+
+        with pytest.raises(ValueError, match="expects `widths` to be a list of length 2"):
+            linear_model.init_params(init_key=0, widths=[10])  # Less than 2
+
+    def test_forward_pass_computes_correctly(self, linear_model):
+        input_dim, output_dim = 5, 2
+        key = jr.PRNGKey(42)
+        x = jr.normal(key, (input_dim,))
+
+        # Use non-zero params for a more robust check
+        W = jnp.ones((input_dim, output_dim))
+        b = jnp.array([0.5, -0.5])
+        params = [W, b]
+
+        output = linear_model(params, x)
+
+        expected_output = jnp.dot(x, W) + b
+        assert output.shape == (output_dim,)
+        assert jnp.allclose(output, expected_output)
+
+    def test_forward_pass_with_batch_input(self, linear_model):
+        batch_size, input_dim, output_dim = 4, 5, 2
+        key = jr.PRNGKey(42)
+        x_batch = jr.normal(key, (batch_size, input_dim))
+
+        W = jnp.ones((input_dim, output_dim))
+        b = jnp.array([0.5, -0.5])
+        params = [W, b]
+
+        output = linear_model(params, x_batch)
+
+        expected_output = jnp.dot(x_batch, W) + b
+        assert output.shape == (batch_size, output_dim)
+        assert jnp.allclose(output, expected_output)
+
+    def test_forward_pass_raises_error_for_invalid_params(self, linear_model):
+        x = jnp.ones((5,))
+        with pytest.raises(
+            ValueError, match="params for LinearModel should be a list with a weight matrix and a bias vector"
+        ):
+            linear_model([jnp.zeros(1)], x)  # List of wrong length
+
+        with pytest.raises(
+            ValueError, match="params for LinearModel should be a list with a weight matrix and a bias vector"
+        ):
+            linear_model("not_a_list", x)

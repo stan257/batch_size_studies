@@ -6,7 +6,6 @@ import jax
 from filelock import FileLock
 
 from .definitions import RunKey
-from .models import MLP
 from .storage_utils import CustomUnpickler, generate_experiment_filename, save_experiment
 
 
@@ -112,7 +111,7 @@ class CheckpointManager:
             logging.warning(f"Could not load initial params from {self.weights_filepath}. Error: {e}")
             return None
 
-    def initialize_and_save_initial_params(self, init_key: int, mlp_instance: MLP, widths: list[int]):
+    def initialize_and_save_initial_params(self, init_key: int, model_instance, widths: list[int]):
         """Generates and saves initial parameters if they don't exist, using a lock."""
         lock_path = self.weights_filepath + ".lock"
         with FileLock(lock_path):
@@ -122,7 +121,7 @@ class CheckpointManager:
                 return params0
 
             logging.info("No initial parameters found. Generating and saving.")
-            params0 = mlp_instance.init_params(init_key, widths)
+            params0 = model_instance.init_params(init_key, widths)
             weights_data = {"initial_params": params0, "weight_snapshots": {}}
             save_experiment(weights_data, self.weights_filepath)
             return params0
