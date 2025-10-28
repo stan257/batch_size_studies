@@ -25,6 +25,8 @@ def fixed_time_config():
         gamma=1.0,
         L=2,
         parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
     )
 
 
@@ -60,7 +62,17 @@ class TestSyntheticExperimentFixedTime:
 @pytest.fixture
 def fixed_data_config():
     """Fixture for a standard FixedData experiment configuration."""
-    return SyntheticExperimentFixedData(D=16, P=128, N=32, K=2, gamma=1.0, L=2, parameterization=Parameterization.SP)
+    return SyntheticExperimentFixedData(
+        D=16,
+        P=128,
+        N=32,
+        K=2,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+    )
 
 
 class TestSyntheticExperimentFixedData:
@@ -72,7 +84,15 @@ class TestSyntheticExperimentFixedData:
 
     def test_filename_is_deterministic(self, fixed_data_config):
         exp2 = SyntheticExperimentFixedData(
-            D=16, P=128, N=32, K=2, gamma=1.0, L=2, parameterization=Parameterization.SP
+            D=16,
+            P=128,
+            N=32,
+            K=2,
+            gamma=1.0,
+            L=2,
+            parameterization=Parameterization.SP,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
         )
         assert fixed_data_config.generate_filename() == exp2.generate_filename()
 
@@ -98,6 +118,8 @@ def mlp_teacher_config():
         teacher_L=3,
         teacher_gamma=1.0,
         teacher_parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
     )
 
 
@@ -140,6 +162,8 @@ class TestSyntheticExperimentMLPTeacher:
             "teacher_L": 3,
             "teacher_gamma": 1.0,
             "teacher_parameterization": Parameterization.SP,
+            "optimizer": OptimizerType.SGD,
+            "loss_type": LossType.MSE,
         }
         base_config[invalid_param] = invalid_value
 
@@ -211,6 +235,7 @@ class TestFilenameUniqueness:
         "L": 2,
         "parameterization": Parameterization.SP,
         "optimizer": OptimizerType.SGD,
+        "loss_type": LossType.MSE,
     }
     base_synthetic_fd = {
         "D": 16,
@@ -221,6 +246,7 @@ class TestFilenameUniqueness:
         "L": 2,
         "parameterization": Parameterization.SP,
         "optimizer": OptimizerType.SGD,
+        "loss_type": LossType.MSE,
     }
     base_mlp_teacher = {
         "D": 16,
@@ -235,6 +261,7 @@ class TestFilenameUniqueness:
         "teacher_gamma": 1.0,
         "teacher_parameterization": Parameterization.SP,
         "optimizer": OptimizerType.SGD,
+        "loss_type": LossType.MSE,
     }
     base_mnist = {
         "N": 32,

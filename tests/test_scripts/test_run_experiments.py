@@ -1,6 +1,6 @@
 import pytest
 
-from batch_size_studies.definitions import Parameterization, RunKey
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import MNIST1MSampledExperiment
 from scripts.run_experiments import are_all_runs_complete
 
@@ -8,7 +8,14 @@ from scripts.run_experiments import are_all_runs_complete
 @pytest.fixture
 def sample_config():
     return MNIST1MSampledExperiment(
-        N=32, L=2, parameterization=Parameterization.MUP, num_epochs=5, max_train_samples=1024
+        N=32,
+        L=2,
+        parameterization=Parameterization.MUP,
+        num_epochs=5,
+        max_train_samples=1024,
+        gamma=1.0,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
     )
 
 

@@ -1,7 +1,7 @@
 import os
 import pickle
 
-from batch_size_studies.definitions import Parameterization, RunKey
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import SyntheticExperimentFixedData
 from batch_size_studies.runner import run_experiment_sweep
 
@@ -18,7 +18,16 @@ class TestRunnerIntegration:
         4. `storage_utils.save_experiment` writes the data to the correct path.
         """
         config = SyntheticExperimentFixedData(
-            D=8, P=64, N=16, K=2, gamma=1.0, L=2, parameterization=Parameterization.SP, seed=42
+            D=8,
+            P=64,
+            N=16,
+            K=2,
+            gamma=1.0,
+            L=2,
+            parameterization=Parameterization.SP,
+            seed=42,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
         )
 
         results, failures = run_experiment_sweep(

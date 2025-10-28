@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from batch_size_studies.checkpoint_utils import CheckpointManager
-from batch_size_studies.definitions import OptimizerType, Parameterization, RunKey
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import (
     ExperimentBase,
     MNISTExperiment,
@@ -22,20 +22,47 @@ from batch_size_studies.runner import run_experiment_sweep
 def fixed_time_config():
     """Fixture for a fast-to-run FixedTime experiment."""
     return SyntheticExperimentFixedTime(
-        D=8, P=32, N=16, K=2, num_steps=10, gamma=1.0, L=2, parameterization=Parameterization.SP
+        D=8,
+        P=32,
+        N=16,
+        K=2,
+        num_steps=10,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
     )
 
 
 @pytest.fixture
 def fixed_data_config():
     """Fixture for a fast-to-run FixedData experiment."""
-    return SyntheticExperimentFixedData(D=8, P=32, N=16, K=2, gamma=1.0, L=2, parameterization=Parameterization.SP)
+    return SyntheticExperimentFixedData(
+        D=8,
+        P=32,
+        N=16,
+        K=2,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+    )
 
 
 @pytest.fixture
 def mnist_config():
     """Fixture for a fast-to-run MNIST experiment."""
-    return MNISTExperiment(N=32, L=2, num_epochs=4, parameterization=Parameterization.SP)
+    return MNISTExperiment(
+        N=32,
+        L=2,
+        num_epochs=4,
+        parameterization=Parameterization.SP,
+        gamma=1.0,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.XENT,
+    )
 
 
 @pytest.fixture
@@ -60,26 +87,16 @@ class TestUnifiedRunner:
     def test_handles_unknown_experiment_type(self, tmp_path, caplog):
         """Tests that the runner handles an unknown experiment type gracefully."""
 
-        @dataclass
+        @dataclass(frozen=True)
         class UnknownExperiment(ExperimentBase):
-            # Add attributes to satisfy the runner's common setup logic
             experiment_type: str = "unknown"
-            parameterization: Parameterization = Parameterization.SP
-            gamma: float = 1.0
-            D: int = 10
-            N: int = 16
-            L: int = 2
-            P: int = 1000
 
-        config = UnknownExperiment()
-        with caplog.at_level(logging.INFO):
+        config = UnknownExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.MSE)
+        # The runner should fail fast if it doesn't know what model to use.
+        with pytest.raises(TypeError, match="Unknown student model for experiment type: UnknownExperiment"):
             losses, failures = run_experiment_sweep(
                 experiment=config, batch_sizes=[8], etas=[0.1], directory=str(tmp_path)
             )
-
-        assert len(losses) == 0
-        assert len(failures) == 1
-        assert RunKey(8, 0.1) in failures
 
 
 class TestSyntheticRunner:

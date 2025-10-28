@@ -12,14 +12,14 @@ from batch_size_studies.data_utils import (
     subsample_loss_dict_periodic,
     uniform_smooth_loss_dicts,
 )
-from batch_size_studies.definitions import LossType, OptimizerType, RunKey
-from batch_size_studies.experiments import ExperimentBase
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
+from batch_size_studies.experiments import ExperimentBase, LinearStudentExperiment, MLPStudentExperiment
 
 # Fixtures and mocks
 
 
-@dataclass
-class MockSynthExperiment(ExperimentBase):
+@dataclass(frozen=True)
+class MockSynthExperiment(ExperimentBase, LinearStudentExperiment):
     """A mock experiment type for testing default attribute handling."""
 
     val: int
@@ -31,13 +31,11 @@ class MockSynthExperiment(ExperimentBase):
         pass
 
 
-@dataclass
-class MockMNISTExperiment(ExperimentBase):
+@dataclass(frozen=True)
+class MockMNISTExperiment(ExperimentBase, MLPStudentExperiment):
     """A mock experiment type with all filterable attributes."""
 
     val: int
-    loss_type: LossType
-    optimizer: OptimizerType
     experiment_type: str = field(default="mnist", init=False)
 
     def __post_init__(self):
@@ -48,11 +46,35 @@ class MockMNISTExperiment(ExperimentBase):
 @pytest.fixture
 def sample_experiments() -> dict[str, ExperimentBase]:
     return {
-        "synth_1": MockSynthExperiment(val=1),
-        "synth_2": MockSynthExperiment(val=2),
-        "mnist_mse_sgd": MockMNISTExperiment(val=3, loss_type=LossType.MSE, optimizer=OptimizerType.SGD),
-        "mnist_xent_sgd": MockMNISTExperiment(val=4, loss_type=LossType.XENT, optimizer=OptimizerType.SGD),
-        "mnist_xent_adam": MockMNISTExperiment(val=5, loss_type=LossType.XENT, optimizer=OptimizerType.ADAM),
+        "synth_1": MockSynthExperiment(val=1, D=10, optimizer=OptimizerType.SGD, loss_type=LossType.MSE),
+        "synth_2": MockSynthExperiment(val=2, D=10, optimizer=OptimizerType.SGD, loss_type=LossType.MSE),
+        "mnist_mse_sgd": MockMNISTExperiment(
+            val=3,
+            loss_type=LossType.MSE,
+            optimizer=OptimizerType.SGD,
+            parameterization=Parameterization.SP,
+            N=16,
+            L=2,
+            gamma=1.0,
+        ),
+        "mnist_xent_sgd": MockMNISTExperiment(
+            val=4,
+            loss_type=LossType.XENT,
+            optimizer=OptimizerType.SGD,
+            parameterization=Parameterization.SP,
+            N=16,
+            L=2,
+            gamma=1.0,
+        ),
+        "mnist_xent_adam": MockMNISTExperiment(
+            val=5,
+            loss_type=LossType.XENT,
+            optimizer=OptimizerType.ADAM,
+            parameterization=Parameterization.SP,
+            N=16,
+            L=2,
+            gamma=1.0,
+        ),
     }
 
 
@@ -132,6 +154,28 @@ class TestFilterExperiments:
         assert "mnist_mse_sgd" in filtered_mse
         assert filtered_mse["mnist_mse_sgd"].loss_type == LossType.MSE
 
+        # Test filtering on synthetic experiments
+        filtered_synth_mse = filter_experiments(
+            sample_experiments, experiment_type=MockSynthExperiment, loss_type=LossType.MSE
+        )
+        assert len(filtered_synth_mse) == 2
+
+        filtered_synth_xent = filter_experiments(
+            sample_experiments, experiment_type=MockSynthExperiment, loss_type=LossType.XENT
+        )
+        assert len(filtered_synth_xent) == 0
+
+    def test_filter_by_parameterization(self, sample_experiments):
+        filtered = filter_experiments(
+            sample_experiments, experiment_type=MockMNISTExperiment, parameterization=Parameterization.SP
+        )
+        assert len(filtered) == 3
+
+        filtered_none = filter_experiments(
+            sample_experiments, experiment_type=MockMNISTExperiment, parameterization=Parameterization.MUP
+        )
+        assert len(filtered_none) == 0
+
     def test_filter_by_optimizer(self, sample_experiments):
         filtered_sgd = filter_experiments(
             sample_experiments, experiment_type=MockMNISTExperiment, optimizer=OptimizerType.SGD
@@ -150,6 +194,17 @@ class TestFilterExperiments:
         assert "mnist_xent_adam" in filtered_adam
         assert filtered_adam["mnist_xent_adam"].optimizer == OptimizerType.ADAM
 
+        # Test filtering on synthetic experiments
+        for optimizer_type in [OptimizerType.SGD, OptimizerType.ADAM]:
+            filtered = filter_experiments(
+                sample_experiments, experiment_type=MockSynthExperiment, optimizer=optimizer_type
+            )
+
+            if optimizer_type == OptimizerType.SGD:
+                assert len(filtered) == 2
+            else:
+                assert len(filtered) == 0
+
     def test_filter_by_all_criteria(self, sample_experiments):
         filtered = filter_experiments(
             sample_experiments,
@@ -165,27 +220,6 @@ class TestFilterExperiments:
         assert isinstance(exp, MockMNISTExperiment)
         assert exp.loss_type == LossType.XENT
         assert exp.optimizer == OptimizerType.ADAM
-
-    def test_default_loss_type_handling(self, sample_experiments):
-        filtered_mse = filter_experiments(
-            sample_experiments, experiment_type=MockSynthExperiment, loss_type=LossType.MSE
-        )
-        assert len(filtered_mse) == 2
-        assert "synth_1" in filtered_mse
-        assert "synth_2" in filtered_mse
-
-        filtered_xent = filter_experiments(
-            sample_experiments, experiment_type=MockSynthExperiment, loss_type=LossType.XENT
-        )
-        assert len(filtered_xent) == 0
-
-    def test_missing_optimizer_handling(self, sample_experiments):
-        for optimizer_type in [OptimizerType.SGD, OptimizerType.ADAM]:
-            filtered = filter_experiments(
-                sample_experiments, experiment_type=MockSynthExperiment, optimizer=optimizer_type
-            )
-
-            assert len(filtered) == 0
 
     def test_no_matches(self, sample_experiments):
         filtered = filter_experiments(

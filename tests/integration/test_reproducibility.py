@@ -7,7 +7,7 @@ import pytest
 
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.data_loading import load_mnist1m_dataset
-from batch_size_studies.definitions import LossType, Parameterization, RunKey
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import MNIST1MSampledExperiment, SyntheticExperimentFixedData
 from batch_size_studies.runner import run_experiment_sweep
 
@@ -88,13 +88,29 @@ def run_and_get_all_data(config, batch_sizes, etas, tmp_path, **kwargs) -> dict:
 
 def get_synthetic_config():
     return SyntheticExperimentFixedData(
-        D=10, P=1024, N=16, K=2, gamma=1.0, L=2, parameterization=Parameterization.SP, seed=42
+        D=10,
+        P=1024,
+        N=16,
+        K=2,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        seed=42,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
     )
 
 
 def get_mnist_config():
     return MNIST1MSampledExperiment(
-        N=16, L=2, parameterization=Parameterization.MUP, num_epochs=2, max_train_samples=4096, loss_type=LossType.MSE
+        N=16,
+        L=2,
+        parameterization=Parameterization.MUP,
+        num_epochs=2,
+        max_train_samples=4096,
+        loss_type=LossType.MSE,
+        gamma=1.0,
+        optimizer=OptimizerType.SGD,
     )
 
 

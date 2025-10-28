@@ -20,6 +20,8 @@ from .checkpoint_utils import CheckpointManager
 from .data_loading import load_datasets, load_mnist1m_dataset
 from .definitions import RunKey
 from .experiments import (
+    LinearStudentExperiment,
+    MLPStudentExperiment,
     MNIST1MExperiment,
     MNIST1MSampledExperiment,
     MNISTExperiment,
@@ -35,23 +37,6 @@ from .trainer import (
     SyntheticFixedDataTrialRunner,
     SyntheticFixedTimeTrialRunner,
 )
-
-
-class ExperimentTypeChecker:
-    """A helper class to determine the family of an experiment object."""
-
-    def __init__(self, experiment):
-        self.is_mnist = isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment))
-        self.is_synthetic_fixed_data = isinstance(
-            experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)
-        )
-        self.is_synthetic_fixed_time = isinstance(
-            experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)
-        )
-
-    @property
-    def uses_dataset(self) -> bool:
-        return self.is_mnist or self.is_synthetic_fixed_data
 
 
 @dataclass
@@ -146,22 +131,23 @@ def initialize_model_params(
 # ============================================================================
 
 
-def compute_model_widths(experiment, type_checker: ExperimentTypeChecker) -> list[int]:
+def compute_model_widths(experiment) -> list[int]:
     """Computes the layer widths for the MLP model."""
-    output_dim = experiment.num_outputs if type_checker.is_mnist else 1
+    # MNIST experiments have a multi-class output, others have a single output.
+    output_dim = getattr(experiment, "num_outputs", 1)
     return [experiment.D] + [experiment.N] * (experiment.L - 1) + [output_dim]
 
 
-def compute_num_steps(experiment, type_checker: ExperimentTypeChecker, batch_size: int, train_ds, **kwargs) -> int:
+def compute_num_steps(experiment, batch_size: int, train_ds, **kwargs) -> int:
     """Computes the total number of training steps for a trial."""
-    if type_checker.is_synthetic_fixed_time:
+    if isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)):
         return experiment.num_steps
 
     num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
 
-    if type_checker.is_mnist:
+    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
         num_train_samples = len(train_ds["image"])
-    elif type_checker.is_synthetic_fixed_data:
+    elif isinstance(experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)):
         num_train_samples = experiment.P
     else:
         return 0
@@ -170,12 +156,15 @@ def compute_num_steps(experiment, type_checker: ExperimentTypeChecker, batch_siz
     return num_epochs * steps_per_epoch
 
 
-def should_skip_batch_size(batch_size: int, train_ds, type_checker: ExperimentTypeChecker, experiment) -> bool:
+def should_skip_batch_size(batch_size: int, train_ds, experiment) -> bool:
     """Checks if a batch size is valid for the given experiment and dataset."""
-    if type_checker.is_synthetic_fixed_time:
+    if isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)):
         return False
 
-    num_train_samples = len(train_ds["image"]) if type_checker.is_mnist else experiment.P
+    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
+        num_train_samples = len(train_ds["image"])
+    else:  # SyntheticFixedData, SyntheticLinearTeacher
+        num_train_samples = experiment.P
     if batch_size > num_train_samples:
         logging.warning(
             f"Skipping run configurations for batch_size ({batch_size}) > dataset size ({num_train_samples})."
@@ -192,7 +181,6 @@ def should_skip_batch_size(batch_size: int, train_ds, type_checker: ExperimentTy
 def validate_and_store_result(
     result: dict | None,
     run_key: RunKey,
-    type_checker: ExperimentTypeChecker,
     results_dict: dict,
     failed_runs: set,
     experiment,
@@ -205,12 +193,15 @@ def validate_and_store_result(
     failed_runs.discard(run_key)
 
     is_mnist_success = (
-        type_checker.is_mnist
+        isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment))
         and result
         and "final_test_accuracy" in result
         and np.isfinite(result["final_test_accuracy"])
     )
-    is_synthetic_success = not type_checker.is_mnist and result is not None
+    is_synthetic_success = (
+        not isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment))
+        and result is not None
+    )
 
     is_successful = is_mnist_success or is_synthetic_success
 
@@ -219,7 +210,7 @@ def validate_and_store_result(
         if not no_save:
             # Only cleanup if the run is fully complete.
             is_fully_complete = False
-            if type_checker.is_mnist:
+            if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
                 # The `experiment` object here is the original one, so it has the correct total number of epochs.
                 original_epochs = getattr(experiment, "num_epochs", 1)
                 if len(result.get("epoch_test_accuracies", [])) >= original_epochs:
@@ -247,7 +238,6 @@ def validate_and_store_result(
 def _create_runner_kwargs(
     experiment,
     run_key: RunKey,
-    type_checker: ExperimentTypeChecker,
     params0,
     model_instance,
     checkpoint_manager: CheckpointManager,
@@ -261,7 +251,6 @@ def _create_runner_kwargs(
 ) -> dict:
     """Assembles the keyword arguments for creating a TrialRunner."""
     base_kwargs = {
-        "experiment": experiment,
         "run_key": run_key,
         "params0": params0,
         "model_instance": model_instance,
@@ -274,9 +263,9 @@ def _create_runner_kwargs(
 
     num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
 
-    if type_checker.is_mnist:
+    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
         base_kwargs.update({"num_epochs": num_epochs, "train_ds": train_ds, "test_ds": test_ds})
-    elif type_checker.is_synthetic_fixed_data:
+    elif isinstance(experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)):
         base_kwargs.update({"num_epochs": num_epochs, "X_data": train_ds[0], "y_data": train_ds[1]})
 
     return base_kwargs
@@ -285,7 +274,6 @@ def _create_runner_kwargs(
 def _run_single_trial(
     experiment,
     run_key: RunKey,
-    type_checker: ExperimentTypeChecker,
     results_dict: dict,
     failed_runs: set,
     checkpoint_manager: CheckpointManager,
@@ -302,7 +290,7 @@ def _run_single_trial(
     Checks the status of, runs, and validates a single trial configuration.
     Returns True if the run was successful (or already was), False otherwise.
     """
-    num_steps = compute_num_steps(experiment, type_checker, run_key.batch_size, train_ds, **kwargs)
+    num_steps = compute_num_steps(experiment, run_key.batch_size, train_ds, **kwargs)
     status = RunStatus(run_key, results_dict, failed_runs, num_steps, no_save)
 
     if not status.should_run:
@@ -311,7 +299,6 @@ def _run_single_trial(
     runner_kwargs = _create_runner_kwargs(
         experiment,
         run_key,
-        type_checker,
         params0,
         model_instance,
         checkpoint_manager,
@@ -324,12 +311,12 @@ def _run_single_trial(
         **kwargs,
     )
 
-    trial_runner = _get_trial_runner(type_checker, **runner_kwargs)
+    trial_runner = _get_trial_runner(experiment, **runner_kwargs)
 
     if trial_runner:
         result = trial_runner.run()
         is_successful = validate_and_store_result(
-            result, run_key, type_checker, results_dict, failed_runs, experiment, checkpoint_manager, no_save
+            result, run_key, results_dict, failed_runs, experiment, checkpoint_manager, no_save
         )
     else:
         failed_runs.add(run_key)
@@ -358,20 +345,33 @@ def run_experiment_sweep(
     training logic based on the type of the experiment object.
     """
     # 1. Setup
-    type_checker = ExperimentTypeChecker(experiment)
     results_dict, failed_runs, checkpoint_manager = initialize_results_and_checkpoints(experiment, directory, no_save)
-    if isinstance(experiment, SyntheticExperimentLinearTeacher):
+    if isinstance(experiment, LinearStudentExperiment):
         model_instance = LinearModel()
-        widths = [experiment.D, 1]  # Input dim D, output dim 1
-    else:
+        widths = [experiment.D, 1]
+    elif isinstance(experiment, MLPStudentExperiment):
         model_instance = MLP(experiment.parameterization, experiment.gamma)
-        widths = compute_model_widths(experiment, type_checker)
+        widths = compute_model_widths(experiment)
+    else:
+        raise TypeError(f"Unknown student model for experiment type: {type(experiment).__name__}")
 
     params0 = initialize_model_params(model_instance, checkpoint_manager, init_key, widths, no_save)
 
     # 2. Load Data
-    train_ds, test_ds = prepare_datasets(experiment, type_checker, init_key, **kwargs)
-    if type_checker.uses_dataset and train_ds is None:
+    train_ds, test_ds = prepare_datasets(experiment, init_key, **kwargs)
+    if (
+        isinstance(
+            experiment,
+            (
+                MNISTExperiment,
+                MNIST1MExperiment,
+                MNIST1MSampledExperiment,
+                SyntheticExperimentFixedData,
+                SyntheticExperimentLinearTeacher,
+            ),
+        )
+        and train_ds is None
+    ):
         logging.error("Failed to load dataset. Aborting sweep.")
         return dict(results_dict), failed_runs
 
@@ -379,7 +379,7 @@ def run_experiment_sweep(
     sorted_etas = sorted(etas, reverse=True)
     eta_pbar = tqdm(total=len(sorted_etas), desc="Eta Sweep", leave=False)
     for batch_size in tqdm(batch_sizes, desc="Batch Size Sweep"):
-        if should_skip_batch_size(batch_size, train_ds, type_checker, experiment):
+        if should_skip_batch_size(batch_size, train_ds, experiment):
             continue
 
         eta_tracker = EtaStabilityTracker(eta_stability_search_depth)
@@ -391,7 +391,6 @@ def run_experiment_sweep(
             is_successful = _run_single_trial(
                 experiment=experiment,
                 run_key=RunKey(batch_size=batch_size, eta=eta),
-                type_checker=type_checker,
                 results_dict=results_dict,
                 failed_runs=failed_runs,
                 checkpoint_manager=checkpoint_manager,
@@ -421,16 +420,16 @@ def run_experiment_sweep(
 # ============================================================================
 
 
-def _get_trial_runner(type_checker: ExperimentTypeChecker, **runner_kwargs):
+def _get_trial_runner(experiment, **runner_kwargs):
     """Factory function to create the appropriate trial runner."""
-    if type_checker.is_mnist:
-        return MNISTTrialRunner(**runner_kwargs)
-    elif type_checker.is_synthetic_fixed_data:
-        return SyntheticFixedDataTrialRunner(**runner_kwargs)
-    elif type_checker.is_synthetic_fixed_time:
-        return SyntheticFixedTimeTrialRunner(**runner_kwargs)
+    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
+        return MNISTTrialRunner(experiment, **runner_kwargs)
+    elif isinstance(experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)):
+        return SyntheticFixedDataTrialRunner(experiment, **runner_kwargs)
+    elif isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)):
+        return SyntheticFixedTimeTrialRunner(experiment, **runner_kwargs)
     else:
-        logging.error(f"Unknown experiment type for experiment: {runner_kwargs['experiment'].experiment_type}")
+        logging.error(f"Unknown experiment type for experiment: {experiment.experiment_type}")
         return None
 
 
@@ -468,13 +467,13 @@ def _load_mnist_dataset(experiment, init_key: int, dataset_loader=None):
         return None, None
 
 
-def prepare_datasets(experiment, type_checker: ExperimentTypeChecker, init_key: int, **kwargs):
+def prepare_datasets(experiment, init_key: int, **kwargs):
     """Prepares training and test datasets based on the experiment type."""
     train_ds, test_ds = None, None
-    if type_checker.is_mnist:
+    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
         return _load_mnist_dataset(experiment, init_key, kwargs.get("dataset_loader"))
 
-    elif type_checker.is_synthetic_fixed_data:
+    elif isinstance(experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)):
         data_key = jr.key(getattr(experiment, "seed", init_key))
         X_data, y_data = experiment.generate_data(data_key)
         train_ds = (X_data, y_data)

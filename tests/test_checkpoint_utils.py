@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from batch_size_studies.checkpoint_utils import CheckpointManager, load_experiment_weights
-from batch_size_studies.definitions import Parameterization, RunKey
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import SyntheticExperimentFixedTime
 
 
@@ -31,6 +31,8 @@ def experiment_instance():
         gamma=1.0,
         L=2,
         parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
     )
 
 

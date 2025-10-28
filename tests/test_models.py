@@ -66,16 +66,11 @@ class TestLinearModel:
     def test_init_params_returns_correct_shapes_and_zeros(self, linear_model):
         input_dim, output_dim = 10, 3
         widths = [input_dim, output_dim]
-        params = linear_model.init_params(init_key=0, widths=widths)
+        W = linear_model.init_params(init_key=0, widths=widths)
 
-        assert isinstance(params, list)
-        assert len(params) == 2
-
-        W, b = params
+        assert isinstance(W, jnp.ndarray)
         assert W.shape == (input_dim, output_dim)
-        assert b.shape == (output_dim,)
         assert jnp.all(W == 0)
-        assert jnp.all(b == 0)
 
     def test_init_params_raises_error_for_invalid_widths(self, linear_model):
         with pytest.raises(ValueError, match="expects `widths` to be a list of length 2"):
@@ -91,12 +86,11 @@ class TestLinearModel:
 
         # Use non-zero params for a more robust check
         W = jnp.ones((input_dim, output_dim))
-        b = jnp.array([0.5, -0.5])
-        params = [W, b]
+        params = W
 
         output = linear_model(params, x)
 
-        expected_output = jnp.dot(x, W) + b
+        expected_output = jnp.dot(x, W)
         assert output.shape == (output_dim,)
         assert jnp.allclose(output, expected_output)
 
@@ -106,23 +100,21 @@ class TestLinearModel:
         x_batch = jr.normal(key, (batch_size, input_dim))
 
         W = jnp.ones((input_dim, output_dim))
-        b = jnp.array([0.5, -0.5])
-        params = [W, b]
+        params = W
 
         output = linear_model(params, x_batch)
 
-        expected_output = jnp.dot(x_batch, W) + b
+        expected_output = jnp.dot(x_batch, W)
         assert output.shape == (batch_size, output_dim)
         assert jnp.allclose(output, expected_output)
 
     def test_forward_pass_raises_error_for_invalid_params(self, linear_model):
         x = jnp.ones((5,))
-        with pytest.raises(
-            ValueError, match="params for LinearModel should be a list with a weight matrix and a bias vector"
-        ):
-            linear_model([jnp.zeros(1)], x)  # List of wrong length
+        # `params` should be an array, not a list containing an array
+        # JAX error messages can vary, so we use a regex to match either form.
+        with pytest.raises(TypeError, match="(requires ndarray or scalar arguments|Error interpreting argument)"):
+            linear_model([jnp.zeros((5, 1))], x)
 
-        with pytest.raises(
-            ValueError, match="params for LinearModel should be a list with a weight matrix and a bias vector"
-        ):
-            linear_model("not_a_list", x)
+        # `params` should be an array, not a string
+        with pytest.raises(TypeError, match="(requires ndarray or scalar arguments|Error interpreting argument)"):
+            linear_model("not_an_array", x)

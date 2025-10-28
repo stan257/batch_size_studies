@@ -16,12 +16,33 @@ from .models import MLP
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
 
 
+# Student Mixins
+@dataclass(frozen=True)
+class MLPStudentExperiment:
+    """A mixin for experiments that use an MLP as the student model."""
+
+    N: int
+    L: int
+    parameterization: Parameterization
+    gamma: float
+
+
+@dataclass(frozen=True)
+class LinearStudentExperiment:
+    """A mixin for experiments that use a LinearModel as the student."""
+
+    D: int
+
+
 # Base class for all experiments
+@dataclass(frozen=True)
 class ExperimentBase:
     """
     A base class that provides file I/O and automatic type validation for experiment dataclasses.
     """
 
+    optimizer: OptimizerType
+    loss_type: LossType
     experiment_type: str = field(init=False)
 
     def __post_init__(self):
@@ -111,18 +132,13 @@ class SyntheticExperiment(ABC):
     def generate_data(self, data_key): ...
 
 
-@dataclass
-class SyntheticExperimentFixedTime(ExperimentBase, SyntheticExperiment):
+@dataclass(frozen=True)
+class SyntheticExperimentFixedTime(ExperimentBase, MLPStudentExperiment, SyntheticExperiment):
     # Student and task parameters
     D: int
     P: int
-    N: int
     K: int
     num_steps: int
-    gamma: float
-    L: int
-    parameterization: Parameterization
-    optimizer: OptimizerType = OptimizerType.SGD
     experiment_type: str = field(default="fixed_time_poly_teacher", init=False)
 
     def __post_init__(self):
@@ -145,17 +161,12 @@ class SyntheticExperimentFixedTime(ExperimentBase, SyntheticExperiment):
         return f"{line1}\n{line2}"
 
 
-@dataclass
-class SyntheticExperimentFixedData(ExperimentBase, SyntheticExperiment):
+@dataclass(frozen=True)
+class SyntheticExperimentFixedData(ExperimentBase, MLPStudentExperiment, SyntheticExperiment):
     # Student and task parameters
     D: int
     P: int
-    N: int
     K: int
-    gamma: float
-    L: int
-    parameterization: Parameterization
-    optimizer: OptimizerType = OptimizerType.SGD
     seed: int = 0  # Seed for reproducible data generation
     experiment_type: str = field(default="fixed_data_poly_teacher", init=False)
 
@@ -180,20 +191,16 @@ class SyntheticExperimentFixedData(ExperimentBase, SyntheticExperiment):
 
 
 # TODO: Make separate MLP fixed-data class for experiments, when needed
-@dataclass
-class SyntheticExperimentMLPTeacher(ExperimentBase, SyntheticExperiment):
+@dataclass(frozen=True)
+class SyntheticExperimentMLPTeacher(ExperimentBase, MLPStudentExperiment, SyntheticExperiment):
     """
     Defines parameters for a synthetic data experiment where the teacher is an MLP.
     This is a *fixed-time* experiment.
     """
 
-    # Student parameters
+    # Additional student parameters
     D: int
     P: int
-    N: int
-    L: int
-    gamma: float
-    parameterization: Parameterization
     num_steps: int
 
     # Teacher parameters
@@ -201,8 +208,6 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, SyntheticExperiment):
     teacher_L: int
     teacher_gamma: float
     teacher_parameterization: Parameterization
-
-    optimizer: OptimizerType = OptimizerType.SGD
 
     experiment_type: str = field(default="fixed_time_mlp_teacher", init=False)
 
@@ -233,8 +238,8 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, SyntheticExperiment):
         return f"{line1}\n{line2}"
 
 
-@dataclass
-class SyntheticExperimentLinearTeacher(ExperimentBase, SyntheticExperiment):
+@dataclass(frozen=True)
+class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, SyntheticExperiment):
     """
     Defines parameters for a synthetic data experiment where the teacher is linear.
     This is a *fixed-data* experiment.
@@ -248,10 +253,7 @@ class SyntheticExperimentLinearTeacher(ExperimentBase, SyntheticExperiment):
     """
 
     # Student and task parameters
-    D: int
     P: int
-    optimizer: OptimizerType
-    loss_type: LossType
 
     # Teacher parameters
     alpha: float
@@ -294,21 +296,14 @@ class SyntheticExperimentLinearTeacher(ExperimentBase, SyntheticExperiment):
         return f"{line1}\n{line2}"
 
 
-@dataclass
-class MNISTExperiment(ExperimentBase):
+@dataclass(frozen=True)
+class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
     """
     Defines parameters for a 10-class MNIST classification experiment.
     This is a fixed-data, fixed-epoch experiment that uses the custom MLP
     from models.py. Sweeps are performed over batch size and learning rate.
     """
 
-    # Model parameters
-    N: int  # Hidden layer width, consistent with other experiments
-    L: int  # Network depth
-    parameterization: Parameterization
-    optimizer: OptimizerType = OptimizerType.SGD
-    loss_type: LossType = LossType.XENT
-    gamma: float = 1.0
     D: int = field(default=784, init=False)  # Input dim for flattened MNIST
     num_outputs: int = 10
 
@@ -328,20 +323,14 @@ class MNISTExperiment(ExperimentBase):
         return f"{line1}\n{line2}"
 
 
-@dataclass
-class MNIST1MExperiment(ExperimentBase):
+@dataclass(frozen=True)
+class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
     """
     Defines parameters for a 10-class MNIST-1M classification experiment.
     This dataset is generated from a diffusion model.
     """
 
-    N: int
-    L: int
-    parameterization: Parameterization
     num_epochs: int
-    optimizer: OptimizerType = OptimizerType.SGD
-    loss_type: LossType = LossType.XENT
-    gamma: float = 1.0
     D: int = field(default=784, init=False)
     num_outputs: int = 10
 
@@ -358,21 +347,15 @@ class MNIST1MExperiment(ExperimentBase):
         return f"{line1}\n{line2}"
 
 
-@dataclass
-class MNIST1MSampledExperiment(ExperimentBase):
+@dataclass(frozen=True)
+class MNIST1MSampledExperiment(ExperimentBase, MLPStudentExperiment):
     """
     An MNIST-1M experiment that trains on a subset of the full dataset.
     This is useful for quick sanity checks and faster experimental cycles.
     """
 
-    N: int
-    L: int
-    parameterization: Parameterization
     num_epochs: int
     max_train_samples: int
-    optimizer: OptimizerType = OptimizerType.SGD
-    loss_type: LossType = LossType.MSE
-    gamma: float = 1.0
     num_outputs: int = 10
     D: int = field(default=784, init=False)
     experiment_type: str = field(default="mnist1m_sampled_classification", init=False)

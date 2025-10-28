@@ -88,8 +88,8 @@ class TrialRunner(ABC):
 class EpochBasedTrialRunner(TrialRunner):
     """Abstract base class for epoch-based training loops."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, experiment, **kwargs):
+        super().__init__(experiment, **kwargs)
         self.num_epochs = self.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
         self.num_train = 0  # Subclasses must set this
 
@@ -144,8 +144,8 @@ class EpochBasedTrialRunner(TrialRunner):
 class MNISTTrialRunner(EpochBasedTrialRunner):
     """Trial runner for MNIST-based experiments."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, experiment, **kwargs):
+        super().__init__(experiment, **kwargs)
         self.train_ds = self.kwargs["train_ds"]
         self.test_ds = self.kwargs["test_ds"]
         self.init_key = self.kwargs["init_key"]
@@ -323,8 +323,8 @@ class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):  # Does not use Epoch
 class SyntheticFixedDataTrialRunner(EpochBasedTrialRunner, SyntheticTrialRunner):
     """Trial runner for fixed-data synthetic experiments."""
 
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
+    def __init__(self, experiment, **kwargs):
+        super().__init__(experiment, **kwargs)
         self.X_data = self.kwargs["X_data"]
         self.y_data = self.kwargs["y_data"]
         self.num_train = self.X_data.shape[0]
