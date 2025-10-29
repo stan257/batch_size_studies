@@ -18,30 +18,7 @@ from .experiments import (
 from .hessian import JaxHessian
 from .models import MLP, LinearModel
 from .paths import EXPERIMENTS_DIR
-
-
-class CenteredModel:
-    """
-    A wrapper for a JAX model to compute centered outputs.
-
-    This is used to match the loss function structure from training, which is
-    L(p) = loss(model(p) - model(p0)), where p0 are the initial parameters.
-    The JaxHessian class will compute the Hessian of loss(model(p)), so by
-    passing this wrapper as the model, we ensure it computes the Hessian of
-    the correct training loss.
-    """
-
-    def __init__(self, model, params0):
-        self.model = model
-        self.params0 = params0
-        # The model's __call__ needs to be jitted for performance inside HVP loop
-        self.apply_fn = jax.jit(self.model)
-
-    def __call__(self, params, inputs):
-        """
-        Computes model(params, inputs) - model(params0, inputs).
-        """
-        return self.apply_fn(params, inputs) - self.apply_fn(self.params0, inputs)
+from .runner import CenteredModel
 
 
 class HessianEvaluator:
@@ -97,16 +74,19 @@ class HessianEvaluator:
         # --- 3. Instantiate Model and Loss ---
         if isinstance(self.experiment, LinearStudentExperiment):
             model_instance = LinearModel()
+            # For linear models, we don't center the output.
+            model_to_use = model_instance
         elif isinstance(self.experiment, MLPStudentExperiment):
             model_instance = MLP(self.experiment.parameterization, self.experiment.gamma)
+            # For MLP models, we use the centered output to match training loss.
+            model_to_use = CenteredModel(model_instance, self.params0)
         else:
             raise TypeError(f"Unknown student model for experiment type: {type(self.experiment).__name__}")
 
-        centered_model = CenteredModel(model_instance, self.params0)
         loss_fn_outer = self._get_outer_loss_fn()
 
         # --- 4. Instantiate JaxHessian ---
-        self.hessian_computer = JaxHessian(model=centered_model, loss_fn=loss_fn_outer, data_loader=data_loader)
+        self.hessian_computer = JaxHessian(model=model_to_use, loss_fn=loss_fn_outer, data_loader=data_loader)
         logging.info("HessianEvaluator initialized successfully.")
 
     def _load_initial_params(self):

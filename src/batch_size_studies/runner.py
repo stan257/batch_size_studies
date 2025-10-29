@@ -12,6 +12,7 @@ import os
 from collections import defaultdict
 from dataclasses import dataclass
 
+import jax
 import jax.random as jr
 import numpy as np
 from tqdm.auto import tqdm
@@ -37,6 +38,27 @@ from .trainer import (
     SyntheticFixedDataTrialRunner,
     SyntheticFixedTimeTrialRunner,
 )
+
+
+class CenteredModel:
+    """
+    A wrapper for a JAX model to compute centered outputs.
+
+    This is used to match the loss function structure from training, which is
+    L(p) = loss(model(p) - model(p0)), where p0 are the initial parameters.
+    """
+
+    def __init__(self, model, params0):
+        self.model = model
+        self.params0 = params0
+        # The model's __call__ needs to be jitted for performance.
+        self.apply_fn = jax.jit(self.model)
+
+    def __call__(self, params, inputs):
+        """
+        Computes model(params, inputs) - model(params0, inputs).
+        """
+        return self.apply_fn(params, inputs) - self.apply_fn(self.params0, inputs)
 
 
 @dataclass
@@ -154,23 +176,6 @@ def compute_num_steps(experiment, batch_size: int, train_ds, **kwargs) -> int:
 
     steps_per_epoch = num_train_samples // batch_size
     return num_epochs * steps_per_epoch
-
-
-def should_skip_batch_size(batch_size: int, train_ds, experiment) -> bool:
-    """Checks if a batch size is valid for the given experiment and dataset."""
-    if isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)):
-        return False
-
-    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
-        num_train_samples = len(train_ds["image"])
-    else:  # SyntheticFixedData, SyntheticLinearTeacher
-        num_train_samples = experiment.P
-    if batch_size > num_train_samples:
-        logging.warning(
-            f"Skipping run configurations for batch_size ({batch_size}) > dataset size ({num_train_samples})."
-        )
-        return True
-    return False
 
 
 # ============================================================================
@@ -356,6 +361,12 @@ def run_experiment_sweep(
         raise TypeError(f"Unknown student model for experiment type: {type(experiment).__name__}")
 
     params0 = initialize_model_params(model_instance, checkpoint_manager, init_key, widths, no_save)
+    # Wrap the model for centering if it's an MLPStudentExperiment.
+    # The trial runners will then use this centered model.
+    if isinstance(experiment, MLPStudentExperiment):
+        model_for_runner = CenteredModel(model_instance, params0)
+    else:
+        model_for_runner = model_instance
 
     # 2. Load Data
     train_ds, test_ds = prepare_datasets(experiment, init_key, **kwargs)
@@ -379,7 +390,13 @@ def run_experiment_sweep(
     sorted_etas = sorted(etas, reverse=True)
     eta_pbar = tqdm(total=len(sorted_etas), desc="Eta Sweep", leave=False)
     for batch_size in tqdm(batch_sizes, desc="Batch Size Sweep"):
-        if should_skip_batch_size(batch_size, train_ds, experiment):
+        # Determine dataset size for the polymorphic check, if applicable.
+        train_ds_size = None
+        if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)) and train_ds:
+            train_ds_size = len(train_ds["image"])
+
+        # Polymorphic call to check if the batch size is valid.
+        if experiment.should_skip_batch_size(batch_size, train_ds_size=train_ds_size):
             continue
 
         eta_tracker = EtaStabilityTracker(eta_stability_search_depth)
@@ -395,7 +412,7 @@ def run_experiment_sweep(
                 failed_runs=failed_runs,
                 checkpoint_manager=checkpoint_manager,
                 params0=params0,
-                model_instance=model_instance,
+                model_instance=model_for_runner,
                 train_ds=train_ds,
                 test_ds=test_ds,
                 pbar=eta_pbar,

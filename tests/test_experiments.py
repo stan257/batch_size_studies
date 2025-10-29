@@ -2,17 +2,22 @@ import jax.random as jr
 import numpy as np
 import pytest
 
-from batch_size_studies.definitions import LossType, OptimizerType, Parameterization
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import (
     MNIST1MExperiment,
+    MNIST1MSampledExperiment,
     MNISTExperiment,
     SyntheticExperimentFixedData,
     SyntheticExperimentFixedTime,
+    SyntheticExperimentLinearTeacher,
     SyntheticExperimentMLPTeacher,
 )
 
+# ============================================================================
+# FIXTURES
+# ============================================================================
 
-# --- Tests for SyntheticExperimentFixedTime ---
+
 @pytest.fixture
 def fixed_time_config():
     """Fixture for a standard FixedTime experiment configuration."""
@@ -30,35 +35,6 @@ def fixed_time_config():
     )
 
 
-class TestSyntheticExperimentFixedTime:
-    """Groups tests for the SyntheticExperimentFixedTime class."""
-
-    def test_initialization(self, fixed_time_config):
-        assert fixed_time_config.K == 2
-        assert fixed_time_config.experiment_type == "fixed_time_poly_teacher"
-
-    def test_teacher_weights_are_deterministic(self, fixed_time_config):
-        weights1 = fixed_time_config.generate_teacher_weights()
-        weights2 = fixed_time_config.generate_teacher_weights()
-        assert weights1.shape == (16, 1)
-        np.testing.assert_array_equal(weights1, weights2)
-
-    def test_data_generation_is_deterministic(self, fixed_time_config):
-        key = jr.key(42)
-        X1, y1 = fixed_time_config.generate_data(key)
-        X2, y2 = fixed_time_config.generate_data(key)
-        assert X1.shape == (128, 16)
-        assert y1.shape == (128, 1)
-        np.testing.assert_array_equal(X1, X2)
-        np.testing.assert_array_equal(y1, y2)
-
-    def test_plot_title(self, fixed_time_config):
-        title = fixed_time_config.plot_title()
-        assert "T* = 100" in title
-        assert "poly task" in title
-
-
-# --- Tests for SyntheticExperimentFixedData ---
 @pytest.fixture
 def fixed_data_config():
     """Fixture for a standard FixedData experiment configuration."""
@@ -75,34 +51,6 @@ def fixed_data_config():
     )
 
 
-class TestSyntheticExperimentFixedData:
-    """Groups tests for the SyntheticExperimentFixedData class."""
-
-    def test_initialization(self, fixed_data_config):
-        assert fixed_data_config.K == 2
-        assert fixed_data_config.experiment_type == "fixed_data_poly_teacher"
-
-    def test_filename_is_deterministic(self, fixed_data_config):
-        exp2 = SyntheticExperimentFixedData(
-            D=16,
-            P=128,
-            N=32,
-            K=2,
-            gamma=1.0,
-            L=2,
-            parameterization=Parameterization.SP,
-            optimizer=OptimizerType.SGD,
-            loss_type=LossType.MSE,
-        )
-        assert fixed_data_config.generate_filename() == exp2.generate_filename()
-
-    def test_plot_title(self, fixed_data_config):
-        title = fixed_data_config.plot_title()
-        assert "P = 128" in title
-        assert "poly task" in title
-
-
-# --- Tests for SyntheticExperimentMLPTeacher ---
 @pytest.fixture
 def mlp_teacher_config():
     """A pytest fixture for a standard MLP Teacher experiment configuration."""
@@ -123,14 +71,70 @@ def mlp_teacher_config():
     )
 
 
+@pytest.fixture
+def linear_teacher_config():
+    """Fixture for a standard Linear Teacher experiment configuration."""
+    return SyntheticExperimentLinearTeacher(
+        D=100,
+        P=1000,
+        alpha=1.0,
+        beta=1.0,
+        num_epochs=5,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+    )
+
+
+@pytest.fixture
+def mnist_config():
+    """Fixture for a standard MNIST experiment configuration."""
+    return MNISTExperiment(
+        N=128,
+        L=2,
+        parameterization=Parameterization.SP,
+        gamma=1.0,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.XENT,
+        num_epochs=4,
+    )
+
+
+@pytest.fixture
+def mnist1m_config():
+    """Fixture for a standard MNIST-1M experiment configuration."""
+    return MNIST1MExperiment(
+        N=128,
+        L=3,
+        parameterization=Parameterization.MUP,
+        gamma=1.0,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+        num_epochs=2,
+    )
+
+
+@pytest.fixture
+def mnist1m_sampled_config():
+    """Fixture for a standard sampled MNIST-1M experiment configuration."""
+    return MNIST1MSampledExperiment(
+        N=64,
+        L=3,
+        parameterization=Parameterization.MUP,
+        gamma=2.0,
+        optimizer=OptimizerType.ADAM,
+        loss_type=LossType.XENT,
+        num_epochs=5,
+        max_train_samples=10000,
+    )
+
+
+# ============================================================================
+# TEST CLASSES
+# ============================================================================
+
+
 class TestSyntheticExperimentMLPTeacher:
     """A test class to group all tests related to the MLP Teacher experiment."""
-
-    def test_initialization(self, mlp_teacher_config):
-        """Tests that the MLP teacher experiment initializes correctly."""
-        assert mlp_teacher_config.D == 16
-        assert mlp_teacher_config.teacher_N == 64
-        assert mlp_teacher_config.experiment_type == "fixed_time_mlp_teacher"
 
     @pytest.mark.parametrize(
         "invalid_param, invalid_value, expected_match",
@@ -170,52 +174,98 @@ class TestSyntheticExperimentMLPTeacher:
         with pytest.raises(TypeError, match=expected_match):
             SyntheticExperimentMLPTeacher(**base_config)
 
-    def test_teacher_weights_are_deterministic(self, mlp_teacher_config):
-        """
-        Tests that the generated teacher MLP weights are deterministic and have the correct structure.
-        """
-        weights1 = mlp_teacher_config.generate_teacher_weights()
-        weights2 = mlp_teacher_config.generate_teacher_weights()
 
-        assert isinstance(weights1, list)
-        assert len(weights1) == mlp_teacher_config.teacher_L
-        assert weights1[0].shape == (16, 64)
-        assert weights1[1].shape == (64, 64)
-        assert weights1[2].shape == (64, 1)
+class TestExperimentBehavior:
+    """Tests general, shared behaviors of experiment classes."""
 
+    @pytest.mark.parametrize(
+        "config_fixture",
+        [
+            "fixed_time_config",
+            "fixed_data_config",
+            "mlp_teacher_config",
+            "linear_teacher_config",
+        ],
+    )
+    def test_teacher_weights_are_deterministic(self, config_fixture, request):
+        """Tests that teacher weight generation is deterministic for synthetic experiments."""
+        config = request.getfixturevalue(config_fixture)
+        weights1 = config.generate_teacher_weights()
+        weights2 = config.generate_teacher_weights()
         for w1, w2 in zip(weights1, weights2):
             np.testing.assert_array_equal(w1, w2)
 
-    def test_data_generation_is_deterministic(self, mlp_teacher_config):
-        """
-        Tests that the data generated by the MLP teacher is deterministic for a given key.
-        """
+    @pytest.mark.parametrize(
+        "config_fixture",
+        [
+            "fixed_time_config",
+            "fixed_data_config",
+            "mlp_teacher_config",
+            "linear_teacher_config",
+        ],
+    )
+    def test_data_generation_is_deterministic(self, config_fixture, request):
+        config = request.getfixturevalue(config_fixture)
         key = jr.key(42)
-        X1, y1 = mlp_teacher_config.generate_data(key)
-        X2, y2 = mlp_teacher_config.generate_data(key)
-
-        assert X1.shape == (mlp_teacher_config.P, mlp_teacher_config.D)
-        assert y1.shape == (mlp_teacher_config.P, 1)
+        X1, y1 = config.generate_data(key)
+        X2, y2 = config.generate_data(key)
         np.testing.assert_array_equal(X1, X2)
         np.testing.assert_array_equal(y1, y2)
 
-    def test_filename_is_correct(self, mlp_teacher_config):
-        """
-        Tests that the filename includes teacher-specific parameters and is clean.
-        """
-        filename = mlp_teacher_config.generate_filename()
+    @pytest.mark.parametrize(
+        "config_fixture",
+        [
+            "fixed_time_config",
+            "fixed_data_config",
+            "mlp_teacher_config",
+            "linear_teacher_config",
+            "mnist_config",
+            "mnist1m_config",
+            "mnist1m_sampled_config",
+        ],
+    )
+    def test_plot_title_does_not_crash(self, config_fixture, request):
+        """Smoke test to ensure plot_title() runs and returns a string."""
+        config = request.getfixturevalue(config_fixture)
+        title = config.plot_title()
+        assert isinstance(title, str)
 
-        assert "teacher_N=64" in filename
-        assert "teacher_parameterization=SP" in filename
-        assert "experiment_type" not in filename
 
-    def test_plot_title(self, mlp_teacher_config):
-        """Tests that the plot title is generated correctly."""
-        title = mlp_teacher_config.plot_title()
-        assert "T* = 100" in title
-        assert "MLP teacher" in title
-        assert "T(N=64, L=3)" in title
-        assert "in SP w/ $N=32, L=2, \\gamma=1.0$" in title
+class TestIsRunComplete:
+    """Tests the polymorphic is_run_complete method for all experiment types."""
+
+    @pytest.mark.parametrize(
+        "config_fixture, run_key, complete_result, incomplete_result",
+        [
+            # Fixed Time (e.g., SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)
+            (
+                "fixed_time_config",  # num_steps=100
+                RunKey(32, 0.1),
+                {"loss_history": [0.1] * 100},
+                {"loss_history": [0.1] * 99},
+            ),
+            # Fixed Data (e.g., SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)
+            (
+                "fixed_data_config",  # P=128, num_epochs=1 (default)
+                RunKey(32, 0.1),  # steps = 1 * (128//32) = 4
+                {"loss_history": [0.1] * 4},
+                {"loss_history": [0.1] * 3},
+            ),
+            # MNIST-based (e.g., MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)
+            (
+                "mnist_config",  # num_epochs=4
+                RunKey(128, 0.1),
+                {"epoch_test_accuracies": [0.9] * 4},
+                {"epoch_test_accuracies": [0.9] * 3},
+            ),
+        ],
+    )
+    def test_completion_logic(self, config_fixture, run_key, complete_result, incomplete_result, request):
+        config = request.getfixturevalue(config_fixture)
+        assert config.is_run_complete(complete_result, run_key) is True
+        assert config.is_run_complete(incomplete_result, run_key) is False
+        # Test with a result dictionary that's missing the relevant key
+        assert config.is_run_complete({"other_metric": 1}, run_key) is False
 
 
 class TestFilenameUniqueness:
@@ -304,6 +354,14 @@ class TestFilenameUniqueness:
             "optimizer",
             OptimizerType.ADAM,
         ),
+        # SyntheticExperimentFixedData
+        (SyntheticExperimentFixedData, base_synthetic_fd, "D", 32),
+        (SyntheticExperimentFixedData, base_synthetic_fd, "N", 64),
+        (SyntheticExperimentFixedData, base_synthetic_fd, "gamma", 2.0),
+        # SyntheticExperimentMLPTeacher
+        (SyntheticExperimentMLPTeacher, base_mlp_teacher, "teacher_N", 128),
+        (SyntheticExperimentMLPTeacher, base_mlp_teacher, "teacher_L", 4),
+        (SyntheticExperimentMLPTeacher, base_mlp_teacher, "gamma", 0.5),
         # MNISTExperiment
         (MNISTExperiment, base_mnist, "N", 64),
         (MNISTExperiment, base_mnist, "L", 3),

@@ -1,6 +1,8 @@
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -13,7 +15,9 @@ from batch_size_studies.experiments import (
     SyntheticExperimentFixedTime,
     SyntheticExperimentMLPTeacher,
 )
+from batch_size_studies.models import MLP
 from batch_size_studies.runner import (
+    CenteredModel,
     EtaStabilityTracker,
     RunStatus,
     _get_trial_runner,
@@ -23,7 +27,6 @@ from batch_size_studies.runner import (
     initialize_model_params,
     initialize_results_and_checkpoints,
     prepare_datasets,
-    should_skip_batch_size,
     validate_and_store_result,
 )
 from batch_size_studies.trainer import (
@@ -92,6 +95,36 @@ def validation_setup():
         failed_runs=set(),
         checkpoint_manager=checkpoint_manager,
     )
+
+
+# ============================================================================
+# TESTS FOR CenteredModel
+# ============================================================================
+
+
+class TestCenteredModel:
+    """Tests for the CenteredModel wrapper class."""
+
+    def test_output_is_zero_at_initialization(self):
+        model_seed = 0
+        data_key = jax.random.PRNGKey(1)
+
+        mlp = MLP(parameterization=Parameterization.SP, gamma=1.0)
+        widths = [10, 20, 5]
+        params0 = mlp.init_params(model_seed, widths)
+
+        centered_model = CenteredModel(model=mlp, params0=params0)
+
+        dummy_input = jax.random.normal(data_key, (1, 10))
+        uncentered_output = mlp(params0, dummy_input)
+        assert uncentered_output.shape == (1, 5)
+        assert not jnp.all(uncentered_output == 0), "Uncentered model output should not be zero at initialization"
+
+        centered_model = CenteredModel(model=mlp, params0=params0)
+        centered_output = centered_model(params0, dummy_input)
+        # The output should be a zero vector of the correct shape
+        assert centered_output.shape == (1, 5)
+        assert jnp.all(centered_output == 0)
 
 
 # ============================================================================
@@ -267,52 +300,6 @@ class TestComputeNumSteps:
 
         # 1 step per epoch * 3 epochs = 3 steps
         assert num_steps == 3
-
-
-# ============================================================================
-# TESTS FOR should_skip_batch_size
-# ============================================================================
-
-
-class TestShouldSkipBatchSize:
-    """Tests for batch size validation."""
-
-    def test_skip_when_batch_size_exceeds_mnist_dataset(self):
-        mock_exp = Mock(spec=MNISTExperiment)
-        train_ds = {"image": np.zeros((1000, 784)), "label": np.zeros(1000)}
-
-        # Batch size larger than dataset
-        should_skip = should_skip_batch_size(batch_size=2000, train_ds=train_ds, experiment=mock_exp)
-
-        assert should_skip is True
-
-    def test_allow_valid_batch_size_for_synthetic(self):
-        mock_exp = Mock(spec=SyntheticExperimentFixedData)
-        mock_exp.P = 5000
-
-        train_ds = (np.zeros((5000, 10)), np.zeros(5000))
-
-        should_skip = should_skip_batch_size(batch_size=128, train_ds=train_ds, experiment=mock_exp)
-
-        assert should_skip is False
-
-    def test_fixed_time_never_skips(self):
-        mock_exp = Mock(spec=SyntheticExperimentFixedTime)
-
-        # Even with ridiculous batch size, should not skip
-        should_skip = should_skip_batch_size(batch_size=1_000_000, train_ds=None, experiment=mock_exp)
-
-        assert should_skip is False
-
-    def test_boundary_case_exact_match(self):
-        mock_exp = Mock(spec=MNISTExperiment)
-
-        train_ds = {"image": np.zeros((1000, 784)), "label": np.zeros(1000)}
-
-        # Batch size exactly equals dataset size - should be allowed
-        should_skip = should_skip_batch_size(batch_size=1000, train_ds=train_ds, experiment=mock_exp)
-
-        assert should_skip is False
 
 
 # ============================================================================

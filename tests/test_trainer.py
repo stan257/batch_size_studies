@@ -91,6 +91,12 @@ class TestUnifiedRunner:
         class UnknownExperiment(ExperimentBase):
             experiment_type: str = "unknown"
 
+            def is_run_complete(self, result, run_key):
+                return False
+
+            def should_skip_batch_size(self, batch_size, train_ds_size=None):
+                return False
+
         config = UnknownExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.MSE)
         # The runner should fail fast if it doesn't know what model to use.
         with pytest.raises(TypeError, match="Unknown student model for experiment type: UnknownExperiment"):
@@ -165,7 +171,7 @@ class TestSyntheticRunner:
         assert RunKey(16, 0.1) in losses
         assert RunKey(64, 0.1) not in losses
         assert RunKey(64, 0.1) not in failures
-        assert "Skipping run" in caplog.text and "batch_size (64) > dataset size (32)" in caplog.text
+        assert "Skipping batch size 64 > dataset size P (32)" in caplog.text
 
     def test_sweep_runs_all_combinations_by_default(self, fixed_data_config, tmp_path):
         """

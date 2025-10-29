@@ -11,7 +11,7 @@ from enum import Enum
 import jax.random as jr
 import numpy as np
 
-from .definitions import LossType, OptimizerType, Parameterization
+from .definitions import LossType, OptimizerType, Parameterization, RunKey
 from .models import MLP
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
 
@@ -36,7 +36,7 @@ class LinearStudentExperiment:
 
 # Base class for all experiments
 @dataclass(frozen=True)
-class ExperimentBase:
+class ExperimentBase(ABC):
     """
     A base class that provides file I/O and automatic type validation for experiment dataclasses.
     """
@@ -123,6 +123,20 @@ class ExperimentBase:
         filepath = self.get_filepath(directory, prefix, extension)
         return save_experiment(data_to_save, filepath)
 
+    @abstractmethod
+    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
+        """
+        Checks if a single run, identified by its result and run_key, is complete.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+        """
+        Checks if a given batch size is invalid for this experiment.
+        """
+        raise NotImplementedError
+
 
 class SyntheticExperiment(ABC):
     @abstractmethod
@@ -160,6 +174,14 @@ class SyntheticExperimentFixedTime(ExperimentBase, MLPStudentExperiment, Synthet
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
 
+    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
+        loss_history = result.get("loss_history", [])
+        return len(loss_history) >= self.num_steps
+
+    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+        # Fixed-time experiments do not depend on dataset size.
+        return False
+
 
 @dataclass(frozen=True)
 class SyntheticExperimentFixedData(ExperimentBase, MLPStudentExperiment, SyntheticExperiment):
@@ -188,6 +210,19 @@ class SyntheticExperimentFixedData(ExperimentBase, MLPStudentExperiment, Synthet
         line1 = f"$P = {self.P}$ samples, {task_name} w/ $k={self.K}, D={self.D}$"
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
+
+    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
+        num_epochs = getattr(self, "num_epochs", 1)
+        steps_per_epoch = self.P // run_key.batch_size
+        num_steps = num_epochs * steps_per_epoch
+        loss_history = result.get("loss_history", [])
+        return len(loss_history) >= num_steps
+
+    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+        if batch_size > self.P:
+            logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
+            return True
+        return False
 
 
 # TODO: Make separate MLP fixed-data class for experiments, when needed
@@ -237,6 +272,14 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, MLPStudentExperiment, Synthe
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
 
+    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
+        loss_history = result.get("loss_history", [])
+        return len(loss_history) >= self.num_steps
+
+    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+        # Fixed-time experiments do not depend on dataset size.
+        return False
+
 
 @dataclass(frozen=True)
 class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, SyntheticExperiment):
@@ -258,6 +301,7 @@ class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, 
     # Teacher parameters
     alpha: float
     beta: float
+    num_epochs: int = 1
 
     seed: int = 0  # Seed for reproducible data generation
     experiment_type: str = field(default="fixed_data_linear_teacher", init=False)
@@ -292,8 +336,21 @@ class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, 
 
     def plot_title(self, task_name="linear task", model_name="Linear Model"):
         line1 = f"$P = {self.P}$ samples, {task_name} w/ $D={self.D}, \\alpha={self.alpha}, \\beta={self.beta}$"
-        line2 = f"Student: {model_name}, Optimizer: {self.optimizer.value}, Loss: {self.loss_type.value}"
+        line2 = f"Student: {model_name}, Epochs={self.num_epochs}, Optimizer: {self.optimizer.value}, Loss: {self.loss_type.value}"
         return f"{line1}\n{line2}"
+
+    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
+        num_epochs = getattr(self, "num_epochs", 1)
+        steps_per_epoch = self.P // run_key.batch_size
+        num_steps = num_epochs * steps_per_epoch
+        loss_history = result.get("loss_history", [])
+        return len(loss_history) >= num_steps
+
+    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+        if batch_size > self.P:
+            logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
+            return True
+        return False
 
 
 @dataclass(frozen=True)
@@ -322,6 +379,19 @@ class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}"
         return f"{line1}\n{line2}"
 
+    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
+        epoch_accuracies = result.get("epoch_test_accuracies", [])
+        return len(epoch_accuracies) >= self.num_epochs
+
+    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+        if train_ds_size is None:
+            # In a pre-flight check, we don't know the dataset size, so we can't skip.
+            return False
+        if batch_size > train_ds_size:
+            logging.warning(f"Skipping batch size {batch_size} > dataset size ({train_ds_size}).")
+            return True
+        return False
+
 
 @dataclass(frozen=True)
 class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
@@ -346,6 +416,19 @@ class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}"
         return f"{line1}\n{line2}"
 
+    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
+        epoch_accuracies = result.get("epoch_test_accuracies", [])
+        return len(epoch_accuracies) >= self.num_epochs
+
+    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+        if train_ds_size is None:
+            # In a pre-flight check, we don't know the dataset size, so we can't skip.
+            return False
+        if batch_size > train_ds_size:
+            logging.warning(f"Skipping batch size {batch_size} > dataset size ({train_ds_size}).")
+            return True
+        return False
+
 
 @dataclass(frozen=True)
 class MNIST1MSampledExperiment(ExperimentBase, MLPStudentExperiment):
@@ -369,3 +452,18 @@ class MNIST1MSampledExperiment(ExperimentBase, MLPStudentExperiment):
         )
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}, Samples={self.max_train_samples}"
         return f"{line1}\n{line2}"
+
+    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
+        epoch_accuracies = result.get("epoch_test_accuracies", [])
+        return len(epoch_accuracies) >= self.num_epochs
+
+    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+        # For sampled experiments, the config's `max_train_samples` is the
+        # effective dataset size we should check against.
+        effective_size = self.max_train_samples
+        if train_ds_size is not None:
+            effective_size = min(self.max_train_samples, train_ds_size)
+        if batch_size > effective_size:
+            logging.warning(f"Skipping batch size {batch_size} > effective dataset size ({effective_size}).")
+            return True
+        return False

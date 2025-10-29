@@ -46,52 +46,37 @@ def setup_logging(log_dir="logs"):
     logger.addHandler(console_handler)
 
 
-def are_all_runs_complete(config, losses, batch_sizes, etas):
+def are_all_runs_complete(config, losses, failed_runs, batch_sizes, etas):
     """
     Verifies if all trials for an experiment are complete by checking
     the content of the results, not just the number of entries.
     """
     from batch_size_studies.definitions import RunKey
-    from batch_size_studies.experiments import (
-        MNIST1MExperiment,
-        MNIST1MSampledExperiment,
-        MNISTExperiment,
-        SyntheticExperimentFixedData,
-        SyntheticExperimentFixedTime,
-    )
 
     for b in batch_sizes:
+        # In the pre-flight check, we don't have the loaded
+        # dataset, so we pass `train_ds_size=None`. The experiment config will
+        # do its best to check based on its own parameters (like `P` or `max_train_samples`).
+        if config.should_skip_batch_size(b, train_ds_size=None):
+            continue
+
         for e in etas:
             run_key = RunKey(batch_size=b, eta=e)
             result = losses.get(run_key)
+            is_failed = run_key in failed_runs
 
-            if result is None:
-                return False  # A run is missing entirely
+            if result is None and not is_failed:
+                # The run is neither in the successful results nor in the failed set.
+                # It's genuinely missing.
+                return False
 
-            is_complete = False
-            if isinstance(config, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
-                # For MNIST, check against the number of epochs.
-                num_epochs = getattr(config, "num_epochs", 1)
-                epoch_accuracies = result.get("epoch_test_accuracies", [])
-                if len(epoch_accuracies) >= num_epochs:
-                    is_complete = True
-            elif isinstance(config, SyntheticExperimentFixedTime):
-                # For fixed-time synthetic, check against num_steps.
-                num_steps = getattr(config, "num_steps", 0)
-                loss_history = result.get("loss_history", [])
-                if len(loss_history) >= num_steps:
-                    is_complete = True
-            elif isinstance(config, SyntheticExperimentFixedData):
-                # For fixed-data synthetic, calculate expected steps.
-                num_epochs = getattr(config, "num_epochs", 1)
-                steps_per_epoch = config.P // b
-                num_steps = num_epochs * steps_per_epoch
-                loss_history = result.get("loss_history", [])
-                if len(loss_history) >= num_steps:
-                    is_complete = True
+            if result is not None:
+                # The run exists, check if it's complete.
+                if not config.is_run_complete(result, run_key):
+                    return False  # It's incomplete.
 
-            if not is_complete:
-                return False  # This specific run is incomplete
+            # If result is None but is_failed is True, we consider it "accounted for"
+            # and continue checking the next run.
 
     return True
 
@@ -222,7 +207,7 @@ def main():
         else:
             losses, failed = config.load_results(directory=directory, silent=True)
             # Rerunning failed runs is implicitly handled: they are not in `losses`.
-            if are_all_runs_complete(config, losses, batch_sizes, etas):
+            if are_all_runs_complete(config, losses, failed, batch_sizes, etas):
                 logging.info(
                     f"  Skipping '{name}': Already complete and verified. (Found file: {os.path.basename(filepath)})"
                 )

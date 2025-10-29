@@ -30,6 +30,12 @@ class MockSynthExperiment(ExperimentBase, LinearStudentExperiment):
         # bypass for this simple mock by not calling super().__post_init__().
         pass
 
+    def is_run_complete(self, result, run_key):
+        pass
+
+    def should_skip_batch_size(self, batch_size, train_ds_size=None):
+        pass
+
 
 @dataclass(frozen=True)
 class MockMNISTExperiment(ExperimentBase, MLPStudentExperiment):
@@ -40,6 +46,12 @@ class MockMNISTExperiment(ExperimentBase, MLPStudentExperiment):
 
     def __post_init__(self):
         # Bypassing for simplicity in tests.
+        pass
+
+    def is_run_complete(self, result, run_key):
+        pass
+
+    def should_skip_batch_size(self, batch_size, train_ds_size=None):
         pass
 
 

@@ -156,12 +156,12 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
         return {"epoch_test_accuracies": [], "loss_history": []}
 
     def _create_loss_fn(self):
-        apply_fn = jax.jit(self.model_instance)
+        apply_fn = self.model_instance
         match self.experiment.loss_type:
             case LossType.XENT:
 
                 def loss_fn(params, x_batch, y_batch_labels):
-                    logits = apply_fn(params, x_batch) - apply_fn(self.params0, x_batch)
+                    logits = apply_fn(params, x_batch)
                     loss = (
                         1
                         / 2
@@ -175,7 +175,7 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
             case LossType.MSE:
 
                 def loss_fn(params, x_batch, y_batch_labels):
-                    logits = apply_fn(params, x_batch) - apply_fn(self.params0, x_batch)
+                    logits = apply_fn(params, x_batch)
                     one_hot_labels = jax.nn.one_hot(y_batch_labels, num_classes=self.experiment.num_outputs)
                     loss = jnp.mean((logits - one_hot_labels) ** 2)
                     return loss, logits
@@ -196,11 +196,11 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
         return update_step
 
     def _create_eval_step(self):
-        apply_fn = jax.jit(self.model_instance)
+        apply_fn = self.model_instance
 
         @jax.jit
         def eval_step(params, x_batch, y_batch):
-            logits = apply_fn(params, x_batch) - apply_fn(self.params0, x_batch)
+            logits = apply_fn(params, x_batch)
             accuracy = jnp.mean(jnp.argmax(logits, -1) == y_batch)
             return accuracy
 
@@ -252,7 +252,7 @@ class SyntheticTrialRunner(TrialRunner):
 
     def _create_loss_fn(self):
         def loss_fn(params, x_batch, y_batch):
-            pred = self.model_instance(params, x_batch) - self.model_instance(self.params0, x_batch)
+            pred = self.model_instance(params, x_batch)
             return jnp.mean((y_batch - pred) ** 2)
 
         return partial(loss_fn)
@@ -339,7 +339,10 @@ class SyntheticFixedDataTrialRunner(EpochBasedTrialRunner, SyntheticTrialRunner)
         perms = jr.permutation(rng, self.num_train)[: steps_per_epoch * self.run_key.batch_size]
         epoch_perms = perms.reshape((steps_per_epoch, self.run_key.batch_size))
 
-        for perm in epoch_perms:
+        # Convert to numpy array once before the loop to avoid device-to-host transfer on each iteration.
+        np_epoch_perms = np.array(epoch_perms)
+
+        for perm in np_epoch_perms:
             yield self.X_data[perm, ...], self.y_data[perm, ...]
 
     def _post_epoch_hook(self, epoch: int, params, results: dict) -> dict:
