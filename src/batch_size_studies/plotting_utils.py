@@ -184,7 +184,7 @@ def plot_loss_heatmap(
 
     ax.set_xlabel(xlabel)
     ax.set_ylabel("$\\eta$")
-    ax.set_title("Online Loss in " + title_exp)
+    ax.set_title("Loss in " + title_exp)
 
     return fig, ax
 
