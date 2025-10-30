@@ -150,7 +150,15 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
         self.test_ds = self.kwargs["test_ds"]
         self.init_key = self.kwargs["init_key"]
         self.eval_step = self._create_eval_step()
-        self.num_train = self.train_ds["image"].shape[0]
+
+        original_num_train = self.train_ds["image"].shape[0]
+        num_usable_samples = (original_num_train // self.run_key.batch_size) * self.run_key.batch_size
+
+        # Create a fixed subset of indices for the entire trial to ensure the same
+        # data subset is used across epochs, just in a different order.
+        subset_key = jr.PRNGKey(self.init_key)
+        self.subset_indices = jr.permutation(subset_key, original_num_train)[:num_usable_samples]
+        self.num_train = num_usable_samples
 
     def _init_results(self) -> dict:
         return {"epoch_test_accuracies": [], "loss_history": []}
@@ -207,11 +215,14 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
         return eval_step
 
     def _get_batch_generator(self, epoch: int) -> partial:
-        num_steps_per_epoch = self.num_train // self.run_key.batch_size
-        rng = jr.PRNGKey(self.init_key + epoch + 1)
-        perms = jr.permutation(rng, self.num_train)[: num_steps_per_epoch * self.run_key.batch_size]
-        perms = perms.reshape((num_steps_per_epoch, self.run_key.batch_size))
-        np_perms = np.array(perms)
+        # num_train is the size of our subset, which is perfectly divisible by batch_size.
+        steps_per_epoch = self.num_train // self.run_key.batch_size
+        # Use an epoch-dependent key to shuffle the *subset* of indices.
+        epoch_shuffle_key = jr.PRNGKey(self.init_key + epoch + 1)
+        # Permute the SUBSET of indices.
+        perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
+        epoch_perms = perms.reshape((steps_per_epoch, self.run_key.batch_size))
+        np_perms = np.array(epoch_perms)
 
         for perm in np_perms:
             batch_images = self.train_ds["image"][perm, ...].reshape(self.run_key.batch_size, -1)
@@ -327,16 +338,28 @@ class SyntheticFixedDataTrialRunner(EpochBasedTrialRunner, SyntheticTrialRunner)
         super().__init__(experiment, **kwargs)
         self.X_data = self.kwargs["X_data"]
         self.y_data = self.kwargs["y_data"]
-        self.num_train = self.X_data.shape[0]
+
+        original_num_train = self.X_data.shape[0]
+        num_usable_samples = (original_num_train // self.run_key.batch_size) * self.run_key.batch_size
+
+        # Create a fixed subset of indices for the entire trial to ensure the same
+        # data subset is used across epochs, just in a different order.
+        subset_key = jr.PRNGKey(getattr(self.experiment, "seed", 0))
+        self.subset_indices = jr.permutation(subset_key, original_num_train)[:num_usable_samples]
+        self.num_train = num_usable_samples
+
         self.snapshot_steps = self._get_snapshot_steps(self.num_epochs * (self.num_train // self.run_key.batch_size))
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "epoch": 0}
 
     def _get_batch_generator(self, epoch: int) -> partial:
+        # num_train is now the size of our subset, which is perfectly divisible by batch_size.
         steps_per_epoch = self.num_train // self.run_key.batch_size
-        rng = jr.PRNGKey(getattr(self.experiment, "seed", 0) + epoch)
-        perms = jr.permutation(rng, self.num_train)[: steps_per_epoch * self.run_key.batch_size]
+        # Use an epoch-dependent key to shuffle the *subset* of indices.
+        epoch_shuffle_key = jr.PRNGKey(getattr(self.experiment, "seed", 0) + epoch)
+        # Permute the SUBSET of indices.
+        perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
         epoch_perms = perms.reshape((steps_per_epoch, self.run_key.batch_size))
 
         # Convert to numpy array once before the loop to avoid device-to-host transfer on each iteration.

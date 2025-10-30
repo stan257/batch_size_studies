@@ -12,8 +12,9 @@ from batch_size_studies.experiments import (
     MNISTExperiment,
     SyntheticExperimentFixedData,
     SyntheticExperimentFixedTime,
+    SyntheticExperimentLinearTeacher,
 )
-from batch_size_studies.runner import run_experiment_sweep
+from batch_size_studies.runner import MNISTTrialRunner, SyntheticFixedDataTrialRunner, run_experiment_sweep
 
 # --- Fixtures ---
 
@@ -52,12 +53,40 @@ def fixed_data_config():
 
 
 @pytest.fixture
+def linear_teacher_config_subset():
+    """Fixture for a Linear Teacher experiment with non-divisible data size."""
+    return SyntheticExperimentLinearTeacher(
+        D=8,
+        P=105,  # Not divisible by common batch sizes
+        alpha=1.0,
+        beta=1.0,
+        num_epochs=2,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+    )
+
+
+@pytest.fixture
 def mnist_config():
     """Fixture for a fast-to-run MNIST experiment."""
     return MNISTExperiment(
         N=32,
         L=2,
         num_epochs=4,
+        parameterization=Parameterization.SP,
+        gamma=1.0,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.XENT,
+    )
+
+
+@pytest.fixture
+def mnist_config_subset():
+    """Fixture for an MNIST experiment for subset testing."""
+    return MNISTExperiment(
+        N=32,
+        L=2,
+        num_epochs=2,
         parameterization=Parameterization.SP,
         gamma=1.0,
         optimizer=OptimizerType.SGD,
@@ -345,3 +374,97 @@ class TestMNISTRunner:
         adam_leaves, _ = jax.tree_util.tree_flatten(params_adam)
         are_different = any(not np.allclose(s, a) for s, a in zip(sgd_leaves, adam_leaves))
         assert are_different, "Final model parameters for SGD and Adam were unexpectedly identical."
+
+
+class TestEpochBasedDataHandling:
+    """Tests for data handling in epoch-based runners."""
+
+    @pytest.mark.parametrize(
+        "runner_class, config_fixture, data_setup",
+        [
+            (
+                SyntheticFixedDataTrialRunner,
+                "linear_teacher_config_subset",
+                # For synthetic, data is passed as X_data, y_data
+                lambda config: {
+                    "X_data": np.arange(config.P).reshape(-1, 1),
+                    "y_data": np.zeros(config.P),
+                },
+            ),
+            (
+                MNISTTrialRunner,
+                "mnist_config_subset",
+                # For MNIST, data is passed as a dict. We use 105 samples.
+                lambda config: {
+                    "train_ds": {
+                        "image": np.arange(105).reshape(105, 1),
+                        "label": np.zeros(105),
+                    },
+                    "test_ds": {"image": np.array([]), "label": np.array([])},
+                },
+            ),
+        ],
+    )
+    def test_data_subset_is_consistent_across_epochs(self, runner_class, config_fixture, data_setup, request):
+        """
+        Verifies that for multi-epoch runs, the exact same subset of data is
+        used in each epoch, but that the order is shuffled differently.
+        """
+        config = request.getfixturevalue(config_fixture)
+        batch_size = 20  # 105 is not divisible by 20
+        run_key = RunKey(batch_size=batch_size, eta=0.1)
+
+        # --- Setup runner with mock data ---
+        # The data arrays will contain indices instead of actual data
+        # to make it easy to track which samples are used.
+        data_kwargs = data_setup(config)
+        num_samples = 105
+
+        # Common kwargs for both runners
+        runner_kwargs = {
+            "experiment": config,
+            "run_key": run_key,
+            "params0": None,
+            "model_instance": None,
+            "checkpoint_manager": None,
+            "pbar": None,
+            "no_save": True,
+            "init_key": 0,
+            "num_epochs": 2,
+            **data_kwargs,
+        }
+        runner = runner_class(**runner_kwargs)
+
+        # --- Collect indices from two epochs ---
+        all_indices_by_epoch = []
+        for epoch in range(2):
+            batch_generator = runner._get_batch_generator(epoch)
+            epoch_indices = []
+            for x_batch, _ in batch_generator:
+                # The generator yields (x, y), we only care about x.
+                # Flatten to get the original indices back.
+                epoch_indices.extend(x_batch.flatten())
+            all_indices_by_epoch.append(np.array(epoch_indices))
+
+        # --- Assertions ---
+        indices_epoch0 = all_indices_by_epoch[0]
+        indices_epoch1 = all_indices_by_epoch[1]
+
+        # 1. Check that the number of samples is correct (truncated)
+        num_usable_samples = (num_samples // batch_size) * batch_size  # 5 * 20 = 100
+        assert len(indices_epoch0) == num_usable_samples
+        assert len(indices_epoch1) == num_usable_samples
+
+        # 2. Check that the set of indices used is identical between epochs
+        sorted_indices_epoch0 = np.sort(indices_epoch0)
+        sorted_indices_epoch1 = np.sort(indices_epoch1)
+        np.testing.assert_array_equal(
+            sorted_indices_epoch0,
+            sorted_indices_epoch1,
+            err_msg="The set of data samples should be identical across epochs.",
+        )
+
+        # 3. Check that the order of indices is different between epochs (shuffling works)
+        assert not np.array_equal(indices_epoch0, indices_epoch1), (
+            "The order of data samples should be different in each epoch."
+        )

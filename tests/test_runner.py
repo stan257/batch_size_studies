@@ -716,6 +716,10 @@ class TestGetTrialRunner:
         mock_experiment.parameterization = Parameterization.SP
         mock_experiment.optimizer = OptimizerType.SGD
         mock_experiment.loss_type = loss_type
+        # Add seed attribute for synthetic experiments to avoid mock recursion
+        # in the trial runner's __init__ method.
+        if exp_spec == SyntheticExperimentFixedData:
+            mock_experiment.seed = 0
 
         runner_kwargs = {**base_runner_kwargs, **extra_kwargs}
 
