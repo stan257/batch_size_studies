@@ -170,7 +170,7 @@ class SyntheticExperimentFixedTime(ExperimentBase, MLPStudentExperiment, Synthet
         return X_data, y_data
 
     def plot_title(self, task_name="poly task", model_name="MLP"):
-        line1 = f"$T* = {self.num_steps}$ steps, {task_name} w/ $k={self.K}, D={self.D}$"
+        line1 = f"$T* = {self.num_steps}$ steps, {task_name} (Online) w/ $k={self.K}, D={self.D}$"
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
 
@@ -207,8 +207,12 @@ class SyntheticExperimentFixedData(ExperimentBase, MLPStudentExperiment, Synthet
         return X_data, y_data
 
     def plot_title(self, task_name="poly task", model_name="MLP"):
-        line1 = f"$P = {self.P}$ samples, {task_name} w/ $k={self.K}, D={self.D}$"
+        num_epochs = getattr(self, "num_epochs", 1)
+        learning_type = "Online" if num_epochs == 1 else "Offline"
+        line1 = f"$P = {self.P}$ samples, {task_name} ({learning_type}) w/ $k={self.K}, D={self.D}$"
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
+        if num_epochs > 1:
+            line2 += f", Epochs={num_epochs}"
         return f"{line1}\n{line2}"
 
     def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
@@ -268,7 +272,9 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, MLPStudentExperiment, Synthe
         return X_data, y_data
 
     def plot_title(self, task_name="MLP teacher", model_name="MLP"):
-        line1 = f"$T* = {self.num_steps}$ steps, {task_name} T(N={self.teacher_N}, L={self.teacher_L}), D={self.D}"
+        line1 = (
+            f"$T* = {self.num_steps}$ steps, {task_name} (Online) T(N={self.teacher_N}, L={self.teacher_L}), D={self.D}"
+        )
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
 
@@ -335,7 +341,8 @@ class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, 
         return X_data, y_data
 
     def plot_title(self, task_name="linear task", model_name="Linear Model"):
-        line1 = f"$P = {self.P}$ samples, {task_name} w/ $D={self.D}, \\alpha={self.alpha}, \\beta={self.beta}$"
+        learning_type = "Online" if self.num_epochs == 1 else "Offline"
+        line1 = f"$P = {self.P}$ samples, {task_name} ({learning_type}) w/ $D={self.D}, \\alpha={self.alpha}, \\beta={self.beta}$"
         line2 = f"Student: {model_name}, Epochs={self.num_epochs}, Optimizer: {self.optimizer.value}, Loss: {self.loss_type.value}"
         return f"{line1}\n{line2}"
 
@@ -373,9 +380,8 @@ class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
         super().__post_init__()
 
     def plot_title(self, task_name="MNIST Classification", model_name="MLP"):
-        line1 = (
-            f"{task_name} ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
-        )
+        learning_type = "Online" if self.num_epochs == 1 else "Offline"
+        line1 = f"{task_name} ({learning_type}) ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}"
         return f"{line1}\n{line2}"
 
@@ -410,9 +416,8 @@ class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
         super().__post_init__()
 
     def plot_title(self, task_name="MNIST-1M Classification", model_name="MLP"):
-        line1 = (
-            f"{task_name} ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
-        )
+        learning_type = "Online" if self.num_epochs == 1 else "Offline"
+        line1 = f"{task_name} ({learning_type}) ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}"
         return f"{line1}\n{line2}"
 
@@ -447,9 +452,8 @@ class MNIST1MSampledExperiment(ExperimentBase, MLPStudentExperiment):
         super().__post_init__()
 
     def plot_title(self, task_name="MNIST-1M Sampled", model_name="MLP"):
-        line1 = (
-            f"{task_name} ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
-        )
+        learning_type = "Online" if self.num_epochs == 1 else "Offline"
+        line1 = f"{task_name} ({learning_type}) ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}, Samples={self.max_train_samples}"
         return f"{line1}\n{line2}"
 
