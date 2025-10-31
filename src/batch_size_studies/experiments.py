@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from typing import Type
 
 import jax.random as jr
 import numpy as np
@@ -14,6 +15,7 @@ import numpy as np
 from .definitions import LossType, OptimizerType, Parameterization, RunKey
 from .models import MLP, LinearModel
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
+from .trainer import TrialRunner
 
 
 # Student Mixins
@@ -145,6 +147,13 @@ class ExperimentBase(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def get_trial_runner_class(self) -> Type[TrialRunner]:
+        """
+        Returns the specific TrialRunner class required for this experiment.
+        """
+        raise NotImplementedError
+
 
 class SyntheticExperiment(ABC):
     @abstractmethod
@@ -189,6 +198,12 @@ class SyntheticExperimentFixedTime(ExperimentBase, MLPStudentExperiment, Synthet
     def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
         # Fixed-time experiments do not depend on dataset size.
         return False
+
+    def get_trial_runner_class(self) -> Type[TrialRunner]:
+        """Returns the runner for fixed-time synthetic experiments."""
+        from .trainer import SyntheticFixedTimeTrialRunner
+
+        return SyntheticFixedTimeTrialRunner
 
 
 @dataclass(frozen=True)
@@ -235,6 +250,12 @@ class SyntheticExperimentFixedData(ExperimentBase, MLPStudentExperiment, Synthet
             logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
             return True
         return False
+
+    def get_trial_runner_class(self) -> Type[TrialRunner]:
+        """Returns the runner for fixed-data synthetic experiments."""
+        from .trainer import SyntheticFixedDataTrialRunner
+
+        return SyntheticFixedDataTrialRunner
 
 
 # TODO: Make separate MLP fixed-data class for experiments, when needed
@@ -293,6 +314,12 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, MLPStudentExperiment, Synthe
     def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
         # Fixed-time experiments do not depend on dataset size.
         return False
+
+    def get_trial_runner_class(self) -> Type[TrialRunner]:
+        """Returns the runner for fixed-time synthetic experiments."""
+        from .trainer import SyntheticFixedTimeTrialRunner
+
+        return SyntheticFixedTimeTrialRunner
 
 
 @dataclass(frozen=True)
@@ -367,6 +394,12 @@ class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, 
             return True
         return False
 
+    def get_trial_runner_class(self) -> Type[TrialRunner]:
+        """Returns the runner for fixed-data synthetic experiments."""
+        from .trainer import SyntheticFixedDataTrialRunner
+
+        return SyntheticFixedDataTrialRunner
+
 
 @dataclass(frozen=True)
 class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
@@ -406,6 +439,12 @@ class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
             return True
         return False
 
+    def get_trial_runner_class(self) -> Type[TrialRunner]:
+        """Returns the runner for MNIST experiments."""
+        from .trainer import MNISTTrialRunner
+
+        return MNISTTrialRunner
+
 
 @dataclass(frozen=True)
 class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
@@ -441,6 +480,12 @@ class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
             logging.warning(f"Skipping batch size {batch_size} > dataset size ({train_ds_size}).")
             return True
         return False
+
+    def get_trial_runner_class(self) -> Type[TrialRunner]:
+        """Returns the runner for MNIST experiments."""
+        from .trainer import MNISTTrialRunner
+
+        return MNISTTrialRunner
 
 
 @dataclass(frozen=True)
@@ -479,3 +524,9 @@ class MNIST1MSampledExperiment(ExperimentBase, MLPStudentExperiment):
             logging.warning(f"Skipping batch size {batch_size} > effective dataset size ({effective_size}).")
             return True
         return False
+
+    def get_trial_runner_class(self) -> Type[TrialRunner]:
+        """Returns the runner for MNIST experiments."""
+        from .trainer import MNISTTrialRunner
+
+        return MNISTTrialRunner

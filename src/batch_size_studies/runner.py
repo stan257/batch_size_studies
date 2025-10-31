@@ -32,11 +32,6 @@ from .experiments import (
     SyntheticExperimentMLPTeacher,
 )
 from .paths import EXPERIMENTS_DIR
-from .trainer import (
-    MNISTTrialRunner,
-    SyntheticFixedDataTrialRunner,
-    SyntheticFixedTimeTrialRunner,
-)
 
 
 class CenteredModel:
@@ -441,14 +436,11 @@ def run_experiment_sweep(
 
 def _get_trial_runner(experiment, **runner_kwargs):
     """Factory function to create the appropriate trial runner."""
-    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
-        return MNISTTrialRunner(experiment, **runner_kwargs)
-    elif isinstance(experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)):
-        return SyntheticFixedDataTrialRunner(experiment, **runner_kwargs)
-    elif isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)):
-        return SyntheticFixedTimeTrialRunner(experiment, **runner_kwargs)
-    else:
-        logging.error(f"Unknown experiment type for experiment: {experiment.experiment_type}")
+    try:
+        runner_class = experiment.get_trial_runner_class()
+        return runner_class(experiment=experiment, **runner_kwargs)
+    except NotImplementedError:
+        logging.error(f"Experiment type {type(experiment).__name__} does not implement get_trial_runner_class().")
         return None
 
 

@@ -5,7 +5,6 @@ import numpy as np
 import optax
 
 from .definitions import LossType, OptimizerType, Parameterization
-from .experiments import MLPStudentExperiment
 
 
 def get_eta_adjustment_factor(experiment) -> float:
@@ -17,7 +16,9 @@ def get_eta_adjustment_factor(experiment) -> float:
     For μP, we scale by the width N for SGD (resp. sqrt(N) for ADAM) to ensure
     μ-transfer across width.
     """
-    if not isinstance(experiment, MLPStudentExperiment):
+    # Use duck typing to avoid circular import with experiments.py
+    is_mlp_student = all(hasattr(experiment, attr) for attr in ["parameterization", "gamma", "L", "N"])
+    if not is_mlp_student:
         # Only MLP students have this complex adjustment logic.
         # Linear models or others use a factor of 1.0.
         return 1.0

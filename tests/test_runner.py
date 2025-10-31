@@ -723,16 +723,18 @@ class TestGetTrialRunner:
 
         runner_kwargs = {**base_runner_kwargs, **extra_kwargs}
 
+        mock_experiment.get_trial_runner_class.return_value = runner_class
         runner = _get_trial_runner(mock_experiment, **runner_kwargs)
         assert isinstance(runner, runner_class)
 
     def test_returns_none_for_unknown_type(self, caplog):
         mock_experiment = Mock()
         mock_experiment.experiment_type = "future_experiment"
+        mock_experiment.get_trial_runner_class.side_effect = NotImplementedError
 
         runner = _get_trial_runner(mock_experiment)
         assert runner is None
-        assert "Unknown experiment type" in caplog.text
+        assert "does not implement get_trial_runner_class()" in caplog.text
 
 
 # ============================================================================

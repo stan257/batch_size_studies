@@ -10,12 +10,17 @@ from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import (
     ExperimentBase,
+    LinearStudentExperiment,
     MNISTExperiment,
     SyntheticExperimentFixedData,
     SyntheticExperimentFixedTime,
     SyntheticExperimentLinearTeacher,
 )
-from batch_size_studies.runner import MNISTTrialRunner, SyntheticFixedDataTrialRunner, run_experiment_sweep
+from batch_size_studies.runner import run_experiment_sweep
+from batch_size_studies.trainer import (
+    MNISTTrialRunner,
+    SyntheticFixedDataTrialRunner,
+)
 
 # --- Fixtures ---
 
@@ -118,8 +123,9 @@ class TestUnifiedRunner:
         """Tests that the runner handles an unknown experiment type gracefully."""
 
         @dataclass(frozen=True)
-        class UnknownExperiment(ExperimentBase):
+        class UnknownExperiment(LinearStudentExperiment, ExperimentBase):
             experiment_type: str = "unknown"
+            D: int = 10
 
             def is_run_complete(self, result, run_key):
                 return False
@@ -127,12 +133,16 @@ class TestUnifiedRunner:
             def should_skip_batch_size(self, batch_size, train_ds_size=None):
                 return False
 
-        config = UnknownExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.MSE)
-        # The runner should fail because the unknown experiment doesn't have the create_model_instance method.
-        with pytest.raises(AttributeError, match="'UnknownExperiment' object has no attribute 'create_model_instance'"):
+            def get_trial_runner_class(self):
+                raise NotImplementedError
+
+        config = UnknownExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.MSE, D=10)
+        # The runner should log an error and return None if get_trial_runner_class fails.
+        with caplog.at_level(logging.ERROR):
             losses, failures = run_experiment_sweep(
                 experiment=config, batch_sizes=[8], etas=[0.1], directory=str(tmp_path)
             )
+        assert "does not implement get_trial_runner_class()" in caplog.text
 
 
 class TestSyntheticRunner:
@@ -549,13 +559,55 @@ class TestEpochBasedDataHandling:
         assert num_unique_indices == len(seen_indices), "Duplicate data points were found within a single epoch."
 
 
+class TestTrialRunnerDispatch:
+    """
+    Integration tests to verify that the runner correctly dispatches to the
+    right TrialRunner class based on the experiment's polymorphic method.
+    """
+
+    @patch("batch_size_studies.trainer.MNISTTrialRunner")
+    def test_mnist_experiment_dispatches_to_mnist_runner(
+        self, mock_runner_class, mnist_config, mock_mnist_loader, tmp_path
+    ):
+        run_experiment_sweep(
+            experiment=mnist_config,
+            batch_sizes=[32],
+            etas=[0.01],
+            dataset_loader=mock_mnist_loader,
+            directory=str(tmp_path),
+            no_save=True,
+        )
+        mock_runner_class.assert_called_once()
+
+    @patch("batch_size_studies.trainer.SyntheticFixedDataTrialRunner")
+    def test_linear_teacher_dispatches_to_fixed_data_runner(
+        self, mock_runner_class, linear_teacher_config_subset, tmp_path
+    ):
+        run_experiment_sweep(
+            experiment=linear_teacher_config_subset,
+            batch_sizes=[32],
+            etas=[0.01],
+            directory=str(tmp_path),
+            no_save=True,
+        )
+        mock_runner_class.assert_called_once()
+
+    @patch("batch_size_studies.trainer.SyntheticFixedTimeTrialRunner")
+    def test_fixed_time_dispatches_to_fixed_time_runner(self, mock_runner_class, fixed_time_config, tmp_path):
+        # This experiment type doesn't need a dataset loader
+        run_experiment_sweep(
+            experiment=fixed_time_config, batch_sizes=[32], etas=[0.01], directory=str(tmp_path), no_save=True
+        )
+        mock_runner_class.assert_called_once()
+
+
 class TestModelCreationIntegration:
     """
     Integration tests to verify that the runner correctly creates and
     passes the right model object (raw or centered) to the trial runner.
     """
 
-    @patch("batch_size_studies.runner.MNISTTrialRunner")
+    @patch("batch_size_studies.trainer.MNISTTrialRunner")
     def test_mlp_experiment_uses_centered_model(self, mock_runner_class, mnist_config, mock_mnist_loader, tmp_path):
         """
         Checks that for an MLP experiment, the runner creates a CenteredModel
@@ -583,7 +635,7 @@ class TestModelCreationIntegration:
         assert isinstance(model_instance_arg, CenteredModel)
         assert isinstance(model_instance_arg.model, MLP)
 
-    @patch("batch_size_studies.runner.SyntheticFixedDataTrialRunner")
+    @patch("batch_size_studies.trainer.SyntheticFixedDataTrialRunner")
     def test_linear_experiment_uses_raw_model(self, mock_runner_class, linear_teacher_config_subset, tmp_path):
         """
         Checks that for a Linear experiment, the runner passes the raw,

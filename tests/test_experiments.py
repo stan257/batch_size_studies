@@ -4,6 +4,7 @@ import pytest
 
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import (
+    ExperimentBase,
     MNIST1MExperiment,
     MNIST1MSampledExperiment,
     MNISTExperiment,
@@ -13,6 +14,11 @@ from batch_size_studies.experiments import (
     SyntheticExperimentMLPTeacher,
 )
 from batch_size_studies.models import MLP, LinearModel
+from batch_size_studies.trainer import (
+    MNISTTrialRunner,
+    SyntheticFixedDataTrialRunner,
+    SyntheticFixedTimeTrialRunner,
+)
 
 # ============================================================================
 # FIXTURES
@@ -148,6 +154,35 @@ class TestCreateModelInstance:
         """Verifies that a Linear-based experiment creates a LinearModel instance."""
         model = linear_teacher_config.create_model_instance()
         assert isinstance(model, LinearModel)
+
+
+class TestGetTrialRunnerClass:
+    """Tests the get_trial_runner_class method on experiment classes."""
+
+    def test_mnist_returns_mnist_runner(self, mnist_config):
+        assert mnist_config.get_trial_runner_class() is MNISTTrialRunner
+
+    def test_mnist1m_returns_mnist_runner(self, mnist1m_config):
+        assert mnist1m_config.get_trial_runner_class() is MNISTTrialRunner
+
+    def test_mnist1m_sampled_returns_mnist_runner(self, mnist1m_sampled_config):
+        assert mnist1m_sampled_config.get_trial_runner_class() is MNISTTrialRunner
+
+    def test_fixed_data_returns_synthetic_fixed_data_runner(self, fixed_data_config):
+        assert fixed_data_config.get_trial_runner_class() is SyntheticFixedDataTrialRunner
+
+    def test_linear_teacher_returns_synthetic_fixed_data_runner(self, linear_teacher_config):
+        assert linear_teacher_config.get_trial_runner_class() is SyntheticFixedDataTrialRunner
+
+    def test_fixed_time_returns_synthetic_fixed_time_runner(self, fixed_time_config):
+        assert fixed_time_config.get_trial_runner_class() is SyntheticFixedTimeTrialRunner
+
+    def test_mlp_teacher_returns_synthetic_fixed_time_runner(self, mlp_teacher_config):
+        assert mlp_teacher_config.get_trial_runner_class() is SyntheticFixedTimeTrialRunner
+
+    def test_base_class_raises_not_implemented(self, fixed_time_config):
+        with pytest.raises(NotImplementedError):
+            ExperimentBase.get_trial_runner_class(fixed_time_config)
 
 
 class TestSyntheticExperimentMLPTeacher:
