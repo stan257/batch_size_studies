@@ -1,65 +1,16 @@
 import functools
 from typing import Callable
 
-import numpy as np
 import optax
 
-from .definitions import LossType, OptimizerType, Parameterization
-
-
-def get_eta_adjustment_factor(experiment) -> float:
-    """
-    The learning rate adjustment schedule is based on the findings from:
-    "The Optimization Landscape of SGD Across the Feature Learning Strength"
-    Atanasov et al. (2025, arXiv:2410.04642)
-
-    For μP, we scale by the width N for SGD (resp. sqrt(N) for ADAM) to ensure
-    μ-transfer across width.
-    """
-    # Use duck typing to avoid circular import with experiments.py
-    is_mlp_student = all(hasattr(experiment, attr) for attr in ["parameterization", "gamma", "L", "N"])
-    if not is_mlp_student:
-        # Only MLP students have this complex adjustment logic.
-        # Linear models or others use a factor of 1.0.
-        return 1.0
-
-    gamma = experiment.gamma
-    depth = experiment.L
-    width = experiment.N
-
-    match experiment.optimizer:
-        case OptimizerType.SGD:
-            gamma_mult = gamma ** (2 / depth) if gamma > 1 else gamma**2
-        case OptimizerType.ADAM:
-            gamma_mult = gamma ** (1 / depth) if gamma > 1 else gamma
-        case _:
-            # Default to returning the base eta if no specific rule is defined.
-            gamma_mult = 1.0
-
-    if experiment.parameterization == Parameterization.SP:
-        width_mult = 1.0
-    else:
-        match experiment.optimizer:
-            case OptimizerType.SGD:
-                width_mult = width
-            case OptimizerType.ADAM:
-                width_mult = np.sqrt(width)
-            case _:
-                width_mult = 1.0
-
-    return gamma_mult * width_mult
-
-
-def eta_adjustment_fn(experiment, eta: float):
-    adj_factor = get_eta_adjustment_factor(experiment)
-    return eta * adj_factor
+from .definitions import LossType, OptimizerType
 
 
 def reverse_eta_adjustment(func: Callable[[int], float], experiment) -> Callable[[int], float]:
     """
     This "undoes" the scaling applied by `eta_adjustment_fn`.
     """
-    adj_factor = get_eta_adjustment_factor(experiment)
+    adj_factor = experiment.get_adjusted_eta(1.0)
 
     if adj_factor == 0:
         return lambda b: float("inf")
@@ -101,12 +52,10 @@ def reverse_eta_adjustment_theoretical(func: Callable[[int], float], experiment)
     return theoretical_reversed_func
 
 
-def create_optimizer(experiment, eta: float):
+def create_optimizer(experiment, learning_rate: float):
     """
     Creates an optax optimizer based on the experiment configuration.
-    The learning rate is determined by `eta_adjustment_fn`.
     """
-    learning_rate = eta_adjustment_fn(experiment, eta)
     match experiment.optimizer:
         case OptimizerType.SGD:
             return optax.sgd(learning_rate)

@@ -176,6 +176,52 @@ class TestModelHandling:
         assert wrapped_model is mock_model
 
 
+class TestGetAdjustedEta:
+    """Tests the polymorphic get_adjusted_eta method on experiment classes."""
+
+    def test_linear_returns_base_eta(self, linear_teacher_config):
+        """Verifies that for Linear models, the eta is not adjusted."""
+        base_eta = 0.1
+        adjusted_eta = linear_teacher_config.get_adjusted_eta(base_eta)
+        assert adjusted_eta == base_eta
+
+    # --- Tests for MLPStudentExperiment ---
+
+    @pytest.mark.parametrize("gamma_val, expected_mult", [(2.0, 2.0**1.0), (0.5, 0.5**2)])
+    def test_mlp_sp_sgd(self, mnist_config, gamma_val, expected_mult):
+        # SP, SGD, L=2
+        config = replace(mnist_config, gamma=gamma_val)
+        base_eta = 0.1
+        # width_mult is 1.0 for SP
+        assert config.get_adjusted_eta(base_eta) == pytest.approx(base_eta * expected_mult)
+
+    @pytest.mark.parametrize("gamma_val, expected_mult", [(2.0, 2.0**0.5), (0.5, 0.5)])
+    def test_mlp_sp_adam(self, mnist_config, gamma_val, expected_mult):
+        # SP, ADAM, L=2
+        config = replace(mnist_config, optimizer=OptimizerType.ADAM, gamma=gamma_val)
+        base_eta = 0.1
+        # width_mult is 1.0 for SP
+        assert config.get_adjusted_eta(base_eta) == pytest.approx(base_eta * expected_mult)
+
+    @pytest.mark.parametrize("gamma_val, expected_mult", [(3.0, 3.0 ** (2 / 3)), (0.5, 0.5**2)])
+    def test_mlp_mup_sgd(self, mnist1m_config, gamma_val, expected_mult):
+        # MUP, SGD, L=3, N=128
+        config = replace(mnist1m_config, gamma=gamma_val)
+        base_eta = 0.01
+        # width_mult is N for muP SGD
+        expected_eta = base_eta * expected_mult * config.N
+        assert config.get_adjusted_eta(base_eta) == pytest.approx(expected_eta)
+
+    @pytest.mark.parametrize("gamma_val, expected_mult", [(3.0, 3.0 ** (1 / 3)), (0.5, 0.5)])
+    def test_mlp_mup_adam(self, mnist1m_config, gamma_val, expected_mult):
+        # MUP, ADAM, L=3, N=128
+        config = replace(mnist1m_config, optimizer=OptimizerType.ADAM, gamma=gamma_val)
+        base_eta = 0.01
+        # width_mult is sqrt(N) for muP Adam
+        expected_eta = base_eta * expected_mult * np.sqrt(config.N)
+        assert config.get_adjusted_eta(base_eta) == pytest.approx(expected_eta)
+
+
 class TestCreateModelInstance:
     """Tests the create_model_instance method on experiment classes."""
 

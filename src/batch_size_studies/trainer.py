@@ -36,7 +36,8 @@ class TrialRunner(ABC):
         self.no_save = no_save
         self.kwargs = kwargs
 
-        self.optimizer = create_optimizer(self.experiment, self.run_key.eta)
+        self.lr = self.experiment.get_adjusted_eta(self.run_key.eta)
+        self.optimizer = create_optimizer(self.experiment, self.lr)
         self.loss_fn = self._create_loss_fn()
         self.update_step = self._create_update_step()
 

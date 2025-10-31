@@ -77,6 +77,40 @@ class MLPStudentExperiment:
 
         return CenteredModel(model_instance, params0)
 
+    def get_adjusted_eta(self, base_eta: float) -> float:
+        """
+        The learning rate adjustment schedule is based on the findings from:
+        "The Optimization Landscape of SGD Across the Feature Learning Strength"
+        Atanasov et al. (2025, arXiv:2410.04642)
+
+        For μP, we scale by the width N for SGD (resp. sqrt(N) for ADAM) to ensure
+        μ-transfer across width.
+        """
+        gamma = self.gamma
+        depth = self.L
+        width = self.N
+
+        match self.optimizer:
+            case OptimizerType.SGD:
+                gamma_mult = gamma ** (2 / depth) if gamma > 1 else gamma**2
+            case OptimizerType.ADAM:
+                gamma_mult = gamma ** (1 / depth) if gamma > 1 else gamma
+            case _:
+                gamma_mult = 1.0
+
+        if self.parameterization == Parameterization.SP:
+            width_mult = 1.0
+        else:  # muP
+            match self.optimizer:
+                case OptimizerType.SGD:
+                    width_mult = width
+                case OptimizerType.ADAM:
+                    width_mult = np.sqrt(width)
+                case _:
+                    width_mult = 1.0
+
+        return base_eta * gamma_mult * width_mult
+
 
 @dataclass(frozen=True)
 class LinearStudentExperiment:
@@ -96,6 +130,10 @@ class LinearStudentExperiment:
     def get_model_wrapper(self, model_instance, params0):
         """Returns the raw Linear model instance without a wrapper."""
         return model_instance
+
+    def get_adjusted_eta(self, base_eta: float) -> float:
+        """Returns the unadjusted learning rate for linear models."""
+        return base_eta
 
 
 # Base class for all experiments
@@ -230,6 +268,13 @@ class ExperimentBase(ABC):
     def get_model_wrapper(self, model_instance, params0):
         """
         Wraps the model instance if necessary (e.g., for centering).
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_adjusted_eta(self, base_eta: float) -> float:
+        """
+        Returns the final, adjusted learning rate for the optimizer.
         """
         raise NotImplementedError
 

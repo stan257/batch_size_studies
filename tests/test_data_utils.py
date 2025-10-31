@@ -48,6 +48,9 @@ class MockSynthExperiment(LinearStudentExperiment, ExperimentBase):
     def get_model_wrapper(self, model_instance, params0):
         pass
 
+    def get_adjusted_eta(self, base_eta: float) -> float:
+        pass
+
 
 @dataclass(frozen=True)
 class MockMNISTExperiment(MLPStudentExperiment, ExperimentBase):
@@ -76,6 +79,9 @@ class MockMNISTExperiment(MLPStudentExperiment, ExperimentBase):
         pass
 
     def get_model_wrapper(self, model_instance, params0):
+        pass
+
+    def get_adjusted_eta(self, base_eta: float) -> float:
         pass
 
 
