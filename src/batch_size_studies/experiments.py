@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from enum import Enum
+from pprint import pprint
 from typing import Type
 
 import jax.random as jr
@@ -164,6 +165,10 @@ class ExperimentBase(ABC):
         data_to_save = {"losses": losses, "failed_runs": failed_runs}
         filepath = self.get_filepath(directory, prefix, extension)
         return save_experiment(data_to_save, filepath)
+
+    def describe(self):
+        """Pretty-prints the experiment configuration for easy inspection."""
+        pprint(self)
 
     @abstractmethod
     def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
