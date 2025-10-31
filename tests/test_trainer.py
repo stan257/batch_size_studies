@@ -468,3 +468,81 @@ class TestEpochBasedDataHandling:
         assert not np.array_equal(indices_epoch0, indices_epoch1), (
             "The order of data samples should be different in each epoch."
         )
+
+    @pytest.mark.parametrize(
+        "runner_class, config_fixture, data_setup, batch_size",
+        [
+            # Case 1: Synthetic, batch size does not divide dataset size
+            (
+                SyntheticFixedDataTrialRunner,
+                "linear_teacher_config_subset",
+                lambda config: {
+                    "X_data": np.arange(config.P).reshape(-1, 1),
+                    "y_data": np.zeros(config.P),
+                },
+                20,  # 105 is not divisible by 20
+            ),
+            # Case 2: Synthetic, batch size *does* divide dataset size
+            (
+                SyntheticFixedDataTrialRunner,
+                "linear_teacher_config_subset",
+                lambda config: {
+                    "X_data": np.arange(config.P).reshape(-1, 1),
+                    "y_data": np.zeros(config.P),
+                },
+                21,  # 105 is divisible by 21
+            ),
+            # Case 3: MNIST, batch size does not divide dataset size
+            (
+                MNISTTrialRunner,
+                "mnist_config_subset",
+                lambda config: {
+                    "train_ds": {"image": np.arange(105).reshape(105, 1), "label": np.zeros(105)},
+                    "test_ds": {"image": np.array([]), "label": np.array([])},
+                },
+                20,
+            ),
+            # Case 4: MNIST, batch size *does* divide dataset size
+            (
+                MNISTTrialRunner,
+                "mnist_config_subset",
+                lambda config: {
+                    "train_ds": {"image": np.arange(105).reshape(105, 1), "label": np.zeros(105)},
+                    "test_ds": {"image": np.array([]), "label": np.array([])},
+                },
+                21,
+            ),
+        ],
+    )
+    def test_no_duplicates_within_single_epoch(self, runner_class, config_fixture, data_setup, batch_size, request):
+        """
+        Verifies that for a single epoch, each data point from the chosen
+        training subset is seen exactly once (no repetitions).
+        """
+        config = request.getfixturevalue(config_fixture)
+        run_key = RunKey(batch_size=batch_size, eta=0.1)
+        data_kwargs = data_setup(config)
+        num_samples = 105
+
+        runner_kwargs = {
+            "experiment": config,
+            "run_key": run_key,
+            "params0": None,
+            "model_instance": None,
+            "checkpoint_manager": None,
+            "pbar": None,
+            "no_save": True,
+            "init_key": 0,
+            "num_epochs": 1,
+            **data_kwargs,
+        }
+        runner = runner_class(**runner_kwargs)
+
+        batch_generator = runner._get_batch_generator(epoch=0)
+        seen_indices = [idx for x_batch, _ in batch_generator for idx in x_batch.flatten()]
+
+        num_usable_samples = (num_samples // batch_size) * batch_size
+        assert len(seen_indices) == num_usable_samples, "The total number of samples seen is incorrect."
+
+        num_unique_indices = len(set(seen_indices))
+        assert num_unique_indices == len(seen_indices), "Duplicate data points were found within a single epoch."
