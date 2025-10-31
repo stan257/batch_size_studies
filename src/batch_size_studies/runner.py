@@ -31,7 +31,6 @@ from .experiments import (
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentMLPTeacher,
 )
-from .models import MLP, LinearModel
 from .paths import EXPERIMENTS_DIR
 from .trainer import (
     MNISTTrialRunner,
@@ -351,11 +350,14 @@ def run_experiment_sweep(
     """
     # 1. Setup
     results_dict, failed_runs, checkpoint_manager = initialize_results_and_checkpoints(experiment, directory, no_save)
+
+    # Polymorphic call to the experiment to create its own model instance.
+    model_instance = experiment.create_model_instance()
+
+    # The runner still needs to know the model's structure to initialize params
     if isinstance(experiment, LinearStudentExperiment):
-        model_instance = LinearModel()
         widths = [experiment.D, 1]
     elif isinstance(experiment, MLPStudentExperiment):
-        model_instance = MLP(experiment.parameterization, experiment.gamma)
         widths = compute_model_widths(experiment)
     else:
         raise TypeError(f"Unknown student model for experiment type: {type(experiment).__name__}")

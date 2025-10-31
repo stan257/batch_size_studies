@@ -12,7 +12,7 @@ import jax.random as jr
 import numpy as np
 
 from .definitions import LossType, OptimizerType, Parameterization, RunKey
-from .models import MLP
+from .models import MLP, LinearModel
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
 
 
@@ -26,12 +26,20 @@ class MLPStudentExperiment:
     parameterization: Parameterization
     gamma: float
 
+    def create_model_instance(self):
+        """Creates an MLP model instance based on the experiment's configuration."""
+        return MLP(parameterization=self.parameterization, gamma=self.gamma)
+
 
 @dataclass(frozen=True)
 class LinearStudentExperiment:
     """A mixin for experiments that use a LinearModel as the student."""
 
     D: int
+
+    def create_model_instance(self):
+        """Creates a LinearModel instance."""
+        return LinearModel()
 
 
 # Base class for all experiments

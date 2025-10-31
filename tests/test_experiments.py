@@ -12,6 +12,7 @@ from batch_size_studies.experiments import (
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentMLPTeacher,
 )
+from batch_size_studies.models import MLP, LinearModel
 
 # ============================================================================
 # FIXTURES
@@ -131,6 +132,22 @@ def mnist1m_sampled_config():
 # ============================================================================
 # TEST CLASSES
 # ============================================================================
+
+
+class TestCreateModelInstance:
+    """Tests the create_model_instance method on experiment classes."""
+
+    def test_mlp_experiment_creates_mlp_model(self, mnist_config):
+        """Verifies that an MLP-based experiment creates an MLP instance."""
+        model = mnist_config.create_model_instance()
+        assert isinstance(model, MLP)
+        assert model.parameterization == mnist_config.parameterization
+        assert model.gamma == mnist_config.gamma
+
+    def test_linear_experiment_creates_linear_model(self, linear_teacher_config):
+        """Verifies that a Linear-based experiment creates a LinearModel instance."""
+        model = linear_teacher_config.create_model_instance()
+        assert isinstance(model, LinearModel)
 
 
 class TestSyntheticExperimentMLPTeacher:

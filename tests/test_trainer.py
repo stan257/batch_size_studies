@@ -1,6 +1,7 @@
 import logging
 import os
 from dataclasses import dataclass, replace
+from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -127,8 +128,8 @@ class TestUnifiedRunner:
                 return False
 
         config = UnknownExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.MSE)
-        # The runner should fail fast if it doesn't know what model to use.
-        with pytest.raises(TypeError, match="Unknown student model for experiment type: UnknownExperiment"):
+        # The runner should fail because the unknown experiment doesn't have the create_model_instance method.
+        with pytest.raises(AttributeError, match="'UnknownExperiment' object has no attribute 'create_model_instance'"):
             losses, failures = run_experiment_sweep(
                 experiment=config, batch_sizes=[8], etas=[0.1], directory=str(tmp_path)
             )
@@ -546,3 +547,64 @@ class TestEpochBasedDataHandling:
 
         num_unique_indices = len(set(seen_indices))
         assert num_unique_indices == len(seen_indices), "Duplicate data points were found within a single epoch."
+
+
+class TestModelCreationIntegration:
+    """
+    Integration tests to verify that the runner correctly creates and
+    passes the right model object (raw or centered) to the trial runner.
+    """
+
+    @patch("batch_size_studies.runner.MNISTTrialRunner")
+    def test_mlp_experiment_uses_centered_model(self, mock_runner_class, mnist_config, mock_mnist_loader, tmp_path):
+        """
+        Checks that for an MLP experiment, the runner creates a CenteredModel
+        wrapper and passes it to the trial runner.
+        """
+        run_experiment_sweep(
+            experiment=mnist_config,
+            batch_sizes=[32],
+            etas=[0.01],
+            dataset_loader=mock_mnist_loader,
+            directory=str(tmp_path),
+            no_save=True,
+        )
+
+        assert mock_runner_class.call_count == 1
+        # Get the keyword arguments passed to the TrialRunner's constructor
+        init_kwargs = mock_runner_class.call_args.kwargs
+        model_instance_arg = init_kwargs.get("model_instance")
+
+        assert model_instance_arg is not None, "model_instance was not passed to the runner's constructor"
+
+        from batch_size_studies.models import MLP
+        from batch_size_studies.runner import CenteredModel
+
+        assert isinstance(model_instance_arg, CenteredModel)
+        assert isinstance(model_instance_arg.model, MLP)
+
+    @patch("batch_size_studies.runner.SyntheticFixedDataTrialRunner")
+    def test_linear_experiment_uses_raw_model(self, mock_runner_class, linear_teacher_config_subset, tmp_path):
+        """
+        Checks that for a Linear experiment, the runner passes the raw,
+        unwrapped LinearModel instance to the trial runner.
+        """
+        run_experiment_sweep(
+            experiment=linear_teacher_config_subset,
+            batch_sizes=[32],
+            etas=[0.01],
+            directory=str(tmp_path),
+            no_save=True,
+        )
+
+        assert mock_runner_class.call_count == 1
+        init_kwargs = mock_runner_class.call_args.kwargs
+        model_instance_arg = init_kwargs.get("model_instance")
+
+        assert model_instance_arg is not None, "model_instance was not passed to the runner's constructor"
+
+        from batch_size_studies.models import LinearModel
+        from batch_size_studies.runner import CenteredModel
+
+        assert isinstance(model_instance_arg, LinearModel)
+        assert not isinstance(model_instance_arg, CenteredModel)
