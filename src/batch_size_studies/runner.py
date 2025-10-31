@@ -19,8 +19,6 @@ from tqdm.auto import tqdm
 from .checkpoint_utils import CheckpointManager
 from .definitions import RunKey
 from .experiments import (
-    LinearStudentExperiment,
-    MLPStudentExperiment,
     MNIST1MExperiment,
     MNIST1MSampledExperiment,
     MNISTExperiment,
@@ -143,13 +141,6 @@ def initialize_model_params(
 # ============================================================================
 # RUN CONFIGURATION HELPERS
 # ============================================================================
-
-
-def compute_model_widths(experiment) -> list[int]:
-    """Computes the layer widths for the MLP model."""
-    # MNIST experiments have a multi-class output, others have a single output.
-    output_dim = getattr(experiment, "num_outputs", 1)
-    return [experiment.D] + [experiment.N] * (experiment.L - 1) + [output_dim]
 
 
 def compute_num_steps(experiment, batch_size: int, train_ds, **kwargs) -> int:
@@ -336,21 +327,9 @@ def run_experiment_sweep(
     # Polymorphic call to the experiment to create its own model instance.
     model_instance = experiment.create_model_instance()
 
-    # The runner still needs to know the model's structure to initialize params
-    if isinstance(experiment, LinearStudentExperiment):
-        widths = [experiment.D, 1]
-    elif isinstance(experiment, MLPStudentExperiment):
-        widths = compute_model_widths(experiment)
-    else:
-        raise TypeError(f"Unknown student model for experiment type: {type(experiment).__name__}")
-
+    widths = experiment.get_model_widths()
     params0 = initialize_model_params(model_instance, checkpoint_manager, init_key, widths, no_save)
-    # Wrap the model for centering if it's an MLPStudentExperiment.
-    # The trial runners will then use this centered model.
-    if isinstance(experiment, MLPStudentExperiment):
-        model_for_runner = CenteredModel(model_instance, params0)
-    else:
-        model_for_runner = model_instance
+    model_for_runner = experiment.get_model_wrapper(model_instance, params0)  # e.g. centering the model or not
 
     # 2. Load Data
     train_ds, test_ds = experiment.prepare_datasets(init_key, **kwargs)

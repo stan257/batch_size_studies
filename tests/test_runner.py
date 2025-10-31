@@ -21,7 +21,6 @@ from batch_size_studies.runner import (
     RunStatus,
     _get_trial_runner,
     _run_single_trial,
-    compute_model_widths,
     compute_num_steps,
     initialize_model_params,
     initialize_results_and_checkpoints,
@@ -190,51 +189,6 @@ class TestEtaStabilityTracker:
             tracker.update(is_successful=False)
 
         assert tracker.count == 0
-
-
-# ============================================================================
-# TESTS FOR compute_model_widths
-# ============================================================================
-
-
-class TestComputeModelWidths:
-    """Tests for model architecture width computation."""
-
-    def test_mnist_widths_include_output_dimension(self):
-        mock_mnist = Mock(spec=MNISTExperiment)
-        mock_mnist.D = 784
-        mock_mnist.N = 128
-        mock_mnist.L = 3
-        mock_mnist.num_outputs = 10
-
-        widths = compute_model_widths(mock_mnist)
-
-        # [input, hidden1, hidden2, output]
-        assert widths == [784, 128, 128, 10]
-
-    def test_synthetic_widths_use_single_output(self):
-        mock_synthetic = Mock(spec=SyntheticExperimentFixedData)
-        mock_synthetic.D = 50
-        mock_synthetic.N = 32
-        mock_synthetic.L = 2
-
-        widths = compute_model_widths(mock_synthetic)
-
-        # [input, hidden1, output=1]
-        assert widths == [50, 32, 1]
-
-    def test_deep_network_architecture(self):
-        mock_exp = Mock(spec=MNISTExperiment)
-        mock_exp.D = 100
-        mock_exp.N = 64
-        mock_exp.L = 5  # Deeper network
-        mock_exp.num_outputs = 10
-
-        widths = compute_model_widths(mock_exp)
-
-        # [input, hidden1, hidden2, hidden3, hidden4, output]
-        assert len(widths) == 6
-        assert widths == [100, 64, 64, 64, 64, 10]
 
 
 # ============================================================================

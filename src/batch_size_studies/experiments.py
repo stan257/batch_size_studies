@@ -65,6 +65,18 @@ class MLPStudentExperiment:
         """Creates an MLP model instance based on the experiment's configuration."""
         return MLP(parameterization=self.parameterization, gamma=self.gamma)
 
+    def get_model_widths(self) -> list[int]:
+        """Computes the layer widths for the MLP model."""
+        output_dim = getattr(self, "num_outputs", 1)
+        return [self.D] + [self.N] * (self.L - 1) + [output_dim]
+
+    def get_model_wrapper(self, model_instance, params0):
+        """Wraps the MLP model instance with CenteredModel."""
+        # Local import to break circular dependency with runner.py
+        from .runner import CenteredModel
+
+        return CenteredModel(model_instance, params0)
+
 
 @dataclass(frozen=True)
 class LinearStudentExperiment:
@@ -75,6 +87,15 @@ class LinearStudentExperiment:
     def create_model_instance(self):
         """Creates a LinearModel instance."""
         return LinearModel()
+
+    def get_model_widths(self) -> list[int]:
+        """Computes the layer widths for the Linear model."""
+        # Output dimension is always 1 for linear models in this framework.
+        return [self.D, 1]
+
+    def get_model_wrapper(self, model_instance, params0):
+        """Returns the raw Linear model instance without a wrapper."""
+        return model_instance
 
 
 # Base class for all experiments
@@ -198,6 +219,20 @@ class ExperimentBase(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def get_model_widths(self) -> list[int]:
+        """
+        Returns the list of layer widths for the model architecture.
+        """
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_model_wrapper(self, model_instance, params0):
+        """
+        Wraps the model instance if necessary (e.g., for centering).
+        """
+        raise NotImplementedError
+
 
 class SyntheticExperiment(ABC):
     @abstractmethod
@@ -208,7 +243,7 @@ class SyntheticExperiment(ABC):
 
 
 @dataclass(frozen=True)
-class SyntheticExperimentFixedTime(ExperimentBase, MLPStudentExperiment, SyntheticExperiment):
+class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, SyntheticExperiment):
     # Student and task parameters
     D: int
     P: int
@@ -255,7 +290,7 @@ class SyntheticExperimentFixedTime(ExperimentBase, MLPStudentExperiment, Synthet
 
 
 @dataclass(frozen=True)
-class SyntheticExperimentFixedData(ExperimentBase, MLPStudentExperiment, SyntheticExperiment):
+class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, SyntheticExperiment):
     # Student and task parameters
     D: int
     P: int
@@ -314,7 +349,7 @@ class SyntheticExperimentFixedData(ExperimentBase, MLPStudentExperiment, Synthet
 
 # TODO: Make separate MLP fixed-data class for experiments, when needed
 @dataclass(frozen=True)
-class SyntheticExperimentMLPTeacher(ExperimentBase, MLPStudentExperiment, SyntheticExperiment):
+class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, SyntheticExperiment):
     """
     Defines parameters for a synthetic data experiment where the teacher is an MLP.
     This is a *fixed-time* experiment.
@@ -381,7 +416,7 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, MLPStudentExperiment, Synthe
 
 
 @dataclass(frozen=True)
-class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, SyntheticExperiment):
+class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, SyntheticExperiment):
     """
     Defines parameters for a synthetic data experiment where the teacher is linear.
     This is a *fixed-data* experiment.
@@ -466,7 +501,7 @@ class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, 
 
 
 @dataclass(frozen=True)
-class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
+class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
     """
     Defines parameters for a 10-class MNIST classification experiment.
     This is a fixed-data, fixed-epoch experiment that uses the custom MLP
@@ -515,7 +550,7 @@ class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
 
 
 @dataclass(frozen=True)
-class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
+class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
     """
     Defines parameters for a 10-class MNIST-1M classification experiment.
     This dataset is generated from a diffusion model.
@@ -561,7 +596,7 @@ class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
 
 
 @dataclass(frozen=True)
-class MNIST1MSampledExperiment(ExperimentBase, MLPStudentExperiment):
+class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
     """
     An MNIST-1M experiment that trains on a subset of the full dataset.
     This is useful for quick sanity checks and faster experimental cycles.

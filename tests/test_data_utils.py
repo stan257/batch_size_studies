@@ -19,7 +19,7 @@ from batch_size_studies.experiments import ExperimentBase, LinearStudentExperime
 
 
 @dataclass(frozen=True)
-class MockSynthExperiment(ExperimentBase, LinearStudentExperiment):
+class MockSynthExperiment(LinearStudentExperiment, ExperimentBase):
     """A mock experiment type for testing default attribute handling."""
 
     val: int
@@ -42,9 +42,15 @@ class MockSynthExperiment(ExperimentBase, LinearStudentExperiment):
     def get_trial_runner_class(self):
         pass
 
+    def get_model_widths(self) -> list[int]:
+        pass
+
+    def get_model_wrapper(self, model_instance, params0):
+        pass
+
 
 @dataclass(frozen=True)
-class MockMNISTExperiment(ExperimentBase, MLPStudentExperiment):
+class MockMNISTExperiment(MLPStudentExperiment, ExperimentBase):
     """A mock experiment type with all filterable attributes."""
 
     val: int
@@ -64,6 +70,12 @@ class MockMNISTExperiment(ExperimentBase, MLPStudentExperiment):
         pass
 
     def get_trial_runner_class(self):
+        pass
+
+    def get_model_widths(self) -> list[int]:
+        pass
+
+    def get_model_wrapper(self, model_instance, params0):
         pass
 
 

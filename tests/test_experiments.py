@@ -143,6 +143,39 @@ def mnist1m_sampled_config():
 # ============================================================================
 
 
+class TestModelHandling:
+    """Tests the polymorphic model handling methods on experiment classes."""
+
+    def test_mlp_experiment_returns_correct_widths(self, mnist_config):
+        """Verifies get_model_widths for an MLP experiment."""
+        # mnist_config: D=784, N=128, L=2, num_outputs=10
+        widths = mnist_config.get_model_widths()
+        assert widths == [784, 128, 10]
+
+    def test_linear_experiment_returns_correct_widths(self, linear_teacher_config):
+        """Verifies get_model_widths for a Linear experiment."""
+        # linear_teacher_config: D=100
+        widths = linear_teacher_config.get_model_widths()
+        assert widths == [100, 1]
+
+    def test_mlp_experiment_returns_centered_model(self, mnist_config):
+        """Verifies get_model_wrapper for an MLP experiment."""
+        from batch_size_studies.runner import CenteredModel
+
+        mock_model, mock_params0 = Mock(), Mock()
+        wrapped_model = mnist_config.get_model_wrapper(mock_model, mock_params0)
+
+        assert isinstance(wrapped_model, CenteredModel)
+        assert wrapped_model.model is mock_model
+        assert wrapped_model.params0 is mock_params0
+
+    def test_linear_experiment_returns_raw_model(self, linear_teacher_config):
+        """Verifies get_model_wrapper for a Linear experiment."""
+        mock_model, mock_params0 = Mock(), Mock()
+        wrapped_model = linear_teacher_config.get_model_wrapper(mock_model, mock_params0)
+        assert wrapped_model is mock_model
+
+
 class TestCreateModelInstance:
     """Tests the create_model_instance method on experiment classes."""
 
