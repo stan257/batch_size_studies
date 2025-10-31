@@ -13,12 +13,10 @@ from collections import defaultdict
 from dataclasses import dataclass
 
 import jax
-import jax.random as jr
 import numpy as np
 from tqdm.auto import tqdm
 
 from .checkpoint_utils import CheckpointManager
-from .data_loading import load_datasets, load_mnist1m_dataset
 from .definitions import RunKey
 from .experiments import (
     LinearStudentExperiment,
@@ -191,42 +189,31 @@ def validate_and_store_result(
     results_dict.pop(run_key, None)
     failed_runs.discard(run_key)
 
-    is_mnist_success = (
-        isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment))
-        and result
-        and "final_test_accuracy" in result
-        and np.isfinite(result["final_test_accuracy"])
-    )
-    is_synthetic_success = (
-        not isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment))
-        and result is not None
-    )
+    is_complete = experiment.is_run_complete(result, run_key) if result else False
 
-    is_successful = is_mnist_success or is_synthetic_success
+    # A result is valid if it exists and doesn't contain non-finite values.
+    is_valid = result is not None
+    if "final_test_accuracy" in (result or {}) and not np.isfinite(result["final_test_accuracy"]):
+        is_valid = False
 
-    if is_successful:
+    if is_valid:
+        # Store any valid result, even if incomplete. It will be overwritten on resume.
         results_dict[run_key] = result
         if not no_save:
-            # Only cleanup if the run is fully complete.
-            is_fully_complete = False
-            if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
-                # The `experiment` object here is the original one, so it has the correct total number of epochs.
-                original_epochs = getattr(experiment, "num_epochs", 1)
-                if len(result.get("epoch_test_accuracies", [])) >= original_epochs:
-                    is_fully_complete = True
-            else:  # For synthetic, we assume any success is a full run for now.
-                is_fully_complete = True
-
-            if is_fully_complete:
+            if is_complete:
                 checkpoint_manager.cleanup_live_checkpoint(run_key)
     else:
+        # Only runs that are invalid (e.g., returned None from divergence) are marked as failures.
+        # Incomplete runs are not failures.
         failed_runs.add(run_key)
 
     if not no_save:
         # Save results after every trial
         experiment.save_results(results_dict, failed_runs, os.path.dirname(checkpoint_manager.exp_dir))
 
-    return is_successful
+    # The run is only considered "successful" for the purpose of the eta stability search
+    # if it is both valid and fully complete.
+    return is_valid and is_complete
 
 
 # ============================================================================
@@ -366,26 +353,12 @@ def run_experiment_sweep(
         model_for_runner = model_instance
 
     # 2. Load Data
-    train_ds, test_ds = prepare_datasets(experiment, init_key, **kwargs)
-    if (
-        isinstance(
-            experiment,
-            (
-                MNISTExperiment,
-                MNIST1MExperiment,
-                MNIST1MSampledExperiment,
-                SyntheticExperimentFixedData,
-                SyntheticExperimentLinearTeacher,
-            ),
-        )
-        and train_ds is None
-    ):
+    train_ds, test_ds = experiment.prepare_datasets(init_key, **kwargs)
+    if train_ds is None and not isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)):
         logging.error("Failed to load dataset. Aborting sweep.")
         return dict(results_dict), failed_runs
 
     # 3. Run Sweep
-    sorted_etas = sorted(etas, reverse=True)
-    eta_pbar = tqdm(total=len(sorted_etas), desc="Eta Sweep", leave=False)
     for batch_size in tqdm(batch_sizes, desc="Batch Size Sweep"):
         # Determine dataset size for the polymorphic check, if applicable.
         train_ds_size = None
@@ -398,6 +371,8 @@ def run_experiment_sweep(
 
         eta_tracker = EtaStabilityTracker(eta_stability_search_depth)
 
+        sorted_etas = sorted(etas, reverse=True)
+        eta_pbar = tqdm(total=len(sorted_etas), desc="Eta Sweep", leave=False)
         eta_pbar.reset()
         eta_pbar.set_description(f"Eta Sweep (B={batch_size})")
 
@@ -425,13 +400,8 @@ def run_experiment_sweep(
 
             eta_pbar.update(1)
 
-    eta_pbar.close()
+        eta_pbar.close()
     return dict(results_dict), failed_runs
-
-
-# ============================================================================
-# TRIAL RUNNER AND DATASET HELPERS
-# ============================================================================
 
 
 def _get_trial_runner(experiment, **runner_kwargs):
@@ -442,52 +412,3 @@ def _get_trial_runner(experiment, **runner_kwargs):
     except NotImplementedError:
         logging.error(f"Experiment type {type(experiment).__name__} does not implement get_trial_runner_class().")
         return None
-
-
-def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
-    """Helper to subsample MNIST training data."""
-    num_samples_to_use = getattr(experiment, "max_train_samples", None)
-    if num_samples_to_use is not None and num_samples_to_use > 0:
-        num_original_samples = len(train_images)
-        if num_original_samples >= num_samples_to_use:
-            shuffle_key = jr.PRNGKey(init_key)
-            indices_to_use = jr.permutation(shuffle_key, num_original_samples)[:num_samples_to_use]
-            train_images = train_images[np.array(indices_to_use)]
-            train_labels = train_labels[np.array(indices_to_use)]
-            logging.info(f"Training on a random subset of {len(train_images)} samples.")
-    return train_images, train_labels
-
-
-def _load_mnist_dataset(experiment, init_key: int, dataset_loader=None):
-    """Loads MNIST dataset with optional subsampling."""
-    if dataset_loader is None:
-        dataset_loader = load_datasets if isinstance(experiment, MNISTExperiment) else load_mnist1m_dataset
-
-    try:
-        (train_images, train_labels), (test_images, test_labels) = dataset_loader()
-
-        if isinstance(experiment, MNIST1MSampledExperiment):
-            train_images, train_labels = _subsample_mnist_data(train_images, train_labels, experiment, init_key)
-
-        train_ds = {"image": train_images, "label": train_labels}
-        test_ds = {"image": test_images, "label": test_labels}
-        return train_ds, test_ds
-
-    except FileNotFoundError as e:
-        logging.error(f"Dataset not found: {e}")
-        return None, None
-
-
-def prepare_datasets(experiment, init_key: int, **kwargs):
-    """Prepares training and test datasets based on the experiment type."""
-    train_ds, test_ds = None, None
-    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
-        return _load_mnist_dataset(experiment, init_key, kwargs.get("dataset_loader"))
-
-    elif isinstance(experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)):
-        data_key = jr.key(getattr(experiment, "seed", init_key))
-        X_data, y_data = experiment.generate_data(data_key)
-        train_ds = (X_data, y_data)
-        test_ds = None
-
-    return train_ds, test_ds

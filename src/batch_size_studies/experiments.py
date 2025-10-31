@@ -12,10 +12,42 @@ from typing import Type
 import jax.random as jr
 import numpy as np
 
+from .data_loading import load_datasets, load_mnist1m_dataset
 from .definitions import LossType, OptimizerType, Parameterization, RunKey
 from .models import MLP, LinearModel
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
 from .trainer import TrialRunner
+
+
+def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
+    """Helper to subsample MNIST training data."""
+    num_samples_to_use = getattr(experiment, "max_train_samples", None)
+    if num_samples_to_use is not None and num_samples_to_use > 0:
+        num_original_samples = len(train_images)
+        if num_original_samples >= num_samples_to_use:
+            shuffle_key = jr.PRNGKey(init_key)
+            indices_to_use = jr.permutation(shuffle_key, num_original_samples)[:num_samples_to_use]
+            train_images = train_images[np.array(indices_to_use)]
+            train_labels = train_labels[np.array(indices_to_use)]
+            logging.info(f"Training on a random subset of {len(train_images)} samples.")
+    return train_images, train_labels
+
+
+def _load_mnist_dataset(experiment, init_key: int, dataset_loader=None):
+    """Loads MNIST dataset with optional subsampling."""
+    if dataset_loader is None:
+        dataset_loader = load_datasets if isinstance(experiment, MNISTExperiment) else load_mnist1m_dataset
+
+    try:
+        (train_images, train_labels), (test_images, test_labels) = dataset_loader()
+        if isinstance(experiment, MNIST1MSampledExperiment):
+            train_images, train_labels = _subsample_mnist_data(train_images, train_labels, experiment, init_key)
+        train_ds = {"image": train_images, "label": train_labels}
+        test_ds = {"image": test_images, "label": test_labels}
+        return train_ds, test_ds
+    except FileNotFoundError as e:
+        logging.error(f"Dataset not found: {e}")
+        return None, None
 
 
 # Student Mixins
@@ -154,6 +186,13 @@ class ExperimentBase(ABC):
         """
         raise NotImplementedError
 
+    @abstractmethod
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+        """
+        Prepares training and test datasets for the experiment.
+        """
+        raise NotImplementedError
+
 
 class SyntheticExperiment(ABC):
     @abstractmethod
@@ -204,6 +243,10 @@ class SyntheticExperimentFixedTime(ExperimentBase, MLPStudentExperiment, Synthet
         from .trainer import SyntheticFixedTimeTrialRunner
 
         return SyntheticFixedTimeTrialRunner
+
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+        """Fixed-time experiments do not load a dataset upfront."""
+        return None, None
 
 
 @dataclass(frozen=True)
@@ -256,6 +299,12 @@ class SyntheticExperimentFixedData(ExperimentBase, MLPStudentExperiment, Synthet
         from .trainer import SyntheticFixedDataTrialRunner
 
         return SyntheticFixedDataTrialRunner
+
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+        """Generates the synthetic dataset for this experiment."""
+        data_key = jr.key(getattr(self, "seed", init_key))
+        X_data, y_data = self.generate_data(data_key)
+        return (X_data, y_data), None
 
 
 # TODO: Make separate MLP fixed-data class for experiments, when needed
@@ -320,6 +369,10 @@ class SyntheticExperimentMLPTeacher(ExperimentBase, MLPStudentExperiment, Synthe
         from .trainer import SyntheticFixedTimeTrialRunner
 
         return SyntheticFixedTimeTrialRunner
+
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+        """Fixed-time experiments do not load a dataset upfront."""
+        return None, None
 
 
 @dataclass(frozen=True)
@@ -400,6 +453,12 @@ class SyntheticExperimentLinearTeacher(ExperimentBase, LinearStudentExperiment, 
 
         return SyntheticFixedDataTrialRunner
 
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+        """Generates the synthetic dataset for this experiment."""
+        data_key = jr.key(getattr(self, "seed", init_key))
+        X_data, y_data = self.generate_data(data_key)
+        return (X_data, y_data), None
+
 
 @dataclass(frozen=True)
 class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
@@ -445,6 +504,10 @@ class MNISTExperiment(ExperimentBase, MLPStudentExperiment):
 
         return MNISTTrialRunner
 
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+        """Loads the MNIST dataset."""
+        return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
+
 
 @dataclass(frozen=True)
 class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
@@ -486,6 +549,10 @@ class MNIST1MExperiment(ExperimentBase, MLPStudentExperiment):
         from .trainer import MNISTTrialRunner
 
         return MNISTTrialRunner
+
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+        """Loads the MNIST-1M dataset."""
+        return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
 
 
 @dataclass(frozen=True)
@@ -529,4 +596,9 @@ class MNIST1MSampledExperiment(ExperimentBase, MLPStudentExperiment):
         """Returns the runner for MNIST experiments."""
         from .trainer import MNISTTrialRunner
 
+        return MNISTTrialRunner
+
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+        """Loads and subsamples the MNIST-1M dataset."""
+        return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
         return MNISTTrialRunner

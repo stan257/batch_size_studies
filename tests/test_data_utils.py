@@ -36,6 +36,9 @@ class MockSynthExperiment(ExperimentBase, LinearStudentExperiment):
     def should_skip_batch_size(self, batch_size, train_ds_size=None):
         pass
 
+    def prepare_datasets(self, init_key: int, **kwargs):
+        pass
+
     def get_trial_runner_class(self):
         pass
 
@@ -55,6 +58,9 @@ class MockMNISTExperiment(ExperimentBase, MLPStudentExperiment):
         pass
 
     def should_skip_batch_size(self, batch_size, train_ds_size=None):
+        pass
+
+    def prepare_datasets(self, init_key: int, **kwargs):
         pass
 
     def get_trial_runner_class(self):

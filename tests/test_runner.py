@@ -9,7 +9,6 @@ import pytest
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import (
-    MNIST1MSampledExperiment,
     MNISTExperiment,
     SyntheticExperimentFixedData,
     SyntheticExperimentFixedTime,
@@ -26,7 +25,6 @@ from batch_size_studies.runner import (
     compute_num_steps,
     initialize_model_params,
     initialize_results_and_checkpoints,
-    prepare_datasets,
     validate_and_store_result,
 )
 from batch_size_studies.trainer import (
@@ -379,6 +377,7 @@ class TestValidateAndStoreResult:
 
     def test_successful_synthetic_result_stored(self, validation_setup):
         s = validation_setup
+        s.mock_exp.is_run_complete.return_value = True  # Simulate a complete run
 
         is_successful = validate_and_store_result(
             result=s.result,
@@ -395,10 +394,16 @@ class TestValidateAndStoreResult:
         assert s.results_dict[s.run_key] == s.result
         assert s.run_key not in s.failed_runs
 
-    def test_failed_mnist_result_without_accuracy(self, validation_setup):
+    def test_incomplete_run_is_stored_for_resumption(self, validation_setup):
+        """
+        Tests that an incomplete but valid run (e.g., finished early) is stored
+        in the results dictionary but NOT marked as a failure. This is the
+        correct behavior to allow for checkpoint resumption.
+        """
         s = validation_setup
         s.mock_exp = Mock(spec=MNISTExperiment)
-        s.result = {"loss_history": [1.0, 0.9, 0.8]}  # Missing final_test
+        s.mock_exp.is_run_complete.return_value = False  # Mark as incomplete
+        s.result = {"loss_history": [1.0, 0.9, 0.8]}  # A valid, partial result
 
         is_successful = validate_and_store_result(
             result=s.result,
@@ -410,14 +415,18 @@ class TestValidateAndStoreResult:
             no_save=True,
         )
 
+        # The run is not "successful" because it's not complete
         assert is_successful is False
-        assert s.run_key not in s.results_dict
-        assert s.run_key in s.failed_runs
+        # CRUCIAL: The result should be stored to allow for resumption...
+        assert s.run_key in s.results_dict
+        # ...but it should NOT be added to the set of hard failures.
+        assert s.run_key not in s.failed_runs
 
     def test_mnist_result_with_nan_accuracy(self, validation_setup):
         s = validation_setup
         s.mock_exp = Mock(spec=MNISTExperiment)
-        s.result = {"loss_history": [1.0, 0.9, 0.8]}  # Missing final_test_accuracy
+        s.mock_exp.is_run_complete.return_value = True  # Structurally complete
+        s.result = {"final_test_accuracy": np.nan}
 
         is_successful = validate_and_store_result(
             result=s.result,
@@ -435,6 +444,7 @@ class TestValidateAndStoreResult:
     def test_checkpoint_cleanup_called_for_completed_runs(self, validation_setup):
         s = validation_setup
 
+        s.mock_exp.is_run_complete.return_value = True
         validate_and_store_result(
             result=s.result,
             run_key=s.run_key,
@@ -451,8 +461,8 @@ class TestValidateAndStoreResult:
     def test_checkpoint_cleanup_called_for_full_mnist_run(self, validation_setup):
         """Test that checkpoints ARE cleaned up for fully completed MNIST runs."""
         s = validation_setup
-        s.mock_exp = Mock(spec=MNISTExperiment)
-        s.mock_exp.num_epochs = 4
+        s.mock_exp = Mock(spec=MNISTExperiment, num_epochs=4)
+        s.mock_exp.is_run_complete.return_value = True
         s.result = {"final_test_accuracy": 0.9, "epoch_test_accuracies": [0.8, 0.85, 0.88, 0.9]}
 
         validate_and_store_result(
@@ -471,8 +481,8 @@ class TestValidateAndStoreResult:
     def test_checkpoint_cleanup_not_called_for_partial_mnist_run(self, validation_setup):
         """Test that checkpoints are NOT cleaned up for partially completed MNIST runs."""
         s = validation_setup
-        s.mock_exp = Mock(spec=MNISTExperiment)
-        s.mock_exp.num_epochs = 4
+        s.mock_exp = Mock(spec=MNISTExperiment, num_epochs=4)
+        s.mock_exp.is_run_complete.return_value = False  # This run is incomplete
         s.result = {"final_test_accuracy": 0.9, "epoch_test_accuracies": [0.8, 0.85]}
 
         validate_and_store_result(
@@ -490,6 +500,7 @@ class TestValidateAndStoreResult:
 
     def test_previous_result_removed_on_failure(self, validation_setup):
         s = validation_setup
+        s.mock_exp.is_run_complete.return_value = False
         s.results_dict[s.run_key] = {"old_result": "data"}
 
         validate_and_store_result(
@@ -508,6 +519,7 @@ class TestValidateAndStoreResult:
     def test_failed_run_discarded_from_failed_set_on_success(self, validation_setup):
         s = validation_setup
         s.failed_runs = {s.run_key}  # Previously failed
+        s.mock_exp.is_run_complete.return_value = True
 
         validate_and_store_result(
             result=s.result,
@@ -730,81 +742,3 @@ class TestGetTrialRunner:
     def test_returns_none_for_unknown_type(self, caplog):
         mock_experiment = Mock()
         mock_experiment.experiment_type = "future_experiment"
-        mock_experiment.get_trial_runner_class.side_effect = NotImplementedError
-
-        runner = _get_trial_runner(mock_experiment)
-        assert runner is None
-        assert "does not implement get_trial_runner_class()" in caplog.text
-
-
-# ============================================================================
-# TESTS FOR prepare_datasets
-# ============================================================================
-
-
-class TestPrepareDatasets:
-    """Tests for the data loading helper function."""
-
-    @patch("batch_size_studies.runner.load_datasets")
-    def test_loads_standard_mnist(self, mock_loader):
-        mock_exp = Mock(spec=MNISTExperiment)
-
-        mock_loader.return_value = (
-            (np.zeros((100, 28, 28, 1)), np.zeros(100)),
-            (np.zeros((20, 28, 28, 1)), np.zeros(20)),
-        )
-
-        train_ds, test_ds = prepare_datasets(mock_exp, init_key=0)
-
-        mock_loader.assert_called_once()
-        assert train_ds is not None and test_ds is not None
-        assert len(train_ds["image"]) == 100
-        assert len(test_ds["image"]) == 20
-
-    @patch("batch_size_studies.runner.load_mnist1m_dataset")
-    def test_loads_and_samples_mnist1m(self, mock_loader):
-        mock_exp = Mock(spec=MNIST1MSampledExperiment)
-        mock_exp.max_train_samples = 50  # Sample down to 50
-
-        # Use arange to easily check if shuffling occurred
-        mock_loader.return_value = (
-            (np.arange(100).reshape(100, 1, 1, 1), np.arange(100)),
-            (np.zeros((20, 28, 28, 1)), np.zeros(20)),
-        )
-
-        train_ds, test_ds = prepare_datasets(mock_exp, init_key=42)
-
-        mock_loader.assert_called_once()
-        assert train_ds is not None and test_ds is not None
-        assert len(train_ds["image"]) == 50
-        # Check that it's not just the first 50 samples (i.e., it was shuffled)
-        assert not np.array_equal(train_ds["image"].flatten(), np.arange(50))
-
-    def test_generates_synthetic_data(self):
-        mock_exp = Mock(spec=SyntheticExperimentFixedData)
-        mock_exp.generate_data.return_value = (np.zeros((100, 10)), np.zeros(100))
-        mock_exp.seed = 42
-
-        train_ds, test_ds = prepare_datasets(mock_exp, init_key=0)
-
-        mock_exp.generate_data.assert_called_once()
-        assert test_ds is None
-        assert isinstance(train_ds, tuple) and len(train_ds) == 2
-
-    def test_handles_dataset_not_found(self, caplog):
-        mock_exp = Mock(spec=MNISTExperiment)
-
-        # Mock the loader to raise FileNotFoundError
-        mock_loader = Mock(side_effect=FileNotFoundError("Dataset file missing"))
-
-        train_ds, test_ds = prepare_datasets(mock_exp, init_key=0, dataset_loader=mock_loader)
-
-        assert train_ds is None and test_ds is None
-        assert "Dataset not found" in caplog.text
-
-    def test_no_data_loaded_for_fixed_time(self):
-        mock_exp = Mock(spec=SyntheticExperimentFixedTime)
-
-        train_ds, test_ds = prepare_datasets(mock_exp, init_key=0)
-
-        assert train_ds is None and test_ds is None

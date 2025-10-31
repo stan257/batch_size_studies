@@ -1,3 +1,6 @@
+from dataclasses import replace
+from unittest.mock import Mock, patch
+
 import jax.random as jr
 import numpy as np
 import pytest
@@ -183,6 +186,68 @@ class TestGetTrialRunnerClass:
     def test_base_class_raises_not_implemented(self, fixed_time_config):
         with pytest.raises(NotImplementedError):
             ExperimentBase.get_trial_runner_class(fixed_time_config)
+
+
+class TestPrepareDatasets:
+    """Tests for the polymorphic prepare_datasets method on experiment classes."""
+
+    @patch("batch_size_studies.experiments.load_datasets")
+    def test_mnist_loads_standard_mnist(self, mock_loader, mnist_config):
+        mock_loader.return_value = (
+            (np.zeros((100, 28, 28, 1)), np.zeros(100)),
+            (np.zeros((20, 28, 28, 1)), np.zeros(20)),
+        )
+
+        train_ds, test_ds = mnist_config.prepare_datasets(init_key=0)
+
+        mock_loader.assert_called_once()
+        assert train_ds is not None and test_ds is not None
+        assert len(train_ds["image"]) == 100
+        assert len(test_ds["image"]) == 20
+
+    @patch("batch_size_studies.experiments.load_mnist1m_dataset")
+    def test_mnist1m_sampled_loads_and_samples(self, mock_loader, mnist1m_sampled_config):
+        # Use arange to easily check if shuffling occurred
+        mock_loader.return_value = (
+            (np.arange(100).reshape(100, 1, 1, 1), np.arange(100)),
+            (np.zeros((20, 28, 28, 1)), np.zeros(20)),
+        )
+
+        # Modify the config to request a smaller subset
+        config = replace(mnist1m_sampled_config, max_train_samples=50)
+
+        train_ds, test_ds = config.prepare_datasets(init_key=42)
+
+        mock_loader.assert_called_once()
+        assert train_ds is not None and test_ds is not None
+        assert len(train_ds["image"]) == 50
+        # Check that it's not just the first 50 samples (i.e., it was shuffled)
+        assert not np.array_equal(train_ds["image"].flatten(), np.arange(50))
+
+    def test_synthetic_generates_data(self, fixed_data_config):
+        # Mock the generate_data method on the instance to check if it's called
+        with patch.object(
+            SyntheticExperimentFixedData, "generate_data", return_value=(np.zeros((100, 10)), np.zeros(100))
+        ) as mock_gen:
+            train_ds, test_ds = fixed_data_config.prepare_datasets(init_key=0)
+
+            mock_gen.assert_called_once()
+            assert test_ds is None
+            assert isinstance(train_ds, tuple) and len(train_ds) == 2
+
+    def test_handles_dataset_not_found(self, mnist_config, caplog):
+        # Mock the loader to raise FileNotFoundError
+        mock_loader = Mock(side_effect=FileNotFoundError("Dataset file missing"))
+
+        train_ds, test_ds = mnist_config.prepare_datasets(init_key=0, dataset_loader=mock_loader)
+
+        assert train_ds is None and test_ds is None
+        assert "Dataset not found" in caplog.text
+
+    def test_no_data_loaded_for_fixed_time(self, fixed_time_config):
+        train_ds, test_ds = fixed_time_config.prepare_datasets(init_key=0)
+
+        assert train_ds is None and test_ds is None
 
 
 class TestSyntheticExperimentMLPTeacher:

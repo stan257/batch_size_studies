@@ -136,6 +136,10 @@ class TestUnifiedRunner:
             def get_trial_runner_class(self):
                 raise NotImplementedError
 
+            def prepare_datasets(self, init_key: int, **kwargs):
+                # Return a non-None train_ds to pass the data loading check.
+                return (np.array([]), np.array([])), None
+
         config = UnknownExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.MSE, D=10)
         # The runner should log an error and return None if get_trial_runner_class fails.
         with caplog.at_level(logging.ERROR):
