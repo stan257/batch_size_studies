@@ -9,12 +9,13 @@ import their configurations from here.
 import numpy as np
 
 from .definitions import LossType, OptimizerType, Parameterization
-from .experiments import MNIST1MExperiment, MNIST1MSampledExperiment
+from .experiments import MNIST1MExperiment
 
 
 def get_main_hyperparameter_grids():
     batch_sizes = (2 ** np.arange(0, 17)).tolist()
-    etas = np.power(2.0, np.arange(-12, 13)).tolist()
+    etas = np.power(2.0, np.arange(-12, 14)).tolist()
+    # etas = [3200.0, 3800.0, 4400.0, 5000.0]
     return batch_sizes, etas
 
 
@@ -77,22 +78,22 @@ def get_main_experiment_configs():
         num_epochs=1,
         parameterization=Parameterization.MUP,  # we default to muP for experiments
     )
-    # for opt in OptimizerType:
-    opt = OptimizerType.SGD
-    # for loss_type in LossType:
-    loss_type = LossType.MSE
-    for g in gammas:
-        name = f"mnist1m_mup_{loss_type.value}_{opt.value}_gamma{str(g).replace('.', 'p')}_epochs{mnist1m_kwargs['num_epochs']}"
-        experiments_to_run[name] = MNIST1MExperiment(
-            **(
-                mnist1m_kwargs
-                | dict(
-                    optimizer=opt,
-                    loss_type=loss_type,
-                    gamma=g,
+    for opt in OptimizerType:
+        # opt = OptimizerType.SGD
+        for loss_type in LossType:
+            # loss_type = LossType.XENT
+            for g in gammas:
+                name = f"mnist1m_mup_{loss_type.value}_{opt.value}_gamma{str(g).replace('.', 'p')}_epochs{mnist1m_kwargs['num_epochs']}"
+                experiments_to_run[name] = MNIST1MExperiment(
+                    **(
+                        mnist1m_kwargs
+                        | dict(
+                            optimizer=opt,
+                            loss_type=loss_type,
+                            gamma=g,
+                        )
+                    )
                 )
-            )
-        )
 
     # --- MNIST-1M Sampled Experiment ---
     # mnist1m_sampled_kwargs = dict(
@@ -119,61 +120,38 @@ def get_main_experiment_configs():
     #         )
     #     )
 
-    return experiments_to_run
+    # --- Linear Teacher Experiments ---
+    # linear_teacher_kwargs = dict(
+    #     D=500,
+    #     optimizer=OptimizerType.SGD,
+    #     loss_type=LossType.MSE,
+    # )
 
+    # linear_teacher_online_kwargs = linear_teacher_kwargs | dict(P=100_000, num_epochs=1)
+    # linear_teacher_offline_kwargs = linear_teacher_kwargs | dict(P=10_000, num_epochs=10)
+    # linear_teacher_offline_longest_kwargs = linear_teacher_kwargs | dict(P=1_000, num_epochs=100)
+    # # Experiment 1: alpha=1.1, beta=0.25
+    # # alpha_beta_dict = dict(alpha=1.1, beta=0.25)
+    # # name = "online_linear_teacher_alpha1p1_beta0p25_long"
+    # # experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_online_kwargs | alpha_beta_dict))
 
-# --- Small muP Experiment Suite ---
-# These are used to find smallest widths at which we start having μ-transfer across width
+    # # name = "offline_linear_teacher_alpha1p1_beta0p25_long"
+    # # experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_offline_kwargs | alpha_beta_dict))
 
+    # alpha_beta_dict = dict(alpha=2.0, beta=0.25)
+    # name = "online_linear_teacher_alpha2p0_beta0p25_long"
+    # experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_online_kwargs | alpha_beta_dict))
 
-def get_small_mup_hyperparameter_grids():
-    batch_sizes = (2 ** np.arange(7, 9)).tolist()
-    etas = np.power(2.0, np.arange(4, 6)).tolist()
-    return batch_sizes, etas
+    # name = "offline_linear_teacher_alpha2p0_beta0p25_long"
+    # experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_offline_kwargs | alpha_beta_dict))
 
+    # name = "offline_linear_teacher_alpha2p0_beta0p25_longest"
+    # experiments_to_run[name] = SyntheticExperimentLinearTeacher(
+    #     **(linear_teacher_offline_longest_kwargs | alpha_beta_dict)
+    # )
 
-def get_small_mup_experiment_configs():
-    P = 30_000
-    D = 25
-    K = 2
-    depth = 3  # L=3 corresponds to 2 hidden layers
-    NUM_STEPS = 100
-
-    gammas = [0.01, 0.1, 1.0, 10.0, 100.0]
-    widths = [64, 128, 256]
-
-    experiments_to_run = {}
-
-    # Synthetic muP experiments
-    # for n_val in widths:
-    #     for g in gammas:
-    #         name = f"mup_L{depth}_N{n_val}_gamma{str(g).replace('.', 'p')}_fixed_time"
-    #         experiments_to_run[name] = SyntheticExperimentFixedTime(
-    #             D=D,
-    #             P=P,
-    #             N=n_val,
-    #             K=K,
-    #             num_steps=NUM_STEPS,
-    #             L=depth,
-    #             gamma=float(g),
-    #             parameterization=Parameterization.MUP,
-    #         )
-
-    # MNIST muP experiments on sampled MNIST-1M
-    depth_mnist = 3
-    num_epochs = 1
-    max_train_samples = 50_000  # Use a subset for faster runs
-    for n_val in widths:
-        for g in gammas:
-            name = f"mnist1m_sampled_mup_L{depth_mnist}_N{n_val}_gamma{str(g).replace('.', 'p')}"
-            experiments_to_run[name] = MNIST1MSampledExperiment(
-                N=n_val,
-                L=depth_mnist,
-                num_epochs=num_epochs,
-                gamma=float(g),
-                parameterization=Parameterization.MUP,
-                max_train_samples=max_train_samples,
-                loss_type=LossType.MSE,
-            )
-
+    # name = "offline_linear_teacher_alpha2p0_beta0p25_longest_fr"
+    # experiments_to_run[name] = SyntheticExperimentLinearTeacher(
+    #     **(linear_teacher_kwargs | dict(P=100, num_epochs=1000) | alpha_beta_dict)
+    # )
     return experiments_to_run
