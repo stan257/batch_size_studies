@@ -55,11 +55,33 @@ class CheckpointManager:
             with open(filepath, "rb") as f:
                 data = CustomUnpickler(f).load()
 
-            # Default to -1 so start_step is 0
-            last_step = data.get("step", -1)
+            # --- Backward Compatibility Logic ---
+            if "results" in data:
+                # New format: 'results' dict contains loss_history, etc.
+                # 'step' is already a global step number.
+                last_step = data.get("step", -1)
+                results = data.get("results", {})
+            else:
+                # Old format: 'loss_history' is top-level, 'step' is an epoch number.
+                logging.info(f"Detected old checkpoint format for {run_key}. Converting to new format.")
+                last_epoch = data.get("step", -1)
+                results = {"loss_history": data.get("loss_history", [])}
+
+                # We need to determine steps_per_epoch to convert epoch to step.
+                # This logic mirrors compute_num_steps from the runner.
+                train_ds_size = getattr(self.experiment, "P", None)
+                if train_ds_size is None:
+                    # For MNIST, we need to estimate based on config.
+                    train_ds_size = getattr(self.experiment, "max_train_samples", 60000)
+
+                if train_ds_size is not None and run_key.batch_size > 0:
+                    steps_per_epoch = train_ds_size // run_key.batch_size
+                    last_step = (last_epoch + 1) * steps_per_epoch - 1
+                else:
+                    last_step = -1  # Fallback
+
             params = data.get("params")
             opt_state = data.get("opt_state")
-            results = data.get("results", {})
 
             logging.info(f"Resuming run {run_key} from step {last_step + 1}")
             return params, opt_state, results, last_step + 1

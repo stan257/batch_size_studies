@@ -1,3 +1,4 @@
+import itertools
 from dataclasses import replace
 
 import numpy as np
@@ -42,17 +43,19 @@ class TestDataHandlingIntegration:
         # --- 1. Monkeypatch the data generation and training loop ---
 
         # Replace the training loop to just collect batch indices
-        def mock_run_training_loop(self, params, opt_state, results, start_marker):
+        def mock_run_training_loop(self, params, opt_state, results, start_step):
             # This mock replaces the actual training.
-            # It iterates through the batch generator for each epoch and logs the indices.
+            # It iterates through the data generator for each epoch and logs the indices.
             batch_size = self.run_key.batch_size
             if batch_size not in seen_data_log:
                 seen_data_log[batch_size] = {}
 
+            # The new generator yields across all epochs. We need to manually chunk it.
+            full_generator = self._create_data_generator(results, start_step)
+
             for epoch in range(self.num_epochs):
-                batch_generator = self._get_batch_generator(epoch)
-                # Use np.vstack to collect all batches into a single array for the epoch
-                epoch_data = np.vstack([x_batch for x_batch, _ in batch_generator])
+                epoch_data_batches = [x_batch for x_batch, _ in itertools.islice(full_generator, self.steps_per_epoch)]
+                epoch_data = np.vstack(epoch_data_batches)
                 seen_data_log[batch_size][epoch] = epoch_data
 
             # Return a minimal valid result to satisfy the runner

@@ -1,6 +1,7 @@
 import logging
 from abc import ABC, abstractmethod
 from functools import partial
+from typing import Generator
 
 import jax
 import jax.numpy as jnp
@@ -35,11 +36,9 @@ class TrialRunner(ABC):
         self.pbar = pbar
         self.no_save = no_save
         self.kwargs = kwargs
-
         self.lr = self.experiment.get_adjusted_eta(self.run_key.eta)
-        self.optimizer = create_optimizer(self.experiment, self.lr)
-        self.loss_fn = self._create_loss_fn()
-        self.update_step = self._create_update_step()
+        # Subclasses are now responsible for creating these
+        self.optimizer, self.loss_fn, self.update_step, self.data_generator = None, None, None, None
 
     def _check_divergence(self, loss: jnp.ndarray) -> bool:
         """Checks for NaN or Inf in the loss and logs a warning."""
@@ -58,19 +57,56 @@ class TrialRunner(ABC):
     def run(self):
         """Main entry point to run the trial."""
         if self.no_save:
-            params, opt_state, results, start_marker = None, None, self._init_results(), 0
+            params, opt_state, results, start_step = None, None, self._init_results(), 0
         else:
-            params, opt_state, results, start_marker = self.checkpoint_manager.load_live_checkpoint(self.run_key)
+            # load_live_checkpoint now consistently returns a start_step
+            params, opt_state, results, start_step = self.checkpoint_manager.load_live_checkpoint(self.run_key)
 
         if params is None:
             params = self.params0
             opt_state = self.optimizer.init(params)
             results = self._init_results()
+            start_step = 0  # Ensure start_step is 0 if no checkpoint
 
-        return self._run_training_loop(params, opt_state, results, start_marker)
+        # Create the data generator, potentially using state from the loaded results
+        self.data_generator = self._create_data_generator(results, start_step)
+
+        return self._run_training_loop(params, opt_state, results, start_step)
+
+    def _run_training_loop(self, params, opt_state, results, start_step) -> dict | None:
+        """Unified training loop that iterates over steps."""
+        num_steps = self.kwargs["num_steps"]
+
+        for current_step, (x_batch, y_batch) in enumerate(self.data_generator, start=start_step):
+            if current_step >= num_steps:
+                break
+
+            update_result = self.update_step(params, opt_state, x_batch, y_batch)
+            params, opt_state, loss = update_result[0], update_result[1], update_result[2]
+
+            if self._check_divergence(loss):
+                return None
+            results["loss_history"].append(loss.item())
+
+            results = self._post_step_hook(current_step, params, results)
+
+            if self._should_save_checkpoint(current_step):
+                self._save_checkpoint(current_step, params, opt_state, results)
+
+            if self.pbar:
+                self.pbar.set_postfix(loss=f"{loss.item():.4f}", step=f"{current_step + 1}/{num_steps}")
+
+        return self._post_training_hook(params, results)
 
     @abstractmethod
     def _init_results(self) -> dict:
+        raise NotImplementedError
+
+    @abstractmethod
+    def _create_data_generator(
+        self, results: dict, start_step: int
+    ) -> Generator[tuple[jnp.ndarray, jnp.ndarray], None, None]:
+        """Creates a generator that yields batches of (inputs, targets)."""
         raise NotImplementedError
 
     @abstractmethod
@@ -81,68 +117,20 @@ class TrialRunner(ABC):
     def _create_update_step(self):
         raise NotImplementedError
 
-    @abstractmethod
-    def _run_training_loop(self, params, opt_state, results, start_marker) -> dict | None:
-        raise NotImplementedError
-
-
-class EpochBasedTrialRunner(TrialRunner):
-    """Abstract base class for epoch-based training loops."""
-
-    def __init__(self, experiment, **kwargs):
-        super().__init__(experiment, **kwargs)
-        self.num_epochs = self.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
-        self.num_train = 0  # Subclasses must set this
-
-    @abstractmethod
-    def _get_batch_generator(self, epoch: int) -> partial:
-        """Yields batches of (inputs, targets) for a given epoch."""
-        raise NotImplementedError
-
-    def _post_epoch_hook(self, epoch: int, params, results: dict) -> dict:
-        """Optional hook for end-of-epoch actions like evaluation. Returns updated results."""
+    def _post_step_hook(self, step: int, params, results: dict) -> dict:
+        """Optional hook for actions after each training step. Returns updated results."""
         return results
 
-    def _should_save_checkpoint(self, step_type: str, step_value: int) -> bool:
-        """Determines if a checkpoint should be saved at this step/epoch."""
-        # Default behavior: save at the end of each epoch.
-        return step_type == "epoch"
-
-    def _run_training_loop(self, params, opt_state, results, start_marker) -> dict | None:
-        start_epoch = start_marker
-        if self.num_train == 0:
-            raise NotImplementedError(f"{self.__class__.__name__} must set the 'num_train' attribute.")
-
-        steps_per_epoch = self.num_train // self.run_key.batch_size
-        current_step = start_epoch * steps_per_epoch
-
-        for epoch in range(start_epoch, self.num_epochs):
-            self.pbar.set_description(
-                f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | Epoch {epoch + 1}/{self.num_epochs}"
-            )
-            batch_generator = self._get_batch_generator(epoch)
-
-            for x_batch, y_batch in batch_generator:
-                update_result = self.update_step(params, opt_state, x_batch, y_batch)
-                params, opt_state, loss = update_result[0], update_result[1], update_result[2]
-
-                if self._check_divergence(loss):
-                    return None
-                results["loss_history"].append(loss.item())
-
-                if self._should_save_checkpoint("step", current_step):
-                    self._save_checkpoint(current_step, params, opt_state, results)
-                current_step += 1
-
-            results = self._post_epoch_hook(epoch, params, results)
-
-            if self._should_save_checkpoint("epoch", epoch):
-                self._save_checkpoint(epoch, params, opt_state, results)
-
+    def _post_training_hook(self, params, results: dict) -> dict | None:
+        """Optional hook for actions after the entire training loop. Returns final results."""
         return results
 
+    def _should_save_checkpoint(self, step: int) -> bool:
+        """Determines if a checkpoint should be saved at this step."""
+        return False
 
-class MNISTTrialRunner(EpochBasedTrialRunner):
+
+class MNISTTrialRunner(TrialRunner):
     """Trial runner for MNIST-based experiments."""
 
     def __init__(self, experiment, **kwargs):
@@ -150,10 +138,16 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
         self.train_ds = self.kwargs["train_ds"]
         self.test_ds = self.kwargs["test_ds"]
         self.init_key = self.kwargs["init_key"]
+        self.num_epochs = self.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
+
+        self.optimizer = create_optimizer(self.experiment, self.lr)
+        self.loss_fn = self._create_loss_fn()
+        self.update_step = self._create_update_step()
         self.eval_step = self._create_eval_step()
 
         original_num_train = self.train_ds["image"].shape[0]
-        num_usable_samples = (original_num_train // self.run_key.batch_size) * self.run_key.batch_size
+        self.steps_per_epoch = original_num_train // self.run_key.batch_size
+        num_usable_samples = self.steps_per_epoch * self.run_key.batch_size
 
         # Create a fixed subset of indices for the entire trial to ensure the same
         # data subset is used across epochs, just in a different order.
@@ -215,20 +209,27 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
 
         return eval_step
 
-    def _get_batch_generator(self, epoch: int) -> partial:
-        # num_train is the size of our subset, which is perfectly divisible by batch_size.
-        steps_per_epoch = self.num_train // self.run_key.batch_size
-        # Use an epoch-dependent key to shuffle the *subset* of indices.
-        epoch_shuffle_key = jr.PRNGKey(self.init_key + epoch + 1)
-        # Permute the SUBSET of indices.
-        perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
-        epoch_perms = perms.reshape((steps_per_epoch, self.run_key.batch_size))
-        np_perms = np.array(epoch_perms)
+    def _create_data_generator(
+        self, results: dict, start_step: int
+    ) -> Generator[tuple[jnp.ndarray, jnp.ndarray], None, None]:
+        start_epoch = start_step // self.steps_per_epoch
+        step_in_epoch = start_step % self.steps_per_epoch
 
-        for perm in np_perms:
-            batch_images = self.train_ds["image"][perm, ...].reshape(self.run_key.batch_size, -1)
-            batch_labels = self.train_ds["label"][perm, ...]
-            yield batch_images, batch_labels
+        for epoch in range(start_epoch, self.num_epochs):
+            if self.pbar:
+                self.pbar.set_description(
+                    f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | Epoch {epoch + 1}/{self.num_epochs}"
+                )
+            epoch_shuffle_key = jr.PRNGKey(self.init_key + epoch + 1)
+            perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
+            epoch_perms = perms.reshape((self.steps_per_epoch, self.run_key.batch_size))
+
+            for i, perm in enumerate(np.array(epoch_perms)):
+                if i >= step_in_epoch:
+                    batch_images = self.train_ds["image"][perm, ...].reshape(self.run_key.batch_size, -1)
+                    batch_labels = self.train_ds["label"][perm, ...]
+                    yield batch_images, batch_labels
+            step_in_epoch = 0  # Reset for subsequent epochs
 
     def _post_epoch_hook(self, epoch: int, params, results: dict) -> dict:
         test_accuracies = []
@@ -246,12 +247,19 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
 
         return results
 
-    def _run_training_loop(self, params, opt_state, results, start_epoch) -> dict | None:
-        # This is now a thin wrapper to call the base class implementation
-        # and then set the final accuracy metric.
-        results = super()._run_training_loop(params, opt_state, results, start_epoch)
+    def _post_step_hook(self, step: int, params, results: dict) -> dict:
+        if (step + 1) % self.steps_per_epoch == 0:
+            epoch = (step + 1) // self.steps_per_epoch - 1
+            results = self._post_epoch_hook(epoch, params, results)
+        return results
 
-        if results is None:
+    def _should_save_checkpoint(self, step: int) -> bool:
+        # Save at the end of each epoch
+        return (step + 1) % self.steps_per_epoch == 0
+
+    def _post_training_hook(self, params, results: dict) -> dict | None:
+        """Sets the final accuracy metric after the training loop completes."""
+        if results is None:  # Handle divergence case
             return None
 
         if results.get("epoch_test_accuracies"):
@@ -261,6 +269,13 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
 
 class SyntheticTrialRunner(TrialRunner):
     """Base trial runner for synthetic data experiments."""
+
+    def __init__(self, experiment, **kwargs):
+        super().__init__(experiment, **kwargs)
+        # These are defined here because they are common to all synthetic runners
+        self.optimizer = create_optimizer(self.experiment, self.lr)
+        self.loss_fn = self._create_loss_fn()
+        self.update_step = self._create_update_step()
 
     def _create_loss_fn(self):
         def loss_fn(params, x_batch, y_batch):
@@ -291,23 +306,33 @@ class SyntheticTrialRunner(TrialRunner):
         return sorted(list(steps))
 
 
-class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):  # Does not use EpochBasedTrialRunner
+class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
     """Trial runner for fixed-time synthetic experiments."""
+
+    def __init__(self, experiment, **kwargs):
+        super().__init__(experiment, **kwargs)
+        self.snapshot_steps = self._get_snapshot_steps(self.kwargs["num_steps"])
+        self.batch_key_seed = 0  # Initialized here, updated from results later
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "batch_key_seed": 0}
 
-    def _run_training_loop(self, params, opt_state, results, start_step) -> dict | None:
-        num_steps = self.kwargs["num_steps"]
-        batch_key_seed = results.get("batch_key_seed", 0)
-        step_for_curr_data = 0
-        X_data, y_data = self.experiment.generate_data(jr.key(batch_key_seed))
-        snapshot_steps = self._get_snapshot_steps(num_steps)
+    def _create_data_generator(
+        self, results: dict, start_step: int
+    ) -> Generator[tuple[jnp.ndarray, jnp.ndarray], None, None]:
+        self.batch_key_seed = results.get("batch_key_seed", 0)
+        # To correctly resume, we must fast-forward the data generation process
+        # to the state it would have been in at start_step.
+        steps_per_batch_key = self.experiment.P // self.run_key.batch_size
+        self.batch_key_seed += start_step // steps_per_batch_key
+        step_for_curr_data = start_step % steps_per_batch_key
 
-        for current_step in range(start_step, num_steps):
+        X_data, y_data = self.experiment.generate_data(jr.key(self.batch_key_seed))
+
+        while True:  # The loop in the base class will stop this generator
             if (step_for_curr_data + 1) * self.run_key.batch_size > self.experiment.P:
-                batch_key_seed += 1
-                X_data, y_data = self.experiment.generate_data(jr.key(batch_key_seed))
+                self.batch_key_seed += 1
+                X_data, y_data = self.experiment.generate_data(jr.key(self.batch_key_seed))
                 step_for_curr_data = 0
 
             start = step_for_curr_data * self.run_key.batch_size
@@ -315,33 +340,30 @@ class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):  # Does not use Epoch
                 X_data[start : start + self.run_key.batch_size],
                 y_data[start : start + self.run_key.batch_size],
             )
-
-            params, opt_state, loss, *_ = self.update_step(params, opt_state, X_batch, y_batch)
             step_for_curr_data += 1
+            yield X_batch, y_batch
 
-            if self._check_divergence(loss):
-                return None
-            results["loss_history"].append(loss.item())
-            results["batch_key_seed"] = batch_key_seed
-
-            if current_step in snapshot_steps:
-                self._save_checkpoint(current_step, params, opt_state, results)
-
-            if self.pbar:
-                self.pbar.set_postfix(loss=f"{loss.item():.4f}", step=f"{current_step + 1}/{num_steps}")
+    def _post_step_hook(self, step: int, params, results: dict) -> dict:
+        """Saves the current data generation seed to the results for checkpointing."""
+        results["batch_key_seed"] = self.batch_key_seed
         return results
 
+    def _should_save_checkpoint(self, step: int) -> bool:
+        return step in self.snapshot_steps
 
-class SyntheticFixedDataTrialRunner(EpochBasedTrialRunner, SyntheticTrialRunner):
+
+class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
     """Trial runner for fixed-data synthetic experiments."""
 
     def __init__(self, experiment, **kwargs):
         super().__init__(experiment, **kwargs)
         self.X_data = self.kwargs["X_data"]
         self.y_data = self.kwargs["y_data"]
+        self.num_epochs = self.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
 
         original_num_train = self.X_data.shape[0]
-        num_usable_samples = (original_num_train // self.run_key.batch_size) * self.run_key.batch_size
+        self.steps_per_epoch = original_num_train // self.run_key.batch_size
+        num_usable_samples = self.steps_per_epoch * self.run_key.batch_size
 
         # Create a fixed subset of indices for the entire trial to ensure the same
         # data subset is used across epochs, just in a different order.
@@ -349,29 +371,33 @@ class SyntheticFixedDataTrialRunner(EpochBasedTrialRunner, SyntheticTrialRunner)
         self.subset_indices = jr.permutation(subset_key, original_num_train)[:num_usable_samples]
         self.num_train = num_usable_samples
 
-        self.snapshot_steps = self._get_snapshot_steps(self.num_epochs * (self.num_train // self.run_key.batch_size))
+        self.snapshot_steps = self._get_snapshot_steps(self.num_epochs * self.steps_per_epoch)
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "epoch": 0}
 
-    def _get_batch_generator(self, epoch: int) -> partial:
-        # num_train is now the size of our subset, which is perfectly divisible by batch_size.
-        steps_per_epoch = self.num_train // self.run_key.batch_size
-        # Use an epoch-dependent key to shuffle the *subset* of indices.
-        epoch_shuffle_key = jr.PRNGKey(getattr(self.experiment, "seed", 0) + epoch)
-        # Permute the SUBSET of indices.
-        perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
-        epoch_perms = perms.reshape((steps_per_epoch, self.run_key.batch_size))
+    def _create_data_generator(
+        self, results: dict, start_step: int
+    ) -> Generator[tuple[jnp.ndarray, jnp.ndarray], None, None]:
+        start_epoch = start_step // self.steps_per_epoch
+        step_in_epoch = start_step % self.steps_per_epoch
 
-        # Convert to numpy array once before the loop to avoid device-to-host transfer on each iteration.
-        np_epoch_perms = np.array(epoch_perms)
+        for epoch in range(start_epoch, self.num_epochs):
+            epoch_shuffle_key = jr.PRNGKey(getattr(self.experiment, "seed", 0) + epoch)
+            perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
+            epoch_perms = perms.reshape((self.steps_per_epoch, self.run_key.batch_size))
 
-        for perm in np_epoch_perms:
-            yield self.X_data[perm, ...], self.y_data[perm, ...]
+            for i, perm in enumerate(np.array(epoch_perms)):
+                if i >= step_in_epoch:
+                    yield self.X_data[perm, ...], self.y_data[perm, ...]
+            step_in_epoch = 0  # Reset for subsequent epochs
 
-    def _post_epoch_hook(self, epoch: int, params, results: dict) -> dict:
-        results["epoch"] = epoch
+    def _post_step_hook(self, step: int, params, results: dict) -> dict:
+        """Saves the current epoch number to the results for checkpointing."""
+        if (step + 1) % self.steps_per_epoch == 0:
+            epoch = (step + 1) // self.steps_per_epoch - 1
+            results["epoch"] = epoch
         return results
 
-    def _should_save_checkpoint(self, step_type: str, step_value: int) -> bool:
-        return step_type == "step" and step_value in self.snapshot_steps
+    def _should_save_checkpoint(self, step: int) -> bool:
+        return step in self.snapshot_steps

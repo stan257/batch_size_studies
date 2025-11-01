@@ -1,3 +1,4 @@
+import itertools
 import logging
 import os
 from dataclasses import dataclass, replace
@@ -139,6 +140,12 @@ class TestUnifiedRunner:
             def prepare_datasets(self, init_key: int, **kwargs):
                 # Return a non-None train_ds to pass the data loading check.
                 return (np.array([]), np.array([])), None
+
+            def get_adjusted_eta(self, base_eta: float) -> float:
+                return base_eta
+
+            def get_model_widths(self) -> list[int]:
+                return [10, 1]
 
         config = UnknownExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.MSE, D=10)
         # The runner should log an error and return None if get_trial_runner_class fails.
@@ -322,6 +329,7 @@ class TestMNISTRunner:
         )
         cm = CheckpointManager(mnist_config, directory=str(tmp_path))
         resume_file = cm._get_resume_filepath(run_key)
+        steps_per_epoch = 128 // 64
         assert os.path.exists(resume_file)
 
         # Run to completion
@@ -336,7 +344,8 @@ class TestMNISTRunner:
                 num_epochs=total_epochs,
             )
 
-        assert f"Resuming run {run_key} from step {resume_from_epoch}" in caplog.text
+        expected_resume_step = resume_from_epoch * steps_per_epoch
+        assert f"Resuming run {run_key} from step {expected_resume_step}" in caplog.text
         assert len(results[run_key]["epoch_test_accuracies"]) == total_epochs
         assert not os.path.exists(resume_file)
 
@@ -395,7 +404,7 @@ class TestEpochBasedDataHandling:
     """Tests for data handling in epoch-based runners."""
 
     @pytest.mark.parametrize(
-        "runner_class, config_fixture, data_setup",
+        "runner_class, config_fixture, data_setup, is_synthetic",
         [
             (
                 SyntheticFixedDataTrialRunner,
@@ -405,6 +414,7 @@ class TestEpochBasedDataHandling:
                     "X_data": np.arange(config.P).reshape(-1, 1),
                     "y_data": np.zeros(config.P),
                 },
+                True,
             ),
             (
                 MNISTTrialRunner,
@@ -417,10 +427,13 @@ class TestEpochBasedDataHandling:
                     },
                     "test_ds": {"image": np.array([]), "label": np.array([])},
                 },
+                False,
             ),
         ],
     )
-    def test_data_subset_is_consistent_across_epochs(self, runner_class, config_fixture, data_setup, request):
+    def test_data_subset_is_consistent_across_epochs(
+        self, runner_class, config_fixture, data_setup, is_synthetic, request
+    ):
         """
         Verifies that for multi-epoch runs, the exact same subset of data is
         used in each epoch, but that the order is shuffled differently.
@@ -435,31 +448,37 @@ class TestEpochBasedDataHandling:
         data_kwargs = data_setup(config)
         num_samples = 105
 
-        # Common kwargs for both runners
-        runner_kwargs = {
-            "experiment": config,
-            "run_key": run_key,
-            "params0": None,
-            "model_instance": None,
-            "checkpoint_manager": None,
-            "pbar": None,
-            "no_save": True,
-            "init_key": 0,
-            "num_epochs": 2,
-            **data_kwargs,
-        }
-        runner = runner_class(**runner_kwargs)
+        # Mock the parts of init that we don't need for this test
+        with (
+            patch.object(runner_class, "_create_loss_fn", return_value=None),
+            patch.object(runner_class, "_create_update_step", return_value=None),
+            patch.object(runner_class, "__init__", lambda *args, **kwargs: None),
+        ):
+            # This test only needs to check the data generator, so we can mock the runner's __init__
+            # and manually set the attributes needed by _create_data_generator.
+            runner = runner_class()  # The patched __init__ takes no args
+            runner.experiment = config
+            runner.run_key = run_key
+            runner.init_key = 0
+            runner.num_epochs = 2
+            runner.pbar = None  # Explicitly set to None for this test
+            runner.X_data = data_kwargs.get("X_data")
+            runner.y_data = data_kwargs.get("y_data")
+            runner.train_ds = data_kwargs.get("train_ds")
+            runner.steps_per_epoch = num_samples // batch_size
+            num_usable_samples = runner.steps_per_epoch * batch_size
+            runner.subset_indices = np.arange(num_usable_samples)
 
         # --- Collect indices from two epochs ---
-        all_indices_by_epoch = []
-        for epoch in range(2):
-            batch_generator = runner._get_batch_generator(epoch)
-            epoch_indices = []
-            for x_batch, _ in batch_generator:
-                # The generator yields (x, y), we only care about x.
-                # Flatten to get the original indices back.
-                epoch_indices.extend(x_batch.flatten())
-            all_indices_by_epoch.append(np.array(epoch_indices))
+        data_generator = runner._create_data_generator(results={}, start_step=0)
+        # Consume the generator for each epoch and collect the data indices
+        indices_epoch0 = [
+            idx for x_batch, _ in itertools.islice(data_generator, runner.steps_per_epoch) for idx in x_batch.flatten()
+        ]
+        indices_epoch1 = [
+            idx for x_batch, _ in itertools.islice(data_generator, runner.steps_per_epoch) for idx in x_batch.flatten()
+        ]
+        all_indices_by_epoch = [np.array(indices_epoch0), np.array(indices_epoch1)]
 
         # --- Assertions ---
         indices_epoch0 = all_indices_by_epoch[0]
@@ -485,7 +504,7 @@ class TestEpochBasedDataHandling:
         )
 
     @pytest.mark.parametrize(
-        "runner_class, config_fixture, data_setup, batch_size",
+        "runner_class, config_fixture, data_setup, batch_size, is_synthetic",
         [
             # Case 1: Synthetic, batch size does not divide dataset size
             (
@@ -496,6 +515,7 @@ class TestEpochBasedDataHandling:
                     "y_data": np.zeros(config.P),
                 },
                 20,  # 105 is not divisible by 20
+                True,
             ),
             # Case 2: Synthetic, batch size *does* divide dataset size
             (
@@ -506,6 +526,7 @@ class TestEpochBasedDataHandling:
                     "y_data": np.zeros(config.P),
                 },
                 21,  # 105 is divisible by 21
+                True,
             ),
             # Case 3: MNIST, batch size does not divide dataset size
             (
@@ -516,6 +537,7 @@ class TestEpochBasedDataHandling:
                     "test_ds": {"image": np.array([]), "label": np.array([])},
                 },
                 20,
+                False,
             ),
             # Case 4: MNIST, batch size *does* divide dataset size
             (
@@ -526,10 +548,13 @@ class TestEpochBasedDataHandling:
                     "test_ds": {"image": np.array([]), "label": np.array([])},
                 },
                 21,
+                False,
             ),
         ],
     )
-    def test_no_duplicates_within_single_epoch(self, runner_class, config_fixture, data_setup, batch_size, request):
+    def test_no_duplicates_within_single_epoch(
+        self, runner_class, config_fixture, data_setup, batch_size, is_synthetic, request
+    ):
         """
         Verifies that for a single epoch, each data point from the chosen
         training subset is seen exactly once (no repetitions).
@@ -539,21 +564,27 @@ class TestEpochBasedDataHandling:
         data_kwargs = data_setup(config)
         num_samples = 105
 
-        runner_kwargs = {
-            "experiment": config,
-            "run_key": run_key,
-            "params0": None,
-            "model_instance": None,
-            "checkpoint_manager": None,
-            "pbar": None,
-            "no_save": True,
-            "init_key": 0,
-            "num_epochs": 1,
-            **data_kwargs,
-        }
-        runner = runner_class(**runner_kwargs)
-
-        batch_generator = runner._get_batch_generator(epoch=0)
+        # Mock the parts of init that we don't need for this test
+        with (
+            patch.object(runner_class, "_create_loss_fn", return_value=None),
+            patch.object(runner_class, "_create_update_step", return_value=None),
+            patch.object(runner_class, "__init__", lambda *args, **kwargs: None),
+        ):
+            # This test only needs to check the data generator, so we can mock the runner's __init__
+            # and manually set the attributes needed by _create_data_generator.
+            runner = runner_class()  # The patched __init__ takes no args
+            runner.experiment = config
+            runner.run_key = run_key
+            runner.init_key = 0
+            runner.num_epochs = 1
+            runner.pbar = None  # Explicitly set to None for this test
+            runner.X_data = data_kwargs.get("X_data")
+            runner.y_data = data_kwargs.get("y_data")
+            runner.train_ds = data_kwargs.get("train_ds")
+            runner.steps_per_epoch = num_samples // batch_size
+            num_usable_samples = runner.steps_per_epoch * batch_size
+            runner.subset_indices = np.arange(num_usable_samples)
+            batch_generator = runner._create_data_generator(results={}, start_step=0)
         seen_indices = [idx for x_batch, _ in batch_generator for idx in x_batch.flatten()]
 
         num_usable_samples = (num_samples // batch_size) * batch_size
