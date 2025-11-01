@@ -47,7 +47,6 @@ class TestReverseEtaAdjustmentTheoretical:
         ],
     )
     def test_theoretical_adjustment_scenarios(self, exp_config, base_value, expected_result):
-        """Tests that theoretical adjustments are applied correctly across different experiment types."""
         # 1. Setup: Create a mock experiment.
         # Use a spec to ensure that accessing an unset attribute raises an AttributeError,
         # which allows getattr's default value to be used correctly.

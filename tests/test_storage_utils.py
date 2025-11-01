@@ -17,24 +17,18 @@ def sample_params():
 
 
 def test_generate_filename_is_correct_and_consistent(sample_params):
-    """Tests that the filename generation is deterministic and formatted correctly."""
     filename = generate_experiment_filename(sample_params)
     expected = "results_D=128_N=256_gamma=1p05_scale=SP.pkl"
     assert filename == expected
 
 
 def test_generate_filename_with_custom_prefix_and_extension(sample_params):
-    """Tests that custom prefixes and extensions are handled correctly."""
     filename = generate_experiment_filename(sample_params, prefix="model_checkpoint", extension="dat")
     expected = "model_checkpoint_D=128_N=256_gamma=1p05_scale=SP.dat"
     assert filename == expected
 
 
 def test_save_and_load_experiment(sample_params, tmp_path):
-    """
-    Tests that data can be saved and loaded back correctly.
-    Uses pytest's tmp_path fixture to avoid creating files in the project.
-    """
     data_to_save = {"losses": {(16, 0.1): [0.5, 0.4]}, "failed_runs": set()}
     directory = str(tmp_path)
     filename = generate_experiment_filename(sample_params, "test_run", "pkl")
@@ -48,7 +42,6 @@ def test_save_and_load_experiment(sample_params, tmp_path):
 
 
 def test_load_nonexistent_file_returns_none(tmp_path):
-    """Tests that trying to load a file that doesn't exist returns None."""
     non_existent_path = str(tmp_path / "non_existent_file.pkl")
     assert not os.path.exists(non_existent_path)
     loaded_data = load_experiment(non_existent_path)
@@ -56,7 +49,6 @@ def test_load_nonexistent_file_returns_none(tmp_path):
 
 
 def test_save_overwrites_existing_file(sample_params, tmp_path):
-    """Tests that saving again to the same path overwrites the file."""
     directory = str(tmp_path)
     filename = generate_experiment_filename(sample_params, "results", "pkl")
     filepath = os.path.join(directory, filename)

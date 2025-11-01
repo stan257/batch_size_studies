@@ -7,7 +7,6 @@ from batch_size_studies.models import MLP, LinearModel
 
 
 def test_mlp_initialization_and_validation():
-    """Tests that the MLP class initializes correctly and validates its scale."""
     # Should succeed
     mlp_sp = MLP(parameterization=Parameterization.SP, gamma=1.0)
     assert mlp_sp.parameterization == Parameterization.SP
@@ -25,7 +24,6 @@ def test_mlp_initialization_and_validation():
 
 
 def test_init_params_returns_correct_shapes():
-    """Tests that the init_params method generates weights with the correct shapes."""
     mlp = MLP(parameterization=Parameterization.SP, gamma=1.0)
     widths = [128, 256, 64, 1]
     params = mlp.init_params(init_key=0, widths=widths)
@@ -57,8 +55,6 @@ def test_sp_and_mup_forward_pass_are_different():
 
 
 class TestLinearModel:
-    """Tests for the LinearModel class."""
-
     @pytest.fixture
     def linear_model(self):
         return LinearModel()

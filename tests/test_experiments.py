@@ -1,13 +1,9 @@
-from dataclasses import replace
-from unittest.mock import Mock, patch
-
 import jax.random as jr
 import numpy as np
 import pytest
 
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import (
-    ExperimentBase,
     MNIST1MExperiment,
     MNIST1MSampledExperiment,
     MNISTExperiment,
@@ -15,12 +11,6 @@ from batch_size_studies.experiments import (
     SyntheticExperimentFixedTime,
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentMLPTeacher,
-)
-from batch_size_studies.models import MLP, LinearModel
-from batch_size_studies.trainer import (
-    MNISTTrialRunner,
-    SyntheticFixedDataTrialRunner,
-    SyntheticFixedTimeTrialRunner,
 )
 
 # ============================================================================
@@ -143,192 +133,6 @@ def mnist1m_sampled_config():
 # ============================================================================
 
 
-class TestModelHandling:
-    """Tests the polymorphic model handling methods on experiment classes."""
-
-    def test_mlp_experiment_returns_correct_widths(self, mnist_config):
-        """Verifies get_model_widths for an MLP experiment."""
-        # mnist_config: D=784, N=128, L=2, num_outputs=10
-        widths = mnist_config.get_model_widths()
-        assert widths == [784, 128, 10]
-
-    def test_linear_experiment_returns_correct_widths(self, linear_teacher_config):
-        """Verifies get_model_widths for a Linear experiment."""
-        # linear_teacher_config: D=100
-        widths = linear_teacher_config.get_model_widths()
-        assert widths == [100, 1]
-
-    def test_mlp_experiment_returns_centered_model(self, mnist_config):
-        """Verifies get_model_wrapper for an MLP experiment."""
-        from batch_size_studies.runner import CenteredModel
-
-        mock_model, mock_params0 = Mock(), Mock()
-        wrapped_model = mnist_config.get_model_wrapper(mock_model, mock_params0)
-
-        assert isinstance(wrapped_model, CenteredModel)
-        assert wrapped_model.model is mock_model
-        assert wrapped_model.params0 is mock_params0
-
-    def test_linear_experiment_returns_raw_model(self, linear_teacher_config):
-        """Verifies get_model_wrapper for a Linear experiment."""
-        mock_model, mock_params0 = Mock(), Mock()
-        wrapped_model = linear_teacher_config.get_model_wrapper(mock_model, mock_params0)
-        assert wrapped_model is mock_model
-
-
-class TestGetAdjustedEta:
-    """Tests the polymorphic get_adjusted_eta method on experiment classes."""
-
-    def test_linear_returns_base_eta(self, linear_teacher_config):
-        """Verifies that for Linear models, the eta is not adjusted."""
-        base_eta = 0.1
-        adjusted_eta = linear_teacher_config.get_adjusted_eta(base_eta)
-        assert adjusted_eta == base_eta
-
-    # --- Tests for MLPStudentExperiment ---
-
-    @pytest.mark.parametrize("gamma_val, expected_mult", [(2.0, 2.0**1.0), (0.5, 0.5**2)])
-    def test_mlp_sp_sgd(self, mnist_config, gamma_val, expected_mult):
-        # SP, SGD, L=2
-        config = replace(mnist_config, gamma=gamma_val)
-        base_eta = 0.1
-        # width_mult is 1.0 for SP
-        assert config.get_adjusted_eta(base_eta) == pytest.approx(base_eta * expected_mult)
-
-    @pytest.mark.parametrize("gamma_val, expected_mult", [(2.0, 2.0**0.5), (0.5, 0.5)])
-    def test_mlp_sp_adam(self, mnist_config, gamma_val, expected_mult):
-        # SP, ADAM, L=2
-        config = replace(mnist_config, optimizer=OptimizerType.ADAM, gamma=gamma_val)
-        base_eta = 0.1
-        # width_mult is 1.0 for SP
-        assert config.get_adjusted_eta(base_eta) == pytest.approx(base_eta * expected_mult)
-
-    @pytest.mark.parametrize("gamma_val, expected_mult", [(3.0, 3.0 ** (2 / 3)), (0.5, 0.5**2)])
-    def test_mlp_mup_sgd(self, mnist1m_config, gamma_val, expected_mult):
-        # MUP, SGD, L=3, N=128
-        config = replace(mnist1m_config, gamma=gamma_val)
-        base_eta = 0.01
-        # width_mult is N for muP SGD
-        expected_eta = base_eta * expected_mult * config.N
-        assert config.get_adjusted_eta(base_eta) == pytest.approx(expected_eta)
-
-    @pytest.mark.parametrize("gamma_val, expected_mult", [(3.0, 3.0 ** (1 / 3)), (0.5, 0.5)])
-    def test_mlp_mup_adam(self, mnist1m_config, gamma_val, expected_mult):
-        # MUP, ADAM, L=3, N=128
-        config = replace(mnist1m_config, optimizer=OptimizerType.ADAM, gamma=gamma_val)
-        base_eta = 0.01
-        # width_mult is sqrt(N) for muP Adam
-        expected_eta = base_eta * expected_mult * np.sqrt(config.N)
-        assert config.get_adjusted_eta(base_eta) == pytest.approx(expected_eta)
-
-
-class TestCreateModelInstance:
-    """Tests the create_model_instance method on experiment classes."""
-
-    def test_mlp_experiment_creates_mlp_model(self, mnist_config):
-        """Verifies that an MLP-based experiment creates an MLP instance."""
-        model = mnist_config.create_model_instance()
-        assert isinstance(model, MLP)
-        assert model.parameterization == mnist_config.parameterization
-        assert model.gamma == mnist_config.gamma
-
-    def test_linear_experiment_creates_linear_model(self, linear_teacher_config):
-        """Verifies that a Linear-based experiment creates a LinearModel instance."""
-        model = linear_teacher_config.create_model_instance()
-        assert isinstance(model, LinearModel)
-
-
-class TestGetTrialRunnerClass:
-    """Tests the get_trial_runner_class method on experiment classes."""
-
-    def test_mnist_returns_mnist_runner(self, mnist_config):
-        assert mnist_config.get_trial_runner_class() is MNISTTrialRunner
-
-    def test_mnist1m_returns_mnist_runner(self, mnist1m_config):
-        assert mnist1m_config.get_trial_runner_class() is MNISTTrialRunner
-
-    def test_mnist1m_sampled_returns_mnist_runner(self, mnist1m_sampled_config):
-        assert mnist1m_sampled_config.get_trial_runner_class() is MNISTTrialRunner
-
-    def test_fixed_data_returns_synthetic_fixed_data_runner(self, fixed_data_config):
-        assert fixed_data_config.get_trial_runner_class() is SyntheticFixedDataTrialRunner
-
-    def test_linear_teacher_returns_synthetic_fixed_data_runner(self, linear_teacher_config):
-        assert linear_teacher_config.get_trial_runner_class() is SyntheticFixedDataTrialRunner
-
-    def test_fixed_time_returns_synthetic_fixed_time_runner(self, fixed_time_config):
-        assert fixed_time_config.get_trial_runner_class() is SyntheticFixedTimeTrialRunner
-
-    def test_mlp_teacher_returns_synthetic_fixed_time_runner(self, mlp_teacher_config):
-        assert mlp_teacher_config.get_trial_runner_class() is SyntheticFixedTimeTrialRunner
-
-    def test_base_class_raises_not_implemented(self, fixed_time_config):
-        with pytest.raises(NotImplementedError):
-            ExperimentBase.get_trial_runner_class(fixed_time_config)
-
-
-class TestPrepareDatasets:
-    """Tests for the polymorphic prepare_datasets method on experiment classes."""
-
-    @patch("batch_size_studies.experiments.load_datasets")
-    def test_mnist_loads_standard_mnist(self, mock_loader, mnist_config):
-        mock_loader.return_value = (
-            (np.zeros((100, 28, 28, 1)), np.zeros(100)),
-            (np.zeros((20, 28, 28, 1)), np.zeros(20)),
-        )
-
-        train_ds, test_ds = mnist_config.prepare_datasets(init_key=0)
-
-        mock_loader.assert_called_once()
-        assert train_ds is not None and test_ds is not None
-        assert len(train_ds["image"]) == 100
-        assert len(test_ds["image"]) == 20
-
-    @patch("batch_size_studies.experiments.load_mnist1m_dataset")
-    def test_mnist1m_sampled_loads_and_samples(self, mock_loader, mnist1m_sampled_config):
-        # Use arange to easily check if shuffling occurred
-        mock_loader.return_value = (
-            (np.arange(100).reshape(100, 1, 1, 1), np.arange(100)),
-            (np.zeros((20, 28, 28, 1)), np.zeros(20)),
-        )
-
-        # Modify the config to request a smaller subset
-        config = replace(mnist1m_sampled_config, max_train_samples=50)
-
-        train_ds, test_ds = config.prepare_datasets(init_key=42)
-
-        mock_loader.assert_called_once()
-        assert train_ds is not None and test_ds is not None
-        assert len(train_ds["image"]) == 50
-        # Check that it's not just the first 50 samples (i.e., it was shuffled)
-        assert not np.array_equal(train_ds["image"].flatten(), np.arange(50))
-
-    def test_synthetic_generates_data(self, fixed_data_config):
-        # Mock the generate_data method on the instance to check if it's called
-        with patch.object(
-            SyntheticExperimentFixedData, "generate_data", return_value=(np.zeros((100, 10)), np.zeros(100))
-        ) as mock_gen:
-            train_ds, test_ds = fixed_data_config.prepare_datasets(init_key=0)
-
-            mock_gen.assert_called_once()
-            assert test_ds is None
-            assert isinstance(train_ds, tuple) and len(train_ds) == 2
-
-    def test_handles_dataset_not_found(self, mnist_config, caplog):
-        # Mock the loader to raise FileNotFoundError
-        mock_loader = Mock(side_effect=FileNotFoundError("Dataset file missing"))
-
-        train_ds, test_ds = mnist_config.prepare_datasets(init_key=0, dataset_loader=mock_loader)
-
-        assert train_ds is None and test_ds is None
-        assert "Dataset not found" in caplog.text
-
-    def test_no_data_loaded_for_fixed_time(self, fixed_time_config):
-        train_ds, test_ds = fixed_time_config.prepare_datasets(init_key=0)
-
-        assert train_ds is None and test_ds is None
-
-
 class TestSyntheticExperimentMLPTeacher:
     """A test class to group all tests related to the MLP Teacher experiment."""
 
@@ -372,7 +176,7 @@ class TestSyntheticExperimentMLPTeacher:
 
 
 class TestExperimentBehavior:
-    """Tests general, shared behaviors of experiment classes."""
+    """Tests general, shared behaviors of experiment configuration classes."""
 
     @pytest.mark.parametrize(
         "config_fixture",

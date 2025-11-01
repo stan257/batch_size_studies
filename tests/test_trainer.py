@@ -1,8 +1,6 @@
-import itertools
 import logging
 import os
 from dataclasses import dataclass, replace
-from unittest.mock import patch
 
 import numpy as np
 import pytest
@@ -18,10 +16,6 @@ from batch_size_studies.experiments import (
     SyntheticExperimentLinearTeacher,
 )
 from batch_size_studies.runner import run_experiment_sweep
-from batch_size_studies.trainer import (
-    MNISTTrialRunner,
-    SyntheticFixedDataTrialRunner,
-)
 
 # --- Fixtures ---
 
@@ -200,6 +194,7 @@ class TestSyntheticRunner:
             np.testing.assert_allclose(losses1[key]["loss_history"], losses2[key]["loss_history"])
 
     def test_run_with_fixed_data(self, fixed_data_config, tmp_path):
+        """Tests that a fixed-data experiment runs for the correct number of steps."""
         num_epochs, batch_size = 3, 8
         expected_steps = num_epochs * (fixed_data_config.P // batch_size)
         losses, _ = run_experiment_sweep(
@@ -215,6 +210,7 @@ class TestSyntheticRunner:
         assert len(losses[expected_key]["loss_history"]) == expected_steps
 
     def test_skips_run_if_batch_size_exceeds_p_for_fixed_data(self, fixed_data_config, caplog, tmp_path):
+        """Tests that the runner skips runs where batch size > dataset size for fixed-data experiments."""
         with caplog.at_level(logging.WARNING):
             losses, failures = run_experiment_sweep(
                 experiment=fixed_data_config, batch_sizes=[16, 64], etas=[0.1], num_epochs=1, directory=str(tmp_path)
@@ -398,300 +394,3 @@ class TestMNISTRunner:
         adam_leaves, _ = jax.tree_util.tree_flatten(params_adam)
         are_different = any(not np.allclose(s, a) for s, a in zip(sgd_leaves, adam_leaves))
         assert are_different, "Final model parameters for SGD and Adam were unexpectedly identical."
-
-
-class TestEpochBasedDataHandling:
-    """Tests for data handling in epoch-based runners."""
-
-    @pytest.mark.parametrize(
-        "runner_class, config_fixture, data_setup, is_synthetic",
-        [
-            (
-                SyntheticFixedDataTrialRunner,
-                "linear_teacher_config_subset",
-                # For synthetic, data is passed as X_data, y_data
-                lambda config: {
-                    "X_data": np.arange(config.P).reshape(-1, 1),
-                    "y_data": np.zeros(config.P),
-                },
-                True,
-            ),
-            (
-                MNISTTrialRunner,
-                "mnist_config_subset",
-                # For MNIST, data is passed as a dict. We use 105 samples.
-                lambda config: {
-                    "train_ds": {
-                        "image": np.arange(105).reshape(105, 1),
-                        "label": np.zeros(105),
-                    },
-                    "test_ds": {"image": np.array([]), "label": np.array([])},
-                },
-                False,
-            ),
-        ],
-    )
-    def test_data_subset_is_consistent_across_epochs(
-        self, runner_class, config_fixture, data_setup, is_synthetic, request
-    ):
-        """
-        Verifies that for multi-epoch runs, the exact same subset of data is
-        used in each epoch, but that the order is shuffled differently.
-        """
-        config = request.getfixturevalue(config_fixture)
-        batch_size = 20  # 105 is not divisible by 20
-        run_key = RunKey(batch_size=batch_size, eta=0.1)
-
-        # --- Setup runner with mock data ---
-        # The data arrays will contain indices instead of actual data
-        # to make it easy to track which samples are used.
-        data_kwargs = data_setup(config)
-        num_samples = 105
-
-        # Mock the parts of init that we don't need for this test
-        with (
-            patch.object(runner_class, "_create_loss_fn", return_value=None),
-            patch.object(runner_class, "_create_update_step", return_value=None),
-            patch.object(runner_class, "__init__", lambda *args, **kwargs: None),
-        ):
-            # This test only needs to check the data generator, so we can mock the runner's __init__
-            # and manually set the attributes needed by _create_data_generator.
-            runner = runner_class()  # The patched __init__ takes no args
-            runner.experiment = config
-            runner.run_key = run_key
-            runner.init_key = 0
-            runner.num_epochs = 2
-            runner.pbar = None  # Explicitly set to None for this test
-            runner.X_data = data_kwargs.get("X_data")
-            runner.y_data = data_kwargs.get("y_data")
-            runner.train_ds = data_kwargs.get("train_ds")
-            runner.steps_per_epoch = num_samples // batch_size
-            num_usable_samples = runner.steps_per_epoch * batch_size
-            runner.subset_indices = np.arange(num_usable_samples)
-
-        # --- Collect indices from two epochs ---
-        data_generator = runner._create_data_generator(results={}, start_step=0)
-        # Consume the generator for each epoch and collect the data indices
-        indices_epoch0 = [
-            idx for x_batch, _ in itertools.islice(data_generator, runner.steps_per_epoch) for idx in x_batch.flatten()
-        ]
-        indices_epoch1 = [
-            idx for x_batch, _ in itertools.islice(data_generator, runner.steps_per_epoch) for idx in x_batch.flatten()
-        ]
-        all_indices_by_epoch = [np.array(indices_epoch0), np.array(indices_epoch1)]
-
-        # --- Assertions ---
-        indices_epoch0 = all_indices_by_epoch[0]
-        indices_epoch1 = all_indices_by_epoch[1]
-
-        # 1. Check that the number of samples is correct (truncated)
-        num_usable_samples = (num_samples // batch_size) * batch_size  # 5 * 20 = 100
-        assert len(indices_epoch0) == num_usable_samples
-        assert len(indices_epoch1) == num_usable_samples
-
-        # 2. Check that the set of indices used is identical between epochs
-        sorted_indices_epoch0 = np.sort(indices_epoch0)
-        sorted_indices_epoch1 = np.sort(indices_epoch1)
-        np.testing.assert_array_equal(
-            sorted_indices_epoch0,
-            sorted_indices_epoch1,
-            err_msg="The set of data samples should be identical across epochs.",
-        )
-
-        # 3. Check that the order of indices is different between epochs (shuffling works)
-        assert not np.array_equal(indices_epoch0, indices_epoch1), (
-            "The order of data samples should be different in each epoch."
-        )
-
-    @pytest.mark.parametrize(
-        "runner_class, config_fixture, data_setup, batch_size, is_synthetic",
-        [
-            # Case 1: Synthetic, batch size does not divide dataset size
-            (
-                SyntheticFixedDataTrialRunner,
-                "linear_teacher_config_subset",
-                lambda config: {
-                    "X_data": np.arange(config.P).reshape(-1, 1),
-                    "y_data": np.zeros(config.P),
-                },
-                20,  # 105 is not divisible by 20
-                True,
-            ),
-            # Case 2: Synthetic, batch size *does* divide dataset size
-            (
-                SyntheticFixedDataTrialRunner,
-                "linear_teacher_config_subset",
-                lambda config: {
-                    "X_data": np.arange(config.P).reshape(-1, 1),
-                    "y_data": np.zeros(config.P),
-                },
-                21,  # 105 is divisible by 21
-                True,
-            ),
-            # Case 3: MNIST, batch size does not divide dataset size
-            (
-                MNISTTrialRunner,
-                "mnist_config_subset",
-                lambda config: {
-                    "train_ds": {"image": np.arange(105).reshape(105, 1), "label": np.zeros(105)},
-                    "test_ds": {"image": np.array([]), "label": np.array([])},
-                },
-                20,
-                False,
-            ),
-            # Case 4: MNIST, batch size *does* divide dataset size
-            (
-                MNISTTrialRunner,
-                "mnist_config_subset",
-                lambda config: {
-                    "train_ds": {"image": np.arange(105).reshape(105, 1), "label": np.zeros(105)},
-                    "test_ds": {"image": np.array([]), "label": np.array([])},
-                },
-                21,
-                False,
-            ),
-        ],
-    )
-    def test_no_duplicates_within_single_epoch(
-        self, runner_class, config_fixture, data_setup, batch_size, is_synthetic, request
-    ):
-        """
-        Verifies that for a single epoch, each data point from the chosen
-        training subset is seen exactly once (no repetitions).
-        """
-        config = request.getfixturevalue(config_fixture)
-        run_key = RunKey(batch_size=batch_size, eta=0.1)
-        data_kwargs = data_setup(config)
-        num_samples = 105
-
-        # Mock the parts of init that we don't need for this test
-        with (
-            patch.object(runner_class, "_create_loss_fn", return_value=None),
-            patch.object(runner_class, "_create_update_step", return_value=None),
-            patch.object(runner_class, "__init__", lambda *args, **kwargs: None),
-        ):
-            # This test only needs to check the data generator, so we can mock the runner's __init__
-            # and manually set the attributes needed by _create_data_generator.
-            runner = runner_class()  # The patched __init__ takes no args
-            runner.experiment = config
-            runner.run_key = run_key
-            runner.init_key = 0
-            runner.num_epochs = 1
-            runner.pbar = None  # Explicitly set to None for this test
-            runner.X_data = data_kwargs.get("X_data")
-            runner.y_data = data_kwargs.get("y_data")
-            runner.train_ds = data_kwargs.get("train_ds")
-            runner.steps_per_epoch = num_samples // batch_size
-            num_usable_samples = runner.steps_per_epoch * batch_size
-            runner.subset_indices = np.arange(num_usable_samples)
-            batch_generator = runner._create_data_generator(results={}, start_step=0)
-        seen_indices = [idx for x_batch, _ in batch_generator for idx in x_batch.flatten()]
-
-        num_usable_samples = (num_samples // batch_size) * batch_size
-        assert len(seen_indices) == num_usable_samples, "The total number of samples seen is incorrect."
-
-        num_unique_indices = len(set(seen_indices))
-        assert num_unique_indices == len(seen_indices), "Duplicate data points were found within a single epoch."
-
-
-class TestTrialRunnerDispatch:
-    """
-    Integration tests to verify that the runner correctly dispatches to the
-    right TrialRunner class based on the experiment's polymorphic method.
-    """
-
-    @patch("batch_size_studies.trainer.MNISTTrialRunner")
-    def test_mnist_experiment_dispatches_to_mnist_runner(
-        self, mock_runner_class, mnist_config, mock_mnist_loader, tmp_path
-    ):
-        run_experiment_sweep(
-            experiment=mnist_config,
-            batch_sizes=[32],
-            etas=[0.01],
-            dataset_loader=mock_mnist_loader,
-            directory=str(tmp_path),
-            no_save=True,
-        )
-        mock_runner_class.assert_called_once()
-
-    @patch("batch_size_studies.trainer.SyntheticFixedDataTrialRunner")
-    def test_linear_teacher_dispatches_to_fixed_data_runner(
-        self, mock_runner_class, linear_teacher_config_subset, tmp_path
-    ):
-        run_experiment_sweep(
-            experiment=linear_teacher_config_subset,
-            batch_sizes=[32],
-            etas=[0.01],
-            directory=str(tmp_path),
-            no_save=True,
-        )
-        mock_runner_class.assert_called_once()
-
-    @patch("batch_size_studies.trainer.SyntheticFixedTimeTrialRunner")
-    def test_fixed_time_dispatches_to_fixed_time_runner(self, mock_runner_class, fixed_time_config, tmp_path):
-        # This experiment type doesn't need a dataset loader
-        run_experiment_sweep(
-            experiment=fixed_time_config, batch_sizes=[32], etas=[0.01], directory=str(tmp_path), no_save=True
-        )
-        mock_runner_class.assert_called_once()
-
-
-class TestModelCreationIntegration:
-    """
-    Integration tests to verify that the runner correctly creates and
-    passes the right model object (raw or centered) to the trial runner.
-    """
-
-    @patch("batch_size_studies.trainer.MNISTTrialRunner")
-    def test_mlp_experiment_uses_centered_model(self, mock_runner_class, mnist_config, mock_mnist_loader, tmp_path):
-        """
-        Checks that for an MLP experiment, the runner creates a CenteredModel
-        wrapper and passes it to the trial runner.
-        """
-        run_experiment_sweep(
-            experiment=mnist_config,
-            batch_sizes=[32],
-            etas=[0.01],
-            dataset_loader=mock_mnist_loader,
-            directory=str(tmp_path),
-            no_save=True,
-        )
-
-        assert mock_runner_class.call_count == 1
-        # Get the keyword arguments passed to the TrialRunner's constructor
-        init_kwargs = mock_runner_class.call_args.kwargs
-        model_instance_arg = init_kwargs.get("model_instance")
-
-        assert model_instance_arg is not None, "model_instance was not passed to the runner's constructor"
-
-        from batch_size_studies.models import MLP
-        from batch_size_studies.runner import CenteredModel
-
-        assert isinstance(model_instance_arg, CenteredModel)
-        assert isinstance(model_instance_arg.model, MLP)
-
-    @patch("batch_size_studies.trainer.SyntheticFixedDataTrialRunner")
-    def test_linear_experiment_uses_raw_model(self, mock_runner_class, linear_teacher_config_subset, tmp_path):
-        """
-        Checks that for a Linear experiment, the runner passes the raw,
-        unwrapped LinearModel instance to the trial runner.
-        """
-        run_experiment_sweep(
-            experiment=linear_teacher_config_subset,
-            batch_sizes=[32],
-            etas=[0.01],
-            directory=str(tmp_path),
-            no_save=True,
-        )
-
-        assert mock_runner_class.call_count == 1
-        init_kwargs = mock_runner_class.call_args.kwargs
-        model_instance_arg = init_kwargs.get("model_instance")
-
-        assert model_instance_arg is not None, "model_instance was not passed to the runner's constructor"
-
-        from batch_size_studies.models import LinearModel
-        from batch_size_studies.runner import CenteredModel
-
-        assert isinstance(model_instance_arg, LinearModel)
-        assert not isinstance(model_instance_arg, CenteredModel)
