@@ -20,7 +20,7 @@ from batch_size_studies.configs import get_main_experiment_configs, get_main_hyp
 from batch_size_studies.definitions import Parameterization
 from batch_size_studies.experiments import MNIST1MExperiment
 from batch_size_studies.paths import EXPERIMENTS_DIR
-from batch_size_studies.runner import run_experiment_sweep
+from batch_size_studies.runner import are_all_runs_complete, run_experiment_sweep
 
 
 def setup_logging(log_dir="logs"):
@@ -44,41 +44,6 @@ def setup_logging(log_dir="logs"):
     console_formatter = logging.Formatter("%(message)s")
     console_handler.setFormatter(console_formatter)
     logger.addHandler(console_handler)
-
-
-def are_all_runs_complete(config, losses, failed_runs, batch_sizes, etas):
-    """
-    Verifies if all trials for an experiment are complete by checking
-    the content of the results, not just the number of entries.
-    """
-    from batch_size_studies.definitions import RunKey
-
-    for b in batch_sizes:
-        # In the pre-flight check, we don't have the loaded
-        # dataset, so we pass `train_ds_size=None`. The experiment config will
-        # do its best to check based on its own parameters (like `P` or `max_train_samples`).
-        if config.should_skip_batch_size(b, train_ds_size=None):
-            continue
-
-        for e in etas:
-            run_key = RunKey(batch_size=b, eta=e)
-            result = losses.get(run_key)
-            is_failed = run_key in failed_runs
-
-            if result is None and not is_failed:
-                # The run is neither in the successful results nor in the failed set.
-                # It's genuinely missing.
-                return False
-
-            if result is not None:
-                # The run exists, check if it's complete.
-                if not config.is_run_complete(result, run_key):
-                    return False  # It's incomplete.
-
-            # If result is None but is_failed is True, we consider it "accounted for"
-            # and continue checking the next run.
-
-    return True
 
 
 def run_single_experiment(

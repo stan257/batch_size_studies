@@ -2,7 +2,7 @@ import pytest
 
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import MNIST1MSampledExperiment
-from scripts.run_experiments import are_all_runs_complete
+from batch_size_studies.runner import are_all_runs_complete
 
 
 @pytest.fixture

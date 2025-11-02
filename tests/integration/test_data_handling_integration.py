@@ -1,4 +1,3 @@
-import itertools
 from dataclasses import replace
 
 import numpy as np
@@ -50,16 +49,29 @@ class TestDataHandlingIntegration:
             if batch_size not in seen_data_log:
                 seen_data_log[batch_size] = {}
 
-            # The new generator yields across all epochs. We need to manually chunk it.
-            full_generator = self._create_data_generator(results, start_step)
+            # The iterator yields all batches for all epochs in a single sequence.
+            # We consume it once and then partition the results by epoch for the test.
+            all_batches = list(self.data_iterator)
+            num_total_batches = len(all_batches)
 
             for epoch in range(self.num_epochs):
-                epoch_data_batches = [x_batch for x_batch, _ in itertools.islice(full_generator, self.steps_per_epoch)]
+                start_idx = epoch * self.steps_per_epoch
+                end_idx = (epoch + 1) * self.steps_per_epoch
+
+                # Check if there are any batches left for this epoch
+                if start_idx >= num_total_batches:
+                    break
+
+                # Extract the batches for the current epoch
+                epoch_data_batches = [x_batch for x_batch, _ in all_batches[start_idx:end_idx]]
+
+                if not epoch_data_batches:
+                    break
                 epoch_data = np.vstack(epoch_data_batches)
                 seen_data_log[batch_size][epoch] = epoch_data
 
             # Return a minimal valid result to satisfy the runner
-            results["loss_history"] = [0.1] * (self.num_epochs * (self.num_train // batch_size))
+            results["loss_history"] = [0.1] * self.num_steps
             return results
 
         monkeypatch.setattr(

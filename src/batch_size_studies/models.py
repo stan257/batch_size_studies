@@ -13,8 +13,7 @@ class MLP:
     """
     A dataclass to define and manage a Multi-Layer Perceptron (MLP).
 
-    This class encapsulates the model's architecture, scaling, and parameter
-    initialization logic. We assume all hidden layers have the same width.
+    This class assumes all hidden layers have the same width.
 
     Attributes:
         parameterization (Parameterization): The parameterization scale, either
@@ -79,17 +78,6 @@ class LinearModel:
     """
 
     def init_params(self, init_key: int, widths: List[int], **kwargs) -> jnp.ndarray:
-        """
-        Initializes parameters with zeros.
-
-        Args:
-            init_key: A random key (ignored, as initialization is deterministic).
-            widths: A list of [input_dim, output_dim].
-            **kwargs: Ignored, for API compatibility with MLP.
-
-        Returns:
-            A zero-initialized weight matrix.
-        """
         if len(widths) != 2:
             raise ValueError(
                 f"LinearModel expects `widths` to be a list of length 2 ([input_dim, output_dim]), "

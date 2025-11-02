@@ -1,14 +1,12 @@
 import logging
 from abc import ABC, abstractmethod
 from functools import partial
-from typing import Generator
 
 import jax
 import jax.numpy as jnp
-import jax.random as jr
-import numpy as np
 import optax
 
+from .data_iterators import EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
 from .training_utils import create_optimizer
 
@@ -28,7 +26,7 @@ class TrialRunner(ABC):
         self.num_steps = context.num_steps
         self.lr = self.experiment.get_adjusted_eta(self.run_key.eta)
         # Subclasses are now responsible for creating these
-        self.optimizer, self.loss_fn, self.update_step, self.data_generator = None, None, None, None
+        self.optimizer, self.loss_fn, self.update_step, self.data_iterator = None, None, None, None
 
     def _check_divergence(self, loss: jnp.ndarray) -> bool:
         """Checks for NaN or Inf in the loss and logs a warning."""
@@ -58,16 +56,13 @@ class TrialRunner(ABC):
             results = self._init_results()
             start_step = 0  # Ensure start_step is 0 if no checkpoint
 
-        # Create the data generator, potentially using state from the loaded results
-        self.data_generator = self._create_data_generator(results, start_step)
-
         return self._run_training_loop(params, opt_state, results, start_step)
 
     def _run_training_loop(self, params, opt_state, results, start_step) -> dict | None:
         """Unified training loop that iterates over steps."""
         num_steps = self.num_steps
 
-        for current_step, (x_batch, y_batch) in enumerate(self.data_generator, start=start_step):
+        for current_step, (x_batch, y_batch) in enumerate(self.data_iterator, start=start_step):
             if current_step >= num_steps:
                 break
 
@@ -90,13 +85,6 @@ class TrialRunner(ABC):
 
     @abstractmethod
     def _init_results(self) -> dict:
-        raise NotImplementedError
-
-    @abstractmethod
-    def _create_data_generator(
-        self, results: dict, start_step: int
-    ) -> Generator[tuple[jnp.ndarray, jnp.ndarray], None, None]:
-        """Creates a generator that yields batches of (inputs, targets)."""
         raise NotImplementedError
 
     @abstractmethod
@@ -125,9 +113,6 @@ class MNISTTrialRunner(TrialRunner):
 
     def __init__(self, context):
         super().__init__(context)
-        self.train_ds = context.train_ds
-        self.test_ds = context.test_ds
-        self.init_key = context.init_key
         self.num_epochs = context.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
 
         self.optimizer = create_optimizer(self.experiment, self.lr)
@@ -135,15 +120,16 @@ class MNISTTrialRunner(TrialRunner):
         self.update_step = self._create_update_step()
         self.eval_step = self._create_eval_step()
 
-        original_num_train = self.train_ds["image"].shape[0]
+        original_num_train = context.train_ds["image"].shape[0]
         self.steps_per_epoch = original_num_train // self.run_key.batch_size
-        num_usable_samples = self.steps_per_epoch * self.run_key.batch_size
 
-        # Create a fixed subset of indices for the entire trial to ensure the same
-        # data subset is used across epochs, just in a different order.
-        subset_key = jr.PRNGKey(self.init_key)
-        self.subset_indices = jr.permutation(subset_key, original_num_train)[:num_usable_samples]
-        self.num_train = num_usable_samples
+        self.data_iterator = EpochBasedDataIterator(
+            train_ds=context.train_ds,
+            batch_size=self.run_key.batch_size,
+            num_epochs=self.num_epochs,
+            init_key=context.init_key,
+        )
+        self.test_ds = context.test_ds
 
     def _init_results(self) -> dict:
         return {"epoch_test_accuracies": [], "loss_history": []}
@@ -199,27 +185,15 @@ class MNISTTrialRunner(TrialRunner):
 
         return eval_step
 
-    def _create_data_generator(
-        self, results: dict, start_step: int
-    ) -> Generator[tuple[jnp.ndarray, jnp.ndarray], None, None]:
-        start_epoch = start_step // self.steps_per_epoch
-        step_in_epoch = start_step % self.steps_per_epoch
+    def run(self):
+        """Overrides run to set the correct start_step on the data iterator."""
+        if self.no_save:
+            _, _, _, start_step = None, None, self._init_results(), 0
+        else:
+            _, _, _, start_step = self.checkpoint_manager.load_live_checkpoint(self.run_key)
 
-        for epoch in range(start_epoch, self.num_epochs):
-            if self.pbar:
-                self.pbar.set_description(
-                    f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | Epoch {epoch + 1}/{self.num_epochs}"
-                )
-            epoch_shuffle_key = jr.PRNGKey(self.init_key + epoch + 1)
-            perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
-            epoch_perms = perms.reshape((self.steps_per_epoch, self.run_key.batch_size))
-
-            for i, perm in enumerate(np.array(epoch_perms)):
-                if i >= step_in_epoch:
-                    batch_images = self.train_ds["image"][perm, ...].reshape(self.run_key.batch_size, -1)
-                    batch_labels = self.train_ds["label"][perm, ...]
-                    yield batch_images, batch_labels
-            step_in_epoch = 0  # Reset for subsequent epochs
+        self.data_iterator.start_step = start_step
+        return super().run()
 
     def _post_epoch_hook(self, epoch: int, params, results: dict) -> dict:
         test_accuracies = []
@@ -239,6 +213,11 @@ class MNISTTrialRunner(TrialRunner):
 
     def _post_step_hook(self, step: int, params, results: dict) -> dict:
         if (step + 1) % self.steps_per_epoch == 0:
+            epoch = (step + 1) // self.steps_per_epoch - 1
+            if self.pbar:
+                self.pbar.set_description(
+                    f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | Epoch {epoch + 2}/{self.num_epochs}"
+                )
             epoch = (step + 1) // self.steps_per_epoch - 1
             results = self._post_epoch_hook(epoch, params, results)
         return results
@@ -301,42 +280,24 @@ class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
 
     def __init__(self, context):
         super().__init__(context)
-        self.snapshot_steps = self._get_snapshot_steps(self.num_steps)
-        self.batch_key_seed = 0  # Initialized here, updated from results later
+        self.snapshot_steps = self._get_snapshot_steps(context.num_steps)
+        self.data_iterator = OnlineDataIterator(
+            experiment=self.experiment, batch_size=self.run_key.batch_size, results=self._init_results()
+        )
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "batch_key_seed": 0}
 
-    def _create_data_generator(
-        self, results: dict, start_step: int
-    ) -> Generator[tuple[jnp.ndarray, jnp.ndarray], None, None]:
-        self.batch_key_seed = results.get("batch_key_seed", 0)
-        # To correctly resume, we must fast-forward the data generation process
-        # to the state it would have been in at start_step.
-        steps_per_batch_key = self.experiment.P // self.run_key.batch_size
-        self.batch_key_seed += start_step // steps_per_batch_key
-        step_for_curr_data = start_step % steps_per_batch_key
+    def run(self):
+        """Overrides run to re-create the data iterator with the correct start_step and results."""
+        if self.no_save:
+            params, opt_state, results, start_step = None, None, self._init_results(), 0
+        else:
+            params, opt_state, results, start_step = self.checkpoint_manager.load_live_checkpoint(self.run_key)
 
-        X_data, y_data = self.experiment.generate_data(jr.key(self.batch_key_seed))
-
-        while True:  # The loop in the base class will stop this generator
-            if (step_for_curr_data + 1) * self.run_key.batch_size > self.experiment.P:
-                self.batch_key_seed += 1
-                X_data, y_data = self.experiment.generate_data(jr.key(self.batch_key_seed))
-                step_for_curr_data = 0
-
-            start = step_for_curr_data * self.run_key.batch_size
-            X_batch, y_batch = (
-                X_data[start : start + self.run_key.batch_size],
-                y_data[start : start + self.run_key.batch_size],
-            )
-            step_for_curr_data += 1
-            yield X_batch, y_batch
-
-    def _post_step_hook(self, step: int, params, results: dict) -> dict:
-        """Saves the current data generation seed to the results for checkpointing."""
-        results["batch_key_seed"] = self.batch_key_seed
-        return results
+        self.data_iterator.start_step = start_step
+        self.data_iterator.results = results
+        return super().run()
 
     def _should_save_checkpoint(self, step: int) -> bool:
         return step in self.snapshot_steps
@@ -347,40 +308,28 @@ class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
 
     def __init__(self, context):
         super().__init__(context)
-        self.X_data = context.train_ds[0]
-        self.y_data = context.train_ds[1]
         self.num_epochs = context.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
 
-        original_num_train = self.X_data.shape[0]
+        original_num_train = context.train_ds[0].shape[0]
         self.steps_per_epoch = original_num_train // self.run_key.batch_size
-        num_usable_samples = self.steps_per_epoch * self.run_key.batch_size
 
-        # Create a fixed subset of indices for the entire trial to ensure the same
-        # data subset is used across epochs, just in a different order.
-        subset_key = jr.PRNGKey(getattr(self.experiment, "seed", 0))
-        self.subset_indices = jr.permutation(subset_key, original_num_train)[:num_usable_samples]
-        self.num_train = num_usable_samples
+        self.data_iterator = EpochBasedDataIterator(
+            train_ds=context.train_ds,
+            batch_size=self.run_key.batch_size,
+            num_epochs=self.num_epochs,
+            init_key=getattr(self.experiment, "seed", 0),
+        )
 
         self.snapshot_steps = self._get_snapshot_steps(self.num_epochs * self.steps_per_epoch)
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "epoch": 0}
 
-    def _create_data_generator(
-        self, results: dict, start_step: int
-    ) -> Generator[tuple[jnp.ndarray, jnp.ndarray], None, None]:
-        start_epoch = start_step // self.steps_per_epoch
-        step_in_epoch = start_step % self.steps_per_epoch
-
-        for epoch in range(start_epoch, self.num_epochs):
-            epoch_shuffle_key = jr.PRNGKey(getattr(self.experiment, "seed", 0) + epoch)
-            perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
-            epoch_perms = perms.reshape((self.steps_per_epoch, self.run_key.batch_size))
-
-            for i, perm in enumerate(np.array(epoch_perms)):
-                if i >= step_in_epoch:
-                    yield self.X_data[perm, ...], self.y_data[perm, ...]
-            step_in_epoch = 0  # Reset for subsequent epochs
+    def run(self):
+        """Overrides run to set the correct start_step on the data iterator."""
+        _, _, _, start_step = self.checkpoint_manager.load_live_checkpoint(self.run_key)
+        self.data_iterator.start_step = start_step
+        return super().run()
 
     def _post_step_hook(self, step: int, params, results: dict) -> dict:
         """Saves the current epoch number to the results for checkpointing."""

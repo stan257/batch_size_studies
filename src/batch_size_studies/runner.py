@@ -360,3 +360,36 @@ def _get_trial_runner(context: TrialContext):
             f"Experiment type {type(context.experiment).__name__} does not implement get_trial_runner_class()."
         )
         return None
+
+
+def are_all_runs_complete(
+    experiment, losses: dict, failed_runs: set, batch_sizes: list[int], etas: list[float]
+) -> bool:
+    """
+    Checks if all specified runs for an experiment are either completed, failed, or skipped.
+    """
+    for b in batch_sizes:
+        # We pass train_ds_size=None because this is a pre-flight check
+        # before data is loaded.
+        if experiment.should_skip_batch_size(b, train_ds_size=None):
+            continue
+
+        for eta in etas:
+            run_key = RunKey(b, eta)
+            result = losses.get(run_key)
+            is_failed = run_key in failed_runs
+
+            if result is None and not is_failed:
+                # The run is neither in the successful results nor in the failed set.
+                # It's genuinely missing.
+                return False
+
+            if result is not None:
+                # The run exists, check if it's complete.
+                if not experiment.is_run_complete(result, run_key):
+                    return False  # It's incomplete.
+
+            # If result is None but is_failed is True, we consider it "accounted for"
+            # and continue checking the next run.
+
+    return True
