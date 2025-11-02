@@ -95,7 +95,54 @@ def plot_loss_heatmap(
     """
     Generates a formatted 2D heatmap of loss values.
 
-    Can plot with batch_size (B) on the x-axis or the temperature (eta / B).
+    This is a convenience wrapper around `plot_heatmap_with_theory_curve`
+    with no theory curves plotted.
+
+    Args:
+        (See `plot_heatmap_with_theory_curve` for full argument documentation.)
+
+    Returns:
+        tuple: A tuple containing the matplotlib figure and axes objects (fig, ax).
+    """
+    return plot_heatmap_with_theory_curve(
+        loss_dict=loss_dict,
+        batch_sizes=batch_sizes,
+        etas=etas,
+        title_exp=title_exp,
+        metric_extractor=metric_extractor,
+        use_ratio_axis=use_ratio_axis,
+        clim=clim,
+        cmap=cmap,
+        ax=ax,
+        # No theory curves
+        first_divergence=None,
+        lower_bound=None,
+        upper_bound=None,
+        crit_batch=None,
+    )
+
+
+def plot_heatmap_with_theory_curve(
+    loss_dict: dict[RunKey, Any],
+    batch_sizes: list[int],
+    etas: list[float],
+    title_exp: str,
+    metric_extractor: Callable[[Any], float | None] = _default_final_metric_extractor,
+    use_ratio_axis: bool = False,
+    first_divergence: dict[int, float] | None = None,
+    lower_bound: Callable[[int], float] | None = None,
+    upper_bound: Callable[[int], float] | None = None,
+    crit_batch: float | None = None,
+    clim: tuple[float, float] | None = None,
+    cmap: str = "rocket",
+    ax: plt.Axes | None = None,
+) -> tuple[plt.Figure, plt.Axes]:
+    """
+    Generates a formatted 2D heatmap of loss values, with an optional overlay
+    for a "first divergence" line.
+
+    This function is a variant of `plot_loss_heatmap` that adds the capability
+    to plot an additional data series.
 
     Args:
         loss_dict (dict): Maps a RunKey to a result object (e.g., a list of
@@ -108,6 +155,18 @@ def plot_loss_heatmap(
             Defaults to extracting the last item from a list.
         use_ratio_axis (bool, optional): If True, x-axis is the temperature (eta / B).
             Defaults to False, which uses batch_size (B) on the x-axis.
+        first_divergence (dict[int, float] | None, optional): A dictionary
+            mapping batch size to learning rate (eta) for points of first
+            divergence. If provided, these points are plotted as a red line
+            with dots and labeled "first divergence line". Defaults to None.
+        lower_bound (Callable[[int], float] | None, optional): A function that
+            takes a batch size and returns a corresponding eta value for a
+            theoretical lower bound. Plotted with green dots. Defaults to None.
+        upper_bound (Callable[[int], float] | None, optional): A function that
+            takes a batch size and returns a corresponding eta value for a
+            theoretical upper bound. Plotted with blue dots. Defaults to None.
+        crit_batch (float | None, optional): If provided, plots a vertical or
+            sloped line indicating a critical batch size. Defaults to None.
         clim (tuple[float, float] | None, optional): The color limits (min, max)
             for the log10-scaled loss. If None, the limits are automatically
             inferred from the data. Defaults to None.
@@ -124,12 +183,11 @@ def plot_loss_heatmap(
     else:
         fig = ax.get_figure()
 
-    # --- 1. Prepare data grid and index lookups for efficiency ---
+    # --- 1. Prepare data grid (same as plot_loss_heatmap) ---
     Z = np.full((len(etas), len(batch_sizes)), np.nan, dtype=float)
     b_to_i = {b: i for i, b in enumerate(batch_sizes)}
     eta_to_j = {e: j for j, e in enumerate(etas)}
 
-    # --- 2. Populate the grid by iterating through data once ---
     for run_key, result_obj in loss_dict.items():
         b, eta = run_key.batch_size, run_key.eta
         if b in b_to_i and eta in eta_to_j:
@@ -139,25 +197,21 @@ def plot_loss_heatmap(
             if metric_val is not None and metric_val > 0:
                 Z[j, i] = np.log10(metric_val)
 
-    # --- 3. Plotting logic (mostly unchanged) ---
+    # --- 2. Plotting logic for heatmap (same as plot_loss_heatmap) ---
     X, Y = np.meshgrid(batch_sizes, etas)
-    # Axes are in base 2
     Y_coords = np.log2(Y)
 
     if use_ratio_axis:
-        # X-axis is the temperature eta / B
         X_coords = np.log2(Y / X)
         xlabel = "$\\eta / B$"
         ax.set_xlim(np.nanmin(X_coords), np.nanmax(X_coords))
     else:
-        # X-axis is Batch Size B
         X_coords = np.log2(X)
         xlabel = "$B$"
         ax.set_xlim(min(np.log2(batch_sizes)), max(np.log2(batch_sizes)))
 
-    pcm = ax.pcolormesh(X_coords, Y_coords, Z, cmap=cmap, shading="auto")
+    pcm = ax.pcolormesh(X_coords, Y_coords, Z, cmap=cmap, shading="auto", zorder=1)
 
-    # Determine color limits automatically if not provided
     if clim is None:
         if np.any(np.isfinite(Z)):
             vmin, vmax = np.nanmin(Z), np.nanmax(Z)
@@ -166,6 +220,74 @@ def plot_loss_heatmap(
         pcm.set_clim(clim)
     ax.set_ylim(min(np.log2(etas)), max(np.log2(etas)))
 
+    # --- 3. Plot theoretical curves if provided ---
+    has_theory_curve = False
+
+    if crit_batch is not None:
+        if use_ratio_axis:
+            # For ratio axis, B=const is a sloped line: log2(eta) = log2(eta/B) + log2(B)
+            y_line = np.log2(np.array(etas))
+            x_line = y_line - np.log2(crit_batch)
+            ax.plot(x_line, y_line, color="m", linestyle="--", label=f"B_crit = {crit_batch}", zorder=2)
+        else:
+            # For B axis, B=const is a vertical line
+            ax.axvline(np.log2(crit_batch), color="m", linestyle="--", label=f"B_crit = {crit_batch}", zorder=2)
+        has_theory_curve = True
+
+    def _plot_theory_line(points: list[tuple[int, float]], color: str, label: str):
+        """Helper to plot a single theory curve on the heatmap axes."""
+        nonlocal has_theory_curve
+        if not points:
+            return
+
+        has_theory_curve = True
+        batches = np.array([p[0] for p in points])
+        etas = np.array([p[1] for p in points])
+
+        if use_ratio_axis:
+            ratios = etas / batches
+            sort_indices = np.argsort(ratios)
+            x_coords = np.log2(ratios[sort_indices])
+            y_coords = np.log2(etas[sort_indices])
+        else:
+            sort_indices = np.argsort(batches)
+            x_coords = np.log2(batches[sort_indices])
+            y_coords = np.log2(etas[sort_indices])
+
+        ax.plot(x_coords, y_coords, "-o", color=color, markersize=4, label=label, zorder=3)
+
+    if first_divergence:
+        div_points = [(b, eta) for b, eta in first_divergence.items() if b in batch_sizes and b > 0 and eta > 0]
+        _plot_theory_line(div_points, color="red", label="first divergence line")
+
+    if lower_bound:
+        points = []
+        for b in batch_sizes:
+            if b > 0:
+                try:
+                    eta = lower_bound(b)
+                    if eta > 0:
+                        points.append((b, eta))
+                except Exception:
+                    pass  # Callable might not be defined for all batch sizes
+        _plot_theory_line(points, color="green", label="lower bound")
+
+    if upper_bound:
+        points = []
+        for b in batch_sizes:
+            if b > 0:
+                try:
+                    eta = upper_bound(b)
+                    if eta > 0:
+                        points.append((b, eta))
+                except Exception:
+                    pass  # Callable might not be defined for all batch sizes
+        _plot_theory_line(points, color="blue", label="upper bound")
+
+    if has_theory_curve:
+        ax.legend()
+
+    # --- 4. Formatting (same as plot_loss_heatmap) ---
     def log2_tick_formatter(val, pos=None):
         return f"$2^{{{round(val)}}}$"
 
@@ -175,7 +297,6 @@ def plot_loss_heatmap(
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(log2_tick_formatter))
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(log2_tick_formatter))
 
-    # Set integer ticks for the colorbar to avoid repeated labels from rounding.
     vmin, vmax = pcm.get_clim()
     ticks = np.arange(np.ceil(vmin), np.floor(vmax) + 1, dtype=int)
 
