@@ -42,7 +42,7 @@ class TestDataHandlingIntegration:
         # --- 1. Monkeypatch the data generation and training loop ---
 
         # Replace the training loop to just collect batch indices
-        def mock_run_training_loop(self, params, opt_state, results, start_step):
+        def mock_run_training_loop(self, params, opt_state, results, start_step, data_iterator):
             # This mock replaces the actual training.
             # It iterates through the data generator for each epoch and logs the indices.
             batch_size = self.run_key.batch_size
@@ -50,8 +50,8 @@ class TestDataHandlingIntegration:
                 seen_data_log[batch_size] = {}
 
             # The iterator yields all batches for all epochs in a single sequence.
-            # We consume it once and then partition the results by epoch for the test.
-            all_batches = list(self.data_iterator)
+            # We consume the passed iterator once and then partition the results by epoch for the test.
+            all_batches = list(data_iterator)
             num_total_batches = len(all_batches)
 
             for epoch in range(self.num_epochs):

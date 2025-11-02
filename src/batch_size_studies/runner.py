@@ -44,6 +44,7 @@ class TrialContext:
     no_save: bool
     init_key: int
     num_steps: int
+    num_epochs: int
     kwargs: dict = field(default_factory=dict)
     # Data fields, can be None
     train_ds: Any | None = None
@@ -320,7 +321,9 @@ def run_experiment_sweep(
 
         for eta in sorted_etas:
             run_key = RunKey(batch_size=batch_size, eta=eta)
-            num_steps = compute_num_steps(experiment, batch_size, train_ds, **kwargs)
+            # Pass num_epochs from kwargs if it exists, to correctly calculate total steps
+            num_epochs_for_run = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
+            num_steps = compute_num_steps(experiment, batch_size, train_ds, num_epochs=num_epochs_for_run)
 
             # Create the context object for this trial
             context = TrialContext(
@@ -335,6 +338,7 @@ def run_experiment_sweep(
                 no_save=no_save,
                 init_key=init_key,
                 num_steps=num_steps,
+                num_epochs=num_epochs_for_run,
                 kwargs=kwargs,
             )
             is_successful = _run_single_trial(context=context, results_dict=results_dict, failed_runs=failed_runs)
