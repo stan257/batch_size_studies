@@ -9,33 +9,23 @@ import jax.random as jr
 import numpy as np
 import optax
 
-from .checkpoint_utils import CheckpointManager
-from .definitions import LossType, RunKey
+from .definitions import LossType
 from .training_utils import create_optimizer
 
 
 class TrialRunner(ABC):
     """Abstract base class for running a single experiment trial."""
 
-    def __init__(
-        self,
-        experiment,
-        run_key: RunKey,
-        params0,
-        model_instance,
-        checkpoint_manager: CheckpointManager,
-        pbar,
-        no_save: bool,
-        **kwargs,
-    ):
-        self.experiment = experiment
-        self.run_key = run_key
-        self.params0 = params0
-        self.model_instance = model_instance
-        self.checkpoint_manager = checkpoint_manager
-        self.pbar = pbar
-        self.no_save = no_save
-        self.kwargs = kwargs
+    def __init__(self, context):
+        self.experiment = context.experiment
+        self.run_key = context.run_key
+        self.params0 = context.params0
+        self.model_instance = context.model_instance
+        self.checkpoint_manager = context.checkpoint_manager
+        self.pbar = context.pbar
+        self.no_save = context.no_save
+        self.kwargs = context.kwargs
+        self.num_steps = context.num_steps
         self.lr = self.experiment.get_adjusted_eta(self.run_key.eta)
         # Subclasses are now responsible for creating these
         self.optimizer, self.loss_fn, self.update_step, self.data_generator = None, None, None, None
@@ -75,7 +65,7 @@ class TrialRunner(ABC):
 
     def _run_training_loop(self, params, opt_state, results, start_step) -> dict | None:
         """Unified training loop that iterates over steps."""
-        num_steps = self.kwargs["num_steps"]
+        num_steps = self.num_steps
 
         for current_step, (x_batch, y_batch) in enumerate(self.data_generator, start=start_step):
             if current_step >= num_steps:
@@ -133,12 +123,12 @@ class TrialRunner(ABC):
 class MNISTTrialRunner(TrialRunner):
     """Trial runner for MNIST-based experiments."""
 
-    def __init__(self, experiment, **kwargs):
-        super().__init__(experiment, **kwargs)
-        self.train_ds = self.kwargs["train_ds"]
-        self.test_ds = self.kwargs["test_ds"]
-        self.init_key = self.kwargs["init_key"]
-        self.num_epochs = self.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
+    def __init__(self, context):
+        super().__init__(context)
+        self.train_ds = context.train_ds
+        self.test_ds = context.test_ds
+        self.init_key = context.init_key
+        self.num_epochs = context.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
 
         self.optimizer = create_optimizer(self.experiment, self.lr)
         self.loss_fn = self._create_loss_fn()
@@ -270,8 +260,8 @@ class MNISTTrialRunner(TrialRunner):
 class SyntheticTrialRunner(TrialRunner):
     """Base trial runner for synthetic data experiments."""
 
-    def __init__(self, experiment, **kwargs):
-        super().__init__(experiment, **kwargs)
+    def __init__(self, context):
+        super().__init__(context)
         # These are defined here because they are common to all synthetic runners
         self.optimizer = create_optimizer(self.experiment, self.lr)
         self.loss_fn = self._create_loss_fn()
@@ -309,9 +299,9 @@ class SyntheticTrialRunner(TrialRunner):
 class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
     """Trial runner for fixed-time synthetic experiments."""
 
-    def __init__(self, experiment, **kwargs):
-        super().__init__(experiment, **kwargs)
-        self.snapshot_steps = self._get_snapshot_steps(self.kwargs["num_steps"])
+    def __init__(self, context):
+        super().__init__(context)
+        self.snapshot_steps = self._get_snapshot_steps(self.num_steps)
         self.batch_key_seed = 0  # Initialized here, updated from results later
 
     def _init_results(self) -> dict:
@@ -355,11 +345,11 @@ class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
 class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
     """Trial runner for fixed-data synthetic experiments."""
 
-    def __init__(self, experiment, **kwargs):
-        super().__init__(experiment, **kwargs)
-        self.X_data = self.kwargs["X_data"]
-        self.y_data = self.kwargs["y_data"]
-        self.num_epochs = self.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
+    def __init__(self, context):
+        super().__init__(context)
+        self.X_data = context.train_ds[0]
+        self.y_data = context.train_ds[1]
+        self.num_epochs = context.kwargs.get("num_epochs", getattr(self.experiment, "num_epochs", 1))
 
         original_num_train = self.X_data.shape[0]
         self.steps_per_epoch = original_num_train // self.run_key.batch_size

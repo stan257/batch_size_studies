@@ -10,7 +10,8 @@ dispatching to type-specific trial runners.
 import logging
 import os
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import Any
 
 import jax
 import numpy as np
@@ -30,12 +31,30 @@ from .experiments import (
 from .paths import EXPERIMENTS_DIR
 
 
+@dataclass
+class TrialContext:
+    """Encapsulates all configuration and data for a single trial."""
+
+    experiment: Any
+    run_key: RunKey
+    params0: Any
+    model_instance: Any
+    checkpoint_manager: CheckpointManager
+    pbar: tqdm
+    no_save: bool
+    init_key: int
+    num_steps: int
+    kwargs: dict = field(default_factory=dict)
+    # Data fields, can be None
+    train_ds: Any | None = None
+    test_ds: Any | None = None
+
+
 class CenteredModel:
     """
-    A wrapper for a JAX model to compute centered outputs.
-
-    This is used to match the loss function structure from training, which is
-    L(p) = loss(model(p) - model(p0)), where p0 are the initial parameters.
+    A wrapper for a JAX model to compute centered outputs. Does
+        L(p) = loss(model(p) - model(p0)),
+    where p0 are the initial parameters.
     """
 
     def __init__(self, model, params0):
@@ -212,91 +231,35 @@ def validate_and_store_result(
 # ============================================================================
 
 
-def _create_runner_kwargs(
-    experiment,
-    run_key: RunKey,
-    params0,
-    model_instance,
-    checkpoint_manager: CheckpointManager,
-    train_ds,
-    test_ds,
-    pbar,
-    no_save: bool,
-    init_key: int,
-    num_steps: int,
-    **kwargs,
-) -> dict:
-    """Assembles the keyword arguments for creating a TrialRunner."""
-    base_kwargs = {
-        "run_key": run_key,
-        "params0": params0,
-        "model_instance": model_instance,
-        "checkpoint_manager": checkpoint_manager,
-        "pbar": pbar,
-        "no_save": no_save,
-        "init_key": init_key,
-        "num_steps": num_steps,
-    }
-
-    num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
-
-    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
-        base_kwargs.update({"num_epochs": num_epochs, "train_ds": train_ds, "test_ds": test_ds})
-    elif isinstance(experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)):
-        base_kwargs.update({"num_epochs": num_epochs, "X_data": train_ds[0], "y_data": train_ds[1]})
-
-    return base_kwargs
-
-
 def _run_single_trial(
-    experiment,
-    run_key: RunKey,
+    context: TrialContext,
     results_dict: dict,
     failed_runs: set,
-    checkpoint_manager: CheckpointManager,
-    params0,
-    model_instance,
-    train_ds,
-    test_ds,
-    pbar,
-    no_save: bool,
-    init_key: int,
-    **kwargs,
 ) -> bool:
     """
     Checks the status of, runs, and validates a single trial configuration.
     Returns True if the run was successful (or already was), False otherwise.
     """
-    num_steps = compute_num_steps(experiment, run_key.batch_size, train_ds, **kwargs)
-    status = RunStatus(run_key, results_dict, failed_runs, num_steps, no_save)
+    status = RunStatus(context.run_key, results_dict, failed_runs, context.num_steps, context.no_save)
 
     if not status.should_run:
         return status.is_successful
 
-    runner_kwargs = _create_runner_kwargs(
-        experiment,
-        run_key,
-        params0,
-        model_instance,
-        checkpoint_manager,
-        train_ds,
-        test_ds,
-        pbar,
-        no_save,
-        init_key,
-        num_steps,
-        **kwargs,
-    )
-
-    trial_runner = _get_trial_runner(experiment, **runner_kwargs)
+    trial_runner = _get_trial_runner(context)
 
     if trial_runner:
         result = trial_runner.run()
         is_successful = validate_and_store_result(
-            result, run_key, results_dict, failed_runs, experiment, checkpoint_manager, no_save
+            result,
+            context.run_key,
+            results_dict,
+            failed_runs,
+            context.experiment,
+            context.checkpoint_manager,
+            context.no_save,
         )
     else:
-        failed_runs.add(run_key)
+        failed_runs.add(context.run_key)
         is_successful = False
 
     return is_successful
@@ -356,21 +319,25 @@ def run_experiment_sweep(
         eta_pbar.set_description(f"Eta Sweep (B={batch_size})")
 
         for eta in sorted_etas:
-            is_successful = _run_single_trial(
+            run_key = RunKey(batch_size=batch_size, eta=eta)
+            num_steps = compute_num_steps(experiment, batch_size, train_ds, **kwargs)
+
+            # Create the context object for this trial
+            context = TrialContext(
                 experiment=experiment,
-                run_key=RunKey(batch_size=batch_size, eta=eta),
-                results_dict=results_dict,
-                failed_runs=failed_runs,
-                checkpoint_manager=checkpoint_manager,
+                run_key=run_key,
                 params0=params0,
                 model_instance=model_for_runner,
+                checkpoint_manager=checkpoint_manager,
                 train_ds=train_ds,
                 test_ds=test_ds,
                 pbar=eta_pbar,
                 no_save=no_save,
                 init_key=init_key,
-                **kwargs,
+                num_steps=num_steps,
+                kwargs=kwargs,
             )
+            is_successful = _run_single_trial(context=context, results_dict=results_dict, failed_runs=failed_runs)
 
             if eta_tracker.update(is_successful):
                 # Fast-forward the progress bar to the end for this batch size
@@ -383,11 +350,13 @@ def run_experiment_sweep(
     return dict(results_dict), failed_runs
 
 
-def _get_trial_runner(experiment, **runner_kwargs):
+def _get_trial_runner(context: TrialContext):
     """Factory function to create the appropriate trial runner."""
     try:
-        runner_class = experiment.get_trial_runner_class()
-        return runner_class(experiment=experiment, **runner_kwargs)
+        runner_class = context.experiment.get_trial_runner_class()
+        return runner_class(context=context)
     except NotImplementedError:
-        logging.error(f"Experiment type {type(experiment).__name__} does not implement get_trial_runner_class().")
+        logging.error(
+            f"Experiment type {type(context.experiment).__name__} does not implement get_trial_runner_class()."
+        )
         return None

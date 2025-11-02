@@ -1,5 +1,5 @@
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import MagicMock, Mock, patch
 
 import jax.numpy as jnp
 import numpy as np
@@ -12,6 +12,9 @@ from batch_size_studies.runner import (
     CenteredModel,
     EtaStabilityTracker,
     RunStatus,
+    TrialContext,
+    _run_single_trial,
+    run_experiment_sweep,
     validate_and_store_result,
 )
 
@@ -360,3 +363,127 @@ class TestValidateAndStoreResult:
             s.checkpoint_manager.cleanup_live_checkpoint.assert_called_once_with(s.run_key)
         else:
             s.checkpoint_manager.cleanup_live_checkpoint.assert_not_called()
+
+
+# ============================================================================
+# TESTS FOR _run_single_trial
+# ============================================================================
+
+
+@patch("batch_size_studies.runner.validate_and_store_result")
+@patch("batch_size_studies.runner._get_trial_runner")
+@patch("batch_size_studies.runner.RunStatus")
+class TestSingleTrialExecution:
+    """Tests the orchestration logic for a single trial."""
+
+    def test_skips_completed_run(self, mock_RunStatus, mock_get_runner, mock_validate):
+        mock_status_instance = mock_RunStatus.return_value
+        mock_status_instance.should_run = False
+        mock_status_instance.is_successful = True
+
+        # The mock context needs the attributes that RunStatus will access
+        context = MagicMock(spec=TrialContext, run_key=RunKey(32, 0.1), num_steps=100, no_save=False)
+        is_successful = _run_single_trial(context, {}, set())
+
+        assert is_successful is True
+        mock_get_runner.assert_not_called()
+
+    def test_runs_new_trial_successfully(self, mock_RunStatus, mock_get_runner, mock_validate):
+        mock_status_instance = mock_RunStatus.return_value
+        mock_status_instance.should_run = True
+
+        mock_runner = mock_get_runner.return_value
+        mock_runner.run.return_value = {"some": "result"}
+
+        mock_validate.return_value = True  # Simulate successful validation
+
+        # Set all attributes that will be accessed on the context object
+        context = MagicMock(
+            spec=TrialContext,
+            run_key=RunKey(32, 0.1),
+            num_steps=100,
+            no_save=False,
+            experiment=Mock(),
+            checkpoint_manager=Mock(),
+        )
+        results_dict, failed_runs = {}, set()
+        is_successful = _run_single_trial(context, results_dict, failed_runs)
+
+        assert is_successful is True
+        mock_get_runner.assert_called_once_with(context)
+        mock_runner.run.assert_called_once()
+        mock_validate.assert_called_once_with(
+            {"some": "result"},
+            context.run_key,
+            results_dict,
+            failed_runs,
+            context.experiment,
+            context.checkpoint_manager,
+            context.no_save,
+        )
+
+    def test_handles_trial_divergence(self, mock_RunStatus, mock_get_runner, mock_validate):
+        mock_status_instance = mock_RunStatus.return_value
+        mock_status_instance.should_run = True
+
+        mock_runner = mock_get_runner.return_value
+        mock_runner.run.return_value = None  # Simulate divergence
+
+        mock_validate.return_value = False
+
+        # Set all attributes that will be accessed on the context object
+        context = MagicMock(
+            spec=TrialContext,
+            run_key=RunKey(32, 0.1),
+            num_steps=100,
+            no_save=False,
+            experiment=Mock(),
+            checkpoint_manager=Mock(),
+        )
+        results_dict, failed_runs = {}, set()
+        is_successful = _run_single_trial(context, results_dict, failed_runs)
+
+        assert is_successful is False
+        mock_runner.run.assert_called_once()
+        mock_validate.assert_called_once_with(
+            None,
+            context.run_key,
+            results_dict,
+            failed_runs,
+            context.experiment,
+            context.checkpoint_manager,
+            context.no_save,
+        )
+
+
+# ============================================================================
+# TESTS FOR run_experiment_sweep
+# ============================================================================
+
+
+@patch("batch_size_studies.runner.initialize_results_and_checkpoints")
+@patch("batch_size_studies.runner.initialize_model_params")
+@patch("batch_size_studies.runner._run_single_trial")
+@patch("batch_size_studies.runner.tqdm", lambda *args, **kwargs: args[0] if args else Mock())  # Disable tqdm
+class TestRunExperimentSweep:
+    """Tests the main sweep orchestration logic."""
+
+    def test_sweep_loops_correctly(self, mock_run_single, mock_init_params, mock_init_results):
+        mock_init_results.return_value = ({}, set(), Mock())
+        mock_init_params.return_value = "params0"
+        mock_run_single.return_value = True
+
+        mock_experiment = Mock()
+        mock_experiment.prepare_datasets.return_value = ({"image": [1, 2, 3, 4]}, "test_ds")
+        mock_experiment.should_skip_batch_size.return_value = False
+
+        batch_sizes = [64, 128]
+        etas = [0.1, 0.01]
+
+        run_experiment_sweep(mock_experiment, batch_sizes, etas)
+
+        assert mock_run_single.call_count == 4
+        calls = mock_run_single.call_args_list
+        called_run_keys = {call.kwargs["context"].run_key for call in calls}
+        expected_run_keys = {RunKey(64, 0.1), RunKey(64, 0.01), RunKey(128, 0.1), RunKey(128, 0.01)}
+        assert called_run_keys == expected_run_keys
