@@ -233,143 +233,130 @@ class TestRunStatus:
 class TestValidateAndStoreResult:
     """Tests the logic for validating and storing trial results."""
 
-    def test_successful_synthetic_result_stored(self, validation_setup):
+    @pytest.mark.parametrize(
+        "test_id, experiment_config, result, no_save, pre_populate, expected_is_successful, expect_in_results, expect_in_failed, expect_cleanup_called",
+        [
+            (
+                "successful_synthetic",
+                {"spec": SyntheticExperimentFixedData, "is_run_complete": True},
+                {"loss_history": [1.0, 0.9, 0.8]},
+                False,
+                False,
+                True,
+                True,
+                False,
+                True,
+            ),
+            (
+                "incomplete_run_no_cleanup",
+                {"spec": MNISTExperiment, "is_run_complete": False},
+                {"loss_history": [1.0, 0.9]},
+                False,
+                False,
+                False,
+                True,
+                False,
+                False,
+            ),
+            (
+                "failed_nan_accuracy",
+                {"spec": MNISTExperiment, "is_run_complete": True},
+                {"final_test_accuracy": np.nan},
+                False,
+                False,
+                False,
+                False,
+                True,
+                False,
+            ),
+            (
+                "failed_none_result_removes_old",
+                {"spec": SyntheticExperimentFixedData, "is_run_complete": False},
+                None,
+                True,
+                True,
+                False,
+                False,
+                True,
+                False,
+            ),
+            (
+                "successful_mnist_cleanup",
+                {"spec": MNISTExperiment, "is_run_complete": True},
+                {"final_test_accuracy": 0.9, "epoch_test_accuracies": [0.8, 0.85, 0.88, 0.9]},
+                False,
+                False,
+                True,
+                True,
+                False,
+                True,
+            ),
+            (
+                "successful_run_no_save",
+                {"spec": SyntheticExperimentFixedData, "is_run_complete": True},
+                {"loss_history": [1.0, 0.9, 0.8]},
+                True,
+                False,
+                True,
+                True,
+                False,
+                False,
+            ),
+        ],
+        ids=[
+            "successful_synthetic_run_cleans_checkpoint",
+            "incomplete_run_preserves_checkpoint",
+            "failed_run_with_nan_is_not_stored",
+            "failed_run_(None)_removes_previous_result",
+            "successful_mnist_run_cleans_checkpoint",
+            "successful_run_with_no_save_does_not_cleanup",
+        ],
+    )
+    def test_result_validation_scenarios(
+        self,
+        validation_setup,
+        test_id,
+        experiment_config,
+        result,
+        no_save,
+        pre_populate,
+        expected_is_successful,
+        expect_in_results,
+        expect_in_failed,
+        expect_cleanup_called,
+    ):
+        """Tests various scenarios for result validation, storage, and checkpoint cleanup."""
         s = validation_setup
-        s.mock_exp.is_run_complete.return_value = True  # Simulate a complete run
+        s.mock_exp = Mock(spec=experiment_config["spec"])
+        s.mock_exp.is_run_complete.return_value = experiment_config["is_run_complete"]
+
+        if pre_populate:
+            s.results_dict[s.run_key] = {"old_data": "should be removed"}
 
         is_successful = validate_and_store_result(
-            result=s.result,
+            result=result,
             run_key=s.run_key,
             results_dict=s.results_dict,
             failed_runs=s.failed_runs,
             experiment=s.mock_exp,
             checkpoint_manager=s.checkpoint_manager,
-            no_save=True,
+            no_save=no_save,
         )
 
-        assert is_successful is True
-        assert s.run_key in s.results_dict
-        assert s.results_dict[s.run_key] == s.result
-        assert s.run_key not in s.failed_runs
+        assert is_successful is expected_is_successful
 
-    def test_incomplete_run_is_stored_for_resumption(self, validation_setup):
-        """
-        Tests that an incomplete but valid run (e.g., finished early) is stored
-        in the results dictionary but NOT marked as a failure. This is the
-        correct behavior to allow for checkpoint resumption.
-        """
-        s = validation_setup
-        s.mock_exp = Mock(spec=MNISTExperiment)
-        s.mock_exp.is_run_complete.return_value = False  # Mark as incomplete
-        s.result = {"loss_history": [1.0, 0.9, 0.8]}  # A valid, partial result
+        if expect_in_results:
+            assert s.run_key in s.results_dict
+            assert s.results_dict[s.run_key] == result
+        else:
+            assert s.run_key not in s.results_dict
 
-        is_successful = validate_and_store_result(
-            result=s.result,
-            run_key=s.run_key,
-            results_dict=s.results_dict,
-            failed_runs=s.failed_runs,
-            experiment=s.mock_exp,
-            checkpoint_manager=s.checkpoint_manager,
-            no_save=True,
-        )
+        if expect_in_failed:
+            assert s.run_key in s.failed_runs
+        else:
+            assert s.run_key not in s.failed_runs
 
-        # The run is not "successful" because it's not complete
-        assert is_successful is False
-        # CRUCIAL: The result should be stored to allow for resumption...
-        assert s.run_key in s.results_dict
-        # ...but it should NOT be added to the set of hard failures.
-        assert s.run_key not in s.failed_runs
-
-    def test_mnist_result_with_nan_accuracy(self, validation_setup):
-        s = validation_setup
-        s.mock_exp = Mock(spec=MNISTExperiment)
-        s.mock_exp.is_run_complete.return_value = True  # Structurally complete
-        s.result = {"final_test_accuracy": np.nan}
-
-        is_successful = validate_and_store_result(
-            result=s.result,
-            run_key=s.run_key,
-            results_dict=s.results_dict,
-            failed_runs=s.failed_runs,
-            experiment=s.mock_exp,
-            checkpoint_manager=s.checkpoint_manager,
-            no_save=True,
-        )
-
-        assert is_successful is False
-        assert s.run_key in s.failed_runs
-
-    def test_checkpoint_cleanup_called_for_completed_runs(self, validation_setup):
-        s = validation_setup
-
-        s.mock_exp.is_run_complete.return_value = True
-        validate_and_store_result(
-            result=s.result,
-            run_key=s.run_key,
-            results_dict=s.results_dict,
-            failed_runs=s.failed_runs,
-            experiment=s.mock_exp,
-            checkpoint_manager=s.checkpoint_manager,
-            no_save=False,  # Enable saving
-        )
-
-        # Should cleanup checkpoint for successful synthetic run
-        s.checkpoint_manager.cleanup_live_checkpoint.assert_called_once_with(s.run_key)
-
-    def test_checkpoint_cleanup_called_for_full_mnist_run(self, validation_setup):
-        """Test that checkpoints ARE cleaned up for fully completed MNIST runs."""
-        s = validation_setup
-        s.mock_exp = Mock(spec=MNISTExperiment, num_epochs=4)
-        s.mock_exp.is_run_complete.return_value = True
-        s.result = {"final_test_accuracy": 0.9, "epoch_test_accuracies": [0.8, 0.85, 0.88, 0.9]}
-
-        validate_and_store_result(
-            result=s.result,
-            run_key=s.run_key,
-            results_dict=s.results_dict,
-            failed_runs=s.failed_runs,
-            experiment=s.mock_exp,
-            checkpoint_manager=s.checkpoint_manager,
-            no_save=False,
-        )
-
-        # Should BE called because run is fully complete
-        s.checkpoint_manager.cleanup_live_checkpoint.assert_called_once_with(s.run_key)
-
-    def test_checkpoint_cleanup_not_called_for_partial_mnist_run(self, validation_setup):
-        """Test that checkpoints are NOT cleaned up for partially completed MNIST runs."""
-        s = validation_setup
-        s.mock_exp = Mock(spec=MNISTExperiment, num_epochs=4)
-        s.mock_exp.is_run_complete.return_value = False  # This run is incomplete
-        s.result = {"final_test_accuracy": 0.9, "epoch_test_accuracies": [0.8, 0.85]}
-
-        validate_and_store_result(
-            result=s.result,
-            run_key=s.run_key,
-            results_dict=s.results_dict,
-            failed_runs=s.failed_runs,
-            experiment=s.mock_exp,
-            checkpoint_manager=s.checkpoint_manager,
-            no_save=False,
-        )
-
-        # Should NOT be called because run is not fully complete
-        s.checkpoint_manager.cleanup_live_checkpoint.assert_not_called()
-
-    def test_previous_result_removed_on_failure(self, validation_setup):
-        s = validation_setup
-        s.mock_exp.is_run_complete.return_value = False
-        s.results_dict[s.run_key] = {"old_result": "data"}
-
-        validate_and_store_result(
-            result=None,  # Failed run
-            run_key=s.run_key,
-            results_dict=s.results_dict,
-            failed_runs=s.failed_runs,
-            experiment=s.mock_exp,
-            checkpoint_manager=s.checkpoint_manager,
-            no_save=True,
-        )
-
-        assert s.run_key not in s.results_dict
-        assert s.run_key in s.failed_runs
+        if expect_cleanup_called:
+            s.checkpoint_manager.cleanup_live_checkpoint.assert_called_once_with(s.run_key)
+        else:
+            s.checkpoint_manager.cleanup_live_checkpoint.assert_not_called()

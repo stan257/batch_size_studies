@@ -163,121 +163,95 @@ def extended_sample_loss_dict():
 
 
 class TestFilterExperiments:
-    def test_filter_by_experiment_type_only(self, sample_experiments):
-        filtered = filter_experiments(sample_experiments, experiment_type=MockSynthExperiment)
-        assert len(filtered) == 2
-        assert "synth_1" in filtered
-        assert "synth_2" in filtered
-        assert all(isinstance(exp, MockSynthExperiment) for exp in filtered.values())
+    @pytest.mark.parametrize(
+        "filter_kwargs, expected_keys",
+        [
+            ({"experiment_type": MockSynthExperiment}, {"synth_1", "synth_2"}),
+            (
+                {"experiment_type": MockMNISTExperiment},
+                {"mnist_mse_sgd", "mnist_xent_sgd", "mnist_xent_adam"},
+            ),
+            (
+                {"experiment_type": MockMNISTExperiment, "loss_type": LossType.XENT},
+                {"mnist_xent_sgd", "mnist_xent_adam"},
+            ),
+            (
+                {"experiment_type": MockMNISTExperiment, "loss_type": LossType.MSE},
+                {"mnist_mse_sgd"},
+            ),
+            (
+                {"experiment_type": MockSynthExperiment, "loss_type": LossType.MSE},
+                {"synth_1", "synth_2"},
+            ),
+            ({"experiment_type": MockSynthExperiment, "loss_type": LossType.XENT}, set()),
+            (
+                {"experiment_type": MockMNISTExperiment, "parameterization": Parameterization.SP},
+                {"mnist_mse_sgd", "mnist_xent_sgd", "mnist_xent_adam"},
+            ),
+            ({"experiment_type": MockMNISTExperiment, "parameterization": Parameterization.MUP}, set()),
+            (
+                {"experiment_type": MockMNISTExperiment, "optimizer": OptimizerType.SGD},
+                {"mnist_mse_sgd", "mnist_xent_sgd"},
+            ),
+            (
+                {"experiment_type": MockMNISTExperiment, "optimizer": OptimizerType.ADAM},
+                {"mnist_xent_adam"},
+            ),
+            (
+                {"experiment_type": MockSynthExperiment, "optimizer": OptimizerType.SGD},
+                {"synth_1", "synth_2"},
+            ),
+            ({"experiment_type": MockSynthExperiment, "optimizer": OptimizerType.ADAM}, set()),
+            (
+                {
+                    "experiment_type": MockMNISTExperiment,
+                    "loss_type": LossType.XENT,
+                    "optimizer": OptimizerType.ADAM,
+                },
+                {"mnist_xent_adam"},
+            ),
+            (
+                {
+                    "experiment_type": MockMNISTExperiment,
+                    "loss_type": LossType.MSE,
+                    "optimizer": OptimizerType.ADAM,
+                },
+                set(),
+            ),
+        ],
+        ids=[
+            "by_type_synth",
+            "by_type_mnist",
+            "mnist_by_loss_xent",
+            "mnist_by_loss_mse",
+            "synth_by_loss_mse",
+            "synth_by_loss_xent_no_match",
+            "by_param_sp",
+            "by_param_mup_no_match",
+            "mnist_by_optimizer_sgd",
+            "mnist_by_optimizer_adam",
+            "synth_by_optimizer_sgd",
+            "synth_by_optimizer_adam_no_match",
+            "all_criteria_match",
+            "all_criteria_no_match",
+        ],
+    )
+    def test_filter_scenarios(self, sample_experiments, filter_kwargs, expected_keys):
+        """Tests various filtering scenarios for experiments."""
+        filtered = filter_experiments(sample_experiments, **filter_kwargs)
+        assert set(filtered.keys()) == expected_keys
 
-        filtered_mnist = filter_experiments(sample_experiments, experiment_type=MockMNISTExperiment)
-
-        assert len(filtered_mnist) == 3
-        assert "mnist_mse_sgd" in filtered_mnist
-        assert "mnist_xent_sgd" in filtered_mnist
-        assert "mnist_xent_adam" in filtered_mnist
-        assert all(isinstance(exp, MockMNISTExperiment) for exp in filtered_mnist.values())
-
-    def test_filter_by_loss_type(self, sample_experiments):
-        filtered_xent = filter_experiments(
-            sample_experiments, experiment_type=MockMNISTExperiment, loss_type=LossType.XENT
-        )
-
-        assert len(filtered_xent) == 2
-        assert "mnist_xent_sgd" in filtered_xent
-        assert "mnist_xent_adam" in filtered_xent
-        assert all(exp.loss_type == LossType.XENT for exp in filtered_xent.values())
-
-        filtered_mse = filter_experiments(
-            sample_experiments, experiment_type=MockMNISTExperiment, loss_type=LossType.MSE
-        )
-
-        assert len(filtered_mse) == 1
-        assert "mnist_mse_sgd" in filtered_mse
-        assert filtered_mse["mnist_mse_sgd"].loss_type == LossType.MSE
-
-        # Test filtering on synthetic experiments
-        filtered_synth_mse = filter_experiments(
-            sample_experiments, experiment_type=MockSynthExperiment, loss_type=LossType.MSE
-        )
-        assert len(filtered_synth_mse) == 2
-
-        filtered_synth_xent = filter_experiments(
-            sample_experiments, experiment_type=MockSynthExperiment, loss_type=LossType.XENT
-        )
-        assert len(filtered_synth_xent) == 0
-
-    def test_filter_by_parameterization(self, sample_experiments):
-        filtered = filter_experiments(
-            sample_experiments, experiment_type=MockMNISTExperiment, parameterization=Parameterization.SP
-        )
-        assert len(filtered) == 3
-
-        filtered_none = filter_experiments(
-            sample_experiments, experiment_type=MockMNISTExperiment, parameterization=Parameterization.MUP
-        )
-        assert len(filtered_none) == 0
-
-    def test_filter_by_optimizer(self, sample_experiments):
-        filtered_sgd = filter_experiments(
-            sample_experiments, experiment_type=MockMNISTExperiment, optimizer=OptimizerType.SGD
-        )
-
-        assert len(filtered_sgd) == 2
-        assert "mnist_mse_sgd" in filtered_sgd
-        assert "mnist_xent_sgd" in filtered_sgd
-        assert all(exp.optimizer == OptimizerType.SGD for exp in filtered_sgd.values())
-
-        filtered_adam = filter_experiments(
-            sample_experiments, experiment_type=MockMNISTExperiment, optimizer=OptimizerType.ADAM
-        )
-
-        assert len(filtered_adam) == 1
-        assert "mnist_xent_adam" in filtered_adam
-        assert filtered_adam["mnist_xent_adam"].optimizer == OptimizerType.ADAM
-
-        # Test filtering on synthetic experiments
-        for optimizer_type in [OptimizerType.SGD, OptimizerType.ADAM]:
-            filtered = filter_experiments(
-                sample_experiments, experiment_type=MockSynthExperiment, optimizer=optimizer_type
-            )
-
-            if optimizer_type == OptimizerType.SGD:
-                assert len(filtered) == 2
-            else:
-                assert len(filtered) == 0
-
-    def test_filter_by_all_criteria(self, sample_experiments):
-        filtered = filter_experiments(
-            sample_experiments,
-            experiment_type=MockMNISTExperiment,
-            loss_type=LossType.XENT,
-            optimizer=OptimizerType.ADAM,
-        )
-
-        assert len(filtered) == 1
-        assert "mnist_xent_adam" in filtered
-
-        exp = filtered["mnist_xent_adam"]
-        assert isinstance(exp, MockMNISTExperiment)
-        assert exp.loss_type == LossType.XENT
-        assert exp.optimizer == OptimizerType.ADAM
-
-    def test_no_matches(self, sample_experiments):
-        filtered = filter_experiments(
-            sample_experiments,
-            experiment_type=MockMNISTExperiment,
-            loss_type=LossType.MSE,
-            optimizer=OptimizerType.ADAM,
-        )
-
-        assert len(filtered) == 0
-        assert filtered == {}
+        # Verify properties of the filtered items
+        for exp in filtered.values():
+            for key, value in filter_kwargs.items():
+                if key == "experiment_type":
+                    assert isinstance(exp, value)
+                else:
+                    assert getattr(exp, key) == value
 
     def test_empty_input_dictionary(self):
+        """Tests that filtering an empty dictionary results in an empty dictionary."""
         filtered = filter_experiments({}, experiment_type=MockMNISTExperiment)
-
-        assert len(filtered) == 0
         assert filtered == {}
 
 
