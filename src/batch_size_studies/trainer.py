@@ -141,12 +141,8 @@ class MNISTTrialRunner(TrialRunner):
 
                 def loss_fn(params, x_batch, y_batch_labels):
                     logits = apply_fn(params, x_batch)
-                    loss = (
-                        1
-                        / 2
-                        * jnp.mean(
-                            optax.softmax_cross_entropy_with_integer_labels(logits=logits, labels=y_batch_labels)
-                        )
+                    loss = jnp.mean(
+                        optax.softmax_cross_entropy_with_integer_labels(logits=logits, labels=y_batch_labels)
                     )
                     return loss, logits
 
@@ -281,23 +277,34 @@ class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
     def __init__(self, context):
         super().__init__(context)
         self.snapshot_steps = self._get_snapshot_steps(context.num_steps)
-        self.data_iterator = OnlineDataIterator(
-            experiment=self.experiment, batch_size=self.run_key.batch_size, results=self._init_results()
-        )
+        # The data_iterator is created inside the `run` method,
+        # once the checkpoint state is loaded.
+        self.data_iterator = None
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "batch_key_seed": 0}
 
     def run(self):
-        """Overrides run to re-create the data iterator with the correct start_step and results."""
+        """Overrides run to create the data iterator with the correct start_step and results."""
         if self.no_save:
             params, opt_state, results, start_step = None, None, self._init_results(), 0
         else:
             params, opt_state, results, start_step = self.checkpoint_manager.load_live_checkpoint(self.run_key)
 
-        self.data_iterator.start_step = start_step
-        self.data_iterator.results = results
+        # Create the data iterator here, now that we have the loaded state.
+        initial_seed = results.get("batch_key_seed", 0)
+        self.data_iterator = OnlineDataIterator(
+            experiment=self.experiment,
+            batch_size=self.run_key.batch_size,
+            start_step=start_step,
+            initial_batch_key_seed=initial_seed,
+        )
         return super().run()
+
+    def _post_step_hook(self, step: int, params, results: dict) -> dict:
+        """Saves the current data generation seed to the results for checkpointing."""
+        results["batch_key_seed"] = self.data_iterator.current_batch_key_seed
+        return results
 
     def _should_save_checkpoint(self, step: int) -> bool:
         return step in self.snapshot_steps

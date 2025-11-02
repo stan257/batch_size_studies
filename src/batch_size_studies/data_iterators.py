@@ -64,30 +64,44 @@ class EpochBasedDataIterator(DataIterator):
 class OnlineDataIterator(DataIterator):
     """Generates new data on-the-fly for online training paradigms."""
 
-    def __init__(self, experiment, batch_size, results, start_step=0):
+    def __init__(self, experiment, batch_size, start_step=0, initial_batch_key_seed=0):
         self.experiment = experiment
         self.batch_size = batch_size
         self.start_step = start_step
-        self.results = results
+        self.initial_batch_key_seed = initial_batch_key_seed
+        self.current_batch_key_seed = initial_batch_key_seed
 
     def __iter__(self) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
-        batch_key_seed = self.results.get("batch_key_seed", 0)
+        if self.batch_size <= 0:
+            return
+
         steps_per_batch_key = self.experiment.P // self.batch_size
+        if steps_per_batch_key == 0:
+            # This handles the case where batch_size > P
+            # The iterator will correctly yield no batches.
+            return
+
+        batch_key_seed = self.initial_batch_key_seed
         batch_key_seed += self.start_step // steps_per_batch_key
-        step_for_curr_data = self.start_step % steps_per_batch_key
+        step_in_block = self.start_step % steps_per_batch_key
+
+        # Initial data generation before the loop starts
+        X_data, y_data = self.experiment.generate_data(jr.key(batch_key_seed))
+        self.current_batch_key_seed = batch_key_seed
 
         while True:  # The training loop in TrialRunner will stop this
-            if (step_for_curr_data + 1) * self.batch_size > self.experiment.P:
+            # Check if we need to generate a new block of data
+            if (step_in_block + 1) * self.batch_size > self.experiment.P:
                 batch_key_seed += 1
-                step_for_curr_data = 0
+                step_in_block = 0
+                X_data, y_data = self.experiment.generate_data(jr.key(batch_key_seed))
+                self.current_batch_key_seed = batch_key_seed
 
-            X_data, y_data = self.experiment.generate_data(jr.key(batch_key_seed))
-            self.results["batch_key_seed"] = batch_key_seed
-
-            start = step_for_curr_data * self.batch_size
+            # Yield a batch from the current data block
+            start = step_in_block * self.batch_size
             X_batch, y_batch = (
                 X_data[start : start + self.batch_size],
                 y_data[start : start + self.batch_size],
             )
-            step_for_curr_data += 1
+            step_in_block += 1
             yield X_batch, y_batch
