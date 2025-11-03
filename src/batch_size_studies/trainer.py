@@ -273,6 +273,10 @@ class MNISTTrialRunner(TrialRunner):
 class SyntheticTrialRunner(TrialRunner):
     """Base trial runner for synthetic data experiments."""
 
+    def __init__(self, context):
+        super().__init__(context)
+        self.snapshot_steps = self._get_snapshot_steps(context.num_steps)
+
     def _create_loss_fn(self) -> Callable:
         def loss_fn(params, x_batch, y_batch):
             pred = self.model_instance(params, x_batch)
@@ -306,15 +310,16 @@ class SyntheticTrialRunner(TrialRunner):
             steps.add(max_steps - 1)
         return sorted(steps)
 
+    def _should_save_checkpoint(self, step: int) -> bool:
+        return step in self.snapshot_steps
+
 
 class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
     """Trial runner for fixed-time synthetic experiments."""
 
     INITIAL_BATCH_KEY_SEED = 0
 
-    def __init__(self, context):
-        super().__init__(context)
-        self.snapshot_steps = self._get_snapshot_steps(context.num_steps)
+    # __init__ is inherited from SyntheticTrialRunner and is sufficient.
 
     def _init_results(self) -> dict:
         return {
@@ -337,9 +342,6 @@ class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
         results["batch_key_seed"] = data_iterator.current_batch_key_seed
         return results
 
-    def _should_save_checkpoint(self, step: int) -> bool:
-        return step in self.snapshot_steps
-
 
 class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
     """Trial runner for fixed-data synthetic experiments."""
@@ -347,14 +349,11 @@ class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
     def __init__(self, context):
         super().__init__(context)
         self.num_epochs = context.num_epochs
-        self.num_steps = context.num_steps
 
         original_num_train = context.train_ds[0].shape[0]
         self.steps_per_epoch = original_num_train // self.run_key.batch_size
 
         self.train_ds = context.train_ds
-
-        self.snapshot_steps = self._get_snapshot_steps(self.num_steps)
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "epoch": 0, "expected_steps": self.num_steps}
@@ -379,6 +378,3 @@ class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
             epoch = self._step_to_completed_epoch(step)
             results["epoch"] = epoch
         return results
-
-    def _should_save_checkpoint(self, step: int) -> bool:
-        return step in self.snapshot_steps
