@@ -11,7 +11,6 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
-import jax
 import numpy as np
 from tqdm.auto import tqdm
 
@@ -38,26 +37,6 @@ class TrialContext:
     # Data fields, can be None
     train_ds: Any | None = None
     test_ds: Any | None = None
-
-
-class CenteredModel:
-    """
-    A wrapper for a JAX model to compute centered outputs. Does
-        L(p) = loss(model(p) - model(p0)),
-    where p0 are the initial parameters.
-    """
-
-    def __init__(self, model, params0):
-        self.model = model
-        self.params0 = params0
-        # Jit the entire centered computation for efficiency
-        self._centered_fn = jax.jit(self._compute_centered)
-
-    def _compute_centered(self, params, inputs):
-        return self.model(params, inputs) - self.model(self.params0, inputs)
-
-    def __call__(self, params, inputs):
-        return self._centered_fn(params, inputs)
 
 
 @dataclass

@@ -16,9 +16,8 @@ from .experiments import (
     MNISTExperiment,
 )
 from .hessian import JaxHessian
-from .models import MLP, LinearModel
+from .models import MLP, CenteredModel, LinearModel
 from .paths import EXPERIMENTS_DIR
-from .runner import CenteredModel
 
 
 class HessianEvaluator:

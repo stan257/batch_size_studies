@@ -74,7 +74,7 @@ class MLPStudentExperiment:
     def get_model_wrapper(self, model_instance, params0):
         """Wraps the MLP model instance with CenteredModel."""
         # Local import to break circular dependency with runner.py
-        from .runner import CenteredModel
+        from .models import CenteredModel
 
         return CenteredModel(model_instance, params0)
 
