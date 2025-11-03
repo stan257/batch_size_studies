@@ -17,10 +17,52 @@ from dataclasses import replace
 from datetime import datetime
 
 from batch_size_studies.configs import get_main_experiment_configs, get_main_hyperparameter_grids
-from batch_size_studies.definitions import Parameterization
+from batch_size_studies.definitions import Parameterization, RunKey
 from batch_size_studies.experiments import MNIST1MExperiment
 from batch_size_studies.paths import EXPERIMENTS_DIR
-from batch_size_studies.runner import are_all_runs_complete, run_experiment_sweep
+from batch_size_studies.runner import run_experiment_sweep
+
+
+def _is_run_complete(result: dict) -> bool:
+    """
+    Checks if a single result dictionary represents a completed run.
+    A run is complete if its actual progress meets or exceeds the expected
+    duration stored within it.
+    """
+    if not isinstance(result, dict):
+        return False
+
+    if "expected_steps" in result:
+        # For step-based experiments (e.g., synthetic fixed-time)
+        return len(result.get("loss_history", [])) >= result["expected_steps"]
+    elif "expected_epochs" in result:
+        # For epoch-based experiments (e.g., MNIST)
+        return len(result.get("epoch_test_accuracies", [])) >= result["expected_epochs"]
+
+    # If no expected duration is found, assume it's an old format or incomplete.
+    return False
+
+
+def are_all_runs_accounted_for(config, losses: dict, failed: set, batch_sizes: list[int], etas: list[float]) -> bool:
+    """
+    Performs a pre-flight check to see if a sweep can be skipped.
+    """
+    for b in batch_sizes:
+        # We can only check skip conditions that don't require the dataset.
+        if config.should_skip_batch_size(b, train_ds=None):
+            continue
+
+        for eta in etas:
+            run_key = RunKey(batch_size=b, eta=eta)
+
+            if run_key in failed:
+                continue  # A failed run is accounted for.
+
+            result = losses.get(run_key)
+            if result is None or not _is_run_complete(result):
+                # If a run is missing or incomplete, the sweep needs to run.
+                return False
+    return True
 
 
 def setup_logging(log_dir="logs"):
@@ -172,7 +214,7 @@ def main():
         else:
             losses, failed = config.load_results(directory=directory, silent=True)
             # Rerunning failed runs is implicitly handled: they are not in `losses`.
-            if are_all_runs_complete(config, losses, failed, batch_sizes, etas):
+            if are_all_runs_accounted_for(config, losses, failed, batch_sizes, etas):
                 logging.info(
                     f"  Skipping '{name}': Already complete and verified. (Found file: {os.path.basename(filepath)})"
                 )

@@ -165,7 +165,11 @@ class MNISTTrialRunner(TrialRunner):
         self.init_key = context.init_key
 
     def _init_results(self) -> dict:
-        return {"epoch_test_accuracies": [], "loss_history": []}
+        return {
+            "epoch_test_accuracies": [],
+            "loss_history": [],
+            "expected_epochs": self.num_epochs,
+        }
 
     def _create_loss_fn(self) -> Callable:
         apply_fn = self.model_instance
@@ -313,7 +317,11 @@ class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
         self.snapshot_steps = self._get_snapshot_steps(context.num_steps)
 
     def _init_results(self) -> dict:
-        return {"loss_history": [], "batch_key_seed": self.INITIAL_BATCH_KEY_SEED}
+        return {
+            "loss_history": [],
+            "batch_key_seed": self.INITIAL_BATCH_KEY_SEED,
+            "expected_steps": self.num_steps,
+        }
 
     def _create_data_iterator(self, start_step: int, results: dict) -> OnlineDataIterator:
         initial_seed = results.get("batch_key_seed", self.INITIAL_BATCH_KEY_SEED)
@@ -339,16 +347,17 @@ class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
     def __init__(self, context):
         super().__init__(context)
         self.num_epochs = context.num_epochs
+        self.num_steps = context.num_steps
 
         original_num_train = context.train_ds[0].shape[0]
         self.steps_per_epoch = original_num_train // self.run_key.batch_size
 
         self.train_ds = context.train_ds
 
-        self.snapshot_steps = self._get_snapshot_steps(self.num_epochs * self.steps_per_epoch)
+        self.snapshot_steps = self._get_snapshot_steps(self.num_steps)
 
     def _init_results(self) -> dict:
-        return {"loss_history": [], "epoch": 0}
+        return {"loss_history": [], "epoch": 0, "expected_steps": self.num_steps}
 
     def _create_data_iterator(self, start_step: int, results: dict) -> EpochBasedDataIterator:
         return EpochBasedDataIterator(

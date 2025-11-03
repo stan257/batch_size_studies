@@ -107,6 +107,7 @@ class TestSyntheticFixedDataTrialRunnerUnit:
         context.num_epochs = 5
         context.run_key = RunKey(batch_size=10, eta=0.1)
         context.train_ds = (np.zeros((100, 10)), np.zeros((100, 1)))  # P=100
+        context.num_steps = 50  # 5 epochs * (100 samples / 10 batch_size) = 50 steps
         context.experiment.optimizer = OptimizerType.SGD
         runner = SyntheticFixedDataTrialRunner(context)
         return runner

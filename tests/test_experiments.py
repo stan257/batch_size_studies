@@ -2,7 +2,7 @@ import jax.random as jr
 import numpy as np
 import pytest
 
-from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization
 from batch_size_studies.experiments import (
     MNIST1MExperiment,
     MNIST1MSampledExperiment,
@@ -133,48 +133,6 @@ def mnist1m_sampled_config():
 # ============================================================================
 
 
-class TestSyntheticExperimentMLPTeacher:
-    """A test class to group all tests related to the MLP Teacher experiment."""
-
-    @pytest.mark.parametrize(
-        "invalid_param, invalid_value, expected_match",
-        [
-            (
-                "teacher_N",
-                64.0,
-                "Attribute 'teacher_N' expected type int, but got float",
-            ),
-            ("gamma", 1, "Attribute 'gamma' expected type float, but got int"),
-            (
-                "parameterization",
-                "SP",
-                "Attribute 'parameterization' expected type Parameterization",
-            ),
-        ],
-    )
-    def test_strict_type_enforcement(self, invalid_param, invalid_value, expected_match):
-        """Tests that the strict type checker catches various incorrect types."""
-        base_config = {
-            "D": 16,
-            "P": 128,
-            "N": 32,
-            "L": 2,
-            "gamma": 1.0,
-            "parameterization": Parameterization.SP,
-            "num_steps": 100,
-            "teacher_N": 64,
-            "teacher_L": 3,
-            "teacher_gamma": 1.0,
-            "teacher_parameterization": Parameterization.SP,
-            "optimizer": OptimizerType.SGD,
-            "loss_type": LossType.MSE,
-        }
-        base_config[invalid_param] = invalid_value
-
-        with pytest.raises(TypeError, match=expected_match):
-            SyntheticExperimentMLPTeacher(**base_config)
-
-
 class TestExperimentBehavior:
     """Tests general, shared behaviors of experiment configuration classes."""
 
@@ -229,43 +187,6 @@ class TestExperimentBehavior:
         config = request.getfixturevalue(config_fixture)
         title = config.plot_title()
         assert isinstance(title, str)
-
-
-class TestIsRunComplete:
-    """Tests the polymorphic is_run_complete method for all experiment types."""
-
-    @pytest.mark.parametrize(
-        "config_fixture, run_key, complete_result, incomplete_result",
-        [
-            # Fixed Time (e.g., SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)
-            (
-                "fixed_time_config",  # num_steps=100
-                RunKey(32, 0.1),
-                {"loss_history": [0.1] * 100},
-                {"loss_history": [0.1] * 99},
-            ),
-            # Fixed Data (e.g., SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)
-            (
-                "fixed_data_config",  # P=128, num_epochs=1 (default)
-                RunKey(32, 0.1),
-                {"loss_history": [0.1] * 4},
-                {"loss_history": [0.1] * 3},
-            ),
-            # MNIST-based (e.g., MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)
-            (
-                "mnist_config",  # num_epochs=4
-                RunKey(128, 0.1),
-                {"epoch_test_accuracies": [0.9] * 4},
-                {"epoch_test_accuracies": [0.9] * 3},
-            ),
-        ],
-    )
-    def test_completion_logic(self, config_fixture, run_key, complete_result, incomplete_result, request):
-        config = request.getfixturevalue(config_fixture)
-        assert config.is_run_complete(complete_result, run_key) is True
-        assert config.is_run_complete(incomplete_result, run_key) is False
-        # Test with a result dictionary that's missing the relevant key
-        assert config.is_run_complete({"other_metric": 1}, run_key) is False
 
 
 class TestFilenameUniqueness:

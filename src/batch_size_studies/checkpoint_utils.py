@@ -17,6 +17,7 @@ class CheckpointManager:
 
     def __init__(self, experiment, directory="experiments"):
         self.experiment = experiment
+        self.directory = directory
 
         # Generate base path for this experiment
         exp_params = experiment.to_params_dict()

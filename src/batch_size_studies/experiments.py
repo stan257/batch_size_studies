@@ -2,9 +2,7 @@ from __future__ import annotations
 
 import logging
 import os
-import typing
 from abc import ABC, abstractmethod
-from collections import defaultdict
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pprint import pprint
@@ -14,7 +12,7 @@ import jax.random as jr
 import numpy as np
 
 from .data_loading import load_datasets, load_mnist1m_dataset
-from .definitions import LossType, OptimizerType, Parameterization, RunKey
+from .definitions import LossType, OptimizerType, Parameterization
 from .models import MLP, LinearModel
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
 from .trainer import TrialRunner
@@ -46,8 +44,8 @@ def _load_mnist_dataset(experiment, init_key: int, dataset_loader=None):
         train_ds = {"image": train_images, "label": train_labels}
         test_ds = {"image": test_images, "label": test_labels}
         return train_ds, test_ds
-    except FileNotFoundError as e:
-        logging.error(f"Dataset not found: {e}")
+    except Exception as e:
+        logging.error(f"Failed to load dataset: {type(e).__name__}: {e}")
         return None, None
 
 
@@ -65,10 +63,13 @@ class MLPStudentExperiment:
         """Creates an MLP model instance based on the experiment's configuration."""
         return MLP(parameterization=self.parameterization, gamma=self.gamma)
 
+    def get_output_dim(self) -> int:
+        """Returns the output dimension of the model. Override in subclasses for multi-class tasks."""
+        return 1
+
     def get_model_widths(self) -> list[int]:
         """Computes the layer widths for the MLP model."""
-        output_dim = getattr(self, "num_outputs", 1)
-        return [self.D] + [self.N] * (self.L - 1) + [output_dim]
+        return [self.D] + [self.N] * (self.L - 1) + [self.get_output_dim()]
 
     def get_model_wrapper(self, model_instance, params0):
         """Wraps the MLP model instance with CenteredModel."""
@@ -147,33 +148,6 @@ class ExperimentBase(ABC):
     loss_type: LossType
     experiment_type: str = field(init=False)
 
-    def __post_init__(self):
-        """
-        Performs strict type checking on all attributes after initialization.
-        """
-        resolved_types = typing.get_type_hints(self.__class__)
-        for field_name, field_def in self.__class__.__dataclass_fields__.items():
-            if not field_def.init:
-                continue
-            value = getattr(self, field_name)
-            expected_type = resolved_types[field_name]
-            origin = typing.get_origin(expected_type)
-            union_types = (typing.Union,)
-            if hasattr(typing, "UnionType"):
-                union_types += (typing.UnionType,)
-            if origin in union_types:
-                args = typing.get_args(expected_type)
-                if not isinstance(value, args):
-                    raise TypeError(
-                        f"Attribute '{field_name}' expected one of types {args}, but got {type(value).__name__}."
-                    )
-            elif origin is None:
-                if not isinstance(value, expected_type):
-                    raise TypeError(
-                        f"Attribute '{field_name}' expected type {expected_type.__name__}, "
-                        f"but got {type(value).__name__}."
-                    )
-
     def to_params_dict(self):
         """
         Helper to return dataclass attributes as a dictionary, converting Enums
@@ -205,13 +179,13 @@ class ExperimentBase(ABC):
         if data:
             if not silent:
                 logging.info(f"Results file found, loading from: {os.path.basename(filepath)}")
-            losses = defaultdict(list, data.get("losses", {}))
+            losses = data.get("losses", {})
             failed_runs = data.get("failed_runs", set())
             return losses, failed_runs
         else:
             if not silent:
                 logging.info("No results file found for this experiment. Initializing new results.")
-            return defaultdict(list), set()
+            return {}, set()
 
     def save_results(
         self,
@@ -230,14 +204,7 @@ class ExperimentBase(ABC):
         pprint(self)
 
     @abstractmethod
-    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        """
-        Checks if a single run, identified by its result and run_key, is complete.
-        """
-        raise NotImplementedError
-
-    @abstractmethod
-    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
         """
         Checks if a given batch size is invalid for this experiment.
         """
@@ -251,7 +218,7 @@ class ExperimentBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """
         Prepares training and test datasets for the experiment.
         """
@@ -279,7 +246,7 @@ class ExperimentBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         """
         Computes the total number of training steps and the effective number of epochs for a trial.
         Returns: (num_steps, effective_num_epochs)
@@ -304,6 +271,12 @@ class SyntheticExperiment(ABC):
 
 @dataclass(frozen=True)
 class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, SyntheticExperiment):
+    """
+    MRO: SyntheticExperimentFixedTime -> MLPStudentExperiment -> ExperimentBase -> SyntheticExperiment -> object
+    Model configuration comes from MLPStudentExperiment.
+    Infrastructure (I/O, validation) comes from ExperimentBase.
+    """
+
     # Student and task parameters
     D: int
     P: int
@@ -312,7 +285,12 @@ class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, Synthet
     experiment_type: str = field(default="fixed_time_poly_teacher", init=False)
 
     def __post_init__(self):
-        super().__post_init__()
+        if self.D <= 0:
+            raise ValueError(f"D must be positive, got {self.D}")
+        if self.P <= 0:
+            raise ValueError(f"P must be positive, got {self.P}")
+        if self.num_steps <= 0:
+            raise ValueError(f"num_steps must be positive, got {self.num_steps}")
 
     def generate_teacher_weights(self):
         key = jr.key(0)
@@ -330,15 +308,11 @@ class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, Synthet
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
 
-    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        loss_history = result.get("loss_history", [])
-        return len(loss_history) >= self.num_steps
-
-    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
         # Fixed-time experiments do not depend on dataset size.
         return False
 
-    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         # For fixed-time experiments, num_epochs is not relevant. We can consider it as 1.
         return self.num_steps, 1
 
@@ -351,13 +325,19 @@ class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, Synthet
 
         return SyntheticFixedTimeTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Fixed-time experiments do not load a dataset upfront."""
         return None, None
 
 
 @dataclass(frozen=True)
 class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, SyntheticExperiment):
+    """
+    MRO: SyntheticExperimentFixedData -> MLPStudentExperiment -> ExperimentBase -> SyntheticExperiment -> object
+    Model configuration comes from MLPStudentExperiment.
+    Infrastructure (I/O, validation) comes from ExperimentBase.
+    """
+
     # Student and task parameters
     D: int
     P: int
@@ -367,7 +347,12 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
     experiment_type: str = field(default="fixed_data_poly_teacher", init=False)
 
     def __post_init__(self):
-        super().__post_init__()
+        if self.D <= 0:
+            raise ValueError(f"D must be positive, got {self.D}")
+        if self.P <= 0:
+            raise ValueError(f"P must be positive, got {self.P}")
+        if self.num_epochs <= 0:
+            raise ValueError(f"num_epochs must be positive, got {self.num_epochs}")
 
     def generate_teacher_weights(self):
         key = jr.key(0)
@@ -389,18 +374,14 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
             line2 += f", Epochs={num_epochs}"
         return f"{line1}\n{line2}"
 
-    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        num_steps, _ = self.compute_num_steps(run_key.batch_size, None, self.num_epochs)
-        loss_history = result.get("loss_history", [])
-        return len(loss_history) >= num_steps
-
-    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
         steps_per_epoch = self.P // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
 
-    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
-        if batch_size > self.P:
+    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
+        # P is the authoritative dataset size for this experiment type.
+        if batch_size <= 0 or batch_size > self.P:
             logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
             return True
         return False
@@ -411,9 +392,9 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
 
         return SyntheticFixedDataTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Generates the synthetic dataset for this experiment."""
-        data_key = jr.key(getattr(self, "seed", init_key))
+        data_key = jr.key(self.seed)
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None
 
@@ -424,7 +405,13 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
     """
     Defines parameters for a synthetic data experiment where the teacher is an MLP.
     This is a *fixed-time* experiment.
+
+    MRO: SyntheticExperimentMLPTeacher -> MLPStudentExperiment -> ExperimentBase -> SyntheticExperiment -> object
+    Model configuration comes from MLPStudentExperiment.
+    Infrastructure (I/O, validation) comes from ExperimentBase.
     """
+
+    TEACHER_INIT_KEY = 1
 
     # Additional student parameters
     D: int
@@ -439,14 +426,11 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
 
     experiment_type: str = field(default="fixed_time_mlp_teacher", init=False)
 
-    def __post_init__(self):
-        super().__post_init__()
-
     def generate_teacher_weights(self):
         teacher_model = MLP(parameterization=self.teacher_parameterization, gamma=self.teacher_gamma)
         teacher_widths = [self.D] + [self.teacher_N] * (self.teacher_L - 1) + [1]
         # Use a fixed key for a deterministic teacher
-        return teacher_model.init_params(init_key=1, widths=teacher_widths)
+        return teacher_model.init_params(init_key=self.TEACHER_INIT_KEY, widths=teacher_widths)
 
     def generate_data(self, data_key):
         """Generates a synthetic dataset using the MLP teacher."""
@@ -467,15 +451,11 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
 
-    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        loss_history = result.get("loss_history", [])
-        return len(loss_history) >= self.num_steps
-
-    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
         # Fixed-time experiments do not depend on dataset size.
         return False
 
-    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         # For fixed-time experiments, num_epochs is not relevant. We can consider it as 1.
         return self.num_steps, 1
 
@@ -485,7 +465,7 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
 
         return SyntheticFixedTimeTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Fixed-time experiments do not load a dataset upfront."""
         return None, None
 
@@ -505,6 +485,10 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
     Here alpha and beta are the capacity and source exponents as defined in
     https://abatanasov.com/Files/Scaling_Laws_Note.pdf, i.e. the decay rate of the
     data-covariance and of the tail of Var(y), respectively.
+
+    MRO: SyntheticExperimentLinearTeacher -> LinearStudentExperiment -> ExperimentBase -> SyntheticExperiment -> object
+    Model configuration comes from LinearStudentExperiment.
+    Infrastructure (I/O, validation) comes from ExperimentBase.
     """
 
     # Student and task parameters
@@ -519,7 +503,12 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
     experiment_type: str = field(default="fixed_data_linear_teacher", init=False)
 
     def __post_init__(self):
-        super().__post_init__()
+        if self.D <= 0:
+            raise ValueError(f"D must be positive, got {self.D}")
+        if self.P <= 0:
+            raise ValueError(f"P must be positive, got {self.P}")
+        if self.num_epochs <= 0:
+            raise ValueError(f"num_epochs must be positive, got {self.num_epochs}")
 
     def generate_teacher_weights(self):
         # w_i = i^(-theta)
@@ -534,7 +523,6 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
         # y = X @ w
         w = self.generate_teacher_weights()
 
-        # Generate standard normal data∂
         z_key, _ = jr.split(data_key, 2)
         z_data = jr.normal(z_key, (self.P, self.D))
 
@@ -552,18 +540,14 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
         line2 = f"Student: {model_name}, Epochs={self.num_epochs}, Optimizer: {self.optimizer.value}, Loss: {self.loss_type.value}"
         return f"{line1}\n{line2}"
 
-    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        num_steps, _ = self.compute_num_steps(run_key.batch_size, None, self.num_epochs)
-        loss_history = result.get("loss_history", [])
-        return len(loss_history) >= num_steps
-
-    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
         steps_per_epoch = self.P // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
 
-    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
-        if batch_size > self.P:
+    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
+        # P is the authoritative dataset size for this experiment type.
+        if batch_size <= 0 or batch_size > self.P:
             logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
             return True
         return False
@@ -574,9 +558,9 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
         return SyntheticFixedDataTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Generates the synthetic dataset for this experiment."""
-        data_key = jr.key(getattr(self, "seed", init_key))
+        data_key = jr.key(self.seed)
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None
 
@@ -587,6 +571,10 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
     Defines parameters for a 10-class MNIST classification experiment.
     This is a fixed-data, fixed-epoch experiment that uses the custom MLP
     from models.py. Sweeps are performed over batch size and learning rate.
+
+    MRO: MNISTExperiment -> MLPStudentExperiment -> ExperimentBase -> object
+    Model configuration comes from MLPStudentExperiment.
+    Infrastructure (I/O, validation) comes from ExperimentBase.
     """
 
     D: int = field(default=784, init=False)  # Input dim for flattened MNIST
@@ -598,7 +586,11 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
     experiment_type: str = field(default="mnist_classification", init=False)
 
     def __post_init__(self):
-        super().__post_init__()
+        if self.num_epochs <= 0:
+            raise ValueError(f"num_epochs must be positive, got {self.num_epochs}")
+
+    def get_output_dim(self) -> int:
+        return self.num_outputs
 
     def plot_title(self, task_name="MNIST Classification", model_name="MLP"):
         learning_type = "Online" if self.num_epochs == 1 else "Offline"
@@ -606,11 +598,7 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}"
         return f"{line1}\n{line2}"
 
-    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        epoch_accuracies = result.get("epoch_test_accuracies", [])
-        return len(epoch_accuracies) >= self.num_epochs
-
-    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
         if train_ds is None:
             # In a pre-flight check, we don't know the dataset size, so we can't skip.
             return False
@@ -626,15 +614,13 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
 
         return MNISTTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Loads the MNIST dataset."""
         return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
 
-    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+        assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
-        if train_ds is None:
-            # During pre-flight checks, we can't calculate steps but can report epochs.
-            return 0, epochs_to_run
         num_train_samples = len(train_ds["image"])
         steps_per_epoch = num_train_samples // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
@@ -645,6 +631,10 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
     """
     Defines parameters for a 10-class MNIST-1M classification experiment.
     This dataset is generated from a diffusion model.
+
+    MRO: MNIST1MExperiment -> MLPStudentExperiment -> ExperimentBase -> object
+    Model configuration comes from MLPStudentExperiment.
+    Infrastructure (I/O, validation) comes from ExperimentBase.
     """
 
     num_epochs: int
@@ -654,7 +644,11 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
     experiment_type: str = field(default="mnist1m_classification", init=False)
 
     def __post_init__(self):
-        super().__post_init__()
+        if self.num_epochs <= 0:
+            raise ValueError(f"num_epochs must be positive, got {self.num_epochs}")
+
+    def get_output_dim(self) -> int:
+        return self.num_outputs
 
     def plot_title(self, task_name="MNIST-1M Classification", model_name="MLP"):
         learning_type = "Online" if self.num_epochs == 1 else "Offline"
@@ -662,11 +656,7 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}"
         return f"{line1}\n{line2}"
 
-    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        epoch_accuracies = result.get("epoch_test_accuracies", [])
-        return len(epoch_accuracies) >= self.num_epochs
-
-    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
         if train_ds is None:
             # In a pre-flight check, we don't know the dataset size, so we can't skip.
             return False
@@ -682,14 +672,13 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
 
         return MNISTTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Loads the MNIST-1M dataset."""
         return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
 
-    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+        assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
-        if train_ds is None:
-            return 0, epochs_to_run
         num_train_samples = len(train_ds["image"])
         steps_per_epoch = num_train_samples // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
@@ -700,6 +689,10 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
     """
     An MNIST-1M experiment that trains on a subset of the full dataset.
     This is useful for quick sanity checks and faster experimental cycles.
+
+    MRO: MNIST1MSampledExperiment -> MLPStudentExperiment -> ExperimentBase -> object
+    Model configuration comes from MLPStudentExperiment.
+    Infrastructure (I/O, validation) comes from ExperimentBase.
     """
 
     num_epochs: int
@@ -709,7 +702,13 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
     experiment_type: str = field(default="mnist1m_sampled_classification", init=False)
 
     def __post_init__(self):
-        super().__post_init__()
+        if self.num_epochs <= 0:
+            raise ValueError(f"num_epochs must be positive, got {self.num_epochs}")
+        if self.max_train_samples <= 0:
+            raise ValueError(f"max_train_samples must be positive, got {self.max_train_samples}")
+
+    def get_output_dim(self) -> int:
+        return self.num_outputs
 
     def plot_title(self, task_name="MNIST-1M Sampled", model_name="MLP"):
         learning_type = "Online" if self.num_epochs == 1 else "Offline"
@@ -717,11 +716,7 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}, Samples={self.max_train_samples}"
         return f"{line1}\n{line2}"
 
-    def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        epoch_accuracies = result.get("epoch_test_accuracies", [])
-        return len(epoch_accuracies) >= self.num_epochs
-
-    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
         # For sampled experiments, the config's `max_train_samples` is the
         # effective dataset size we should check against.
         effective_size = self.max_train_samples
@@ -738,14 +733,13 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
 
         return MNISTTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Loads and subsamples the MNIST-1M dataset."""
         return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
 
-    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+        assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
-        if train_ds is None:
-            return 0, epochs_to_run
         num_train_samples = len(train_ds["image"])
         steps_per_epoch = num_train_samples // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run

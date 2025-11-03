@@ -8,7 +8,6 @@ dispatching to type-specific trial runners.
 """
 
 import logging
-import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -77,8 +76,7 @@ class RunStatus:
         if self.no_save or self.run_key not in self.results_dict:
             return False
         result = self.results_dict.get(self.run_key, {})
-        loss_history = result.get("loss_history", [])
-        return len(loss_history) >= self.num_steps
+        return self.run_key in self.results_dict and "loss_history" in result
 
     @property
     def should_run(self) -> bool:
@@ -88,7 +86,12 @@ class RunStatus:
         if self.run_key in self.failed_runs:
             logging.info(f"Skipping previously failed run {self.run_key}")
             return False
-        if self.is_successful:
+
+        # A run is only skipped if it's fully complete with respect to the *current* num_steps
+        result = self.results_dict.get(self.run_key, {})
+        loss_history = result.get("loss_history", [])
+        is_fully_complete = len(loss_history) >= self.num_steps
+        if is_fully_complete:
             logging.info(f"Skipping completed run {self.run_key}")
             return False
         return True
@@ -157,23 +160,28 @@ def initialize_model_params(
 # ============================================================================
 
 
-def validate_and_store_result(
+def _is_run_complete(result: dict, context: TrialContext) -> bool:
+    """Checks if a run is complete with respect to the current trial's context."""
+    if "expected_steps" in result:
+        return len(result.get("loss_history", [])) >= context.num_steps
+    elif "expected_epochs" in result:
+        return len(result.get("epoch_test_accuracies", [])) >= context.num_epochs
+    return False
+
+
+def _validate_and_store_partial_result(
     result: dict | None,
     run_key: RunKey,
     results_dict: dict,
     failed_runs: set,
     experiment,
-    checkpoint_manager: CheckpointManager,
     no_save: bool,
+    directory: str,
 ) -> bool:
     """
     Validates a trial's result and updates tracking dictionaries.
 
     A result is "valid" if it's not None and contains finite metrics.
-    A run is "successful" if it's valid and fully complete.
-
-    Returns:
-        True if the run is both valid and complete, False otherwise.
     """
     is_valid = result is not None
     if "final_test_accuracy" in (result or {}) and not np.isfinite(result["final_test_accuracy"]):
@@ -184,23 +192,17 @@ def validate_and_store_result(
         # This allows for resumption.
         results_dict[run_key] = result
         failed_runs.discard(run_key)  # Remove from failed set if it previously failed
-
-        is_complete = experiment.is_run_complete(result, run_key)
-        if not no_save:
-            if is_complete:
-                checkpoint_manager.cleanup_live_checkpoint(run_key)
     else:
         # An invalid result (e.g., from divergence) means the run has failed.
         # The previous partial result (if any) is removed.
         failed_runs.add(run_key)
         results_dict.pop(run_key, None)
-        is_complete = False
 
     if not no_save:
         # Save results after every trial
-        experiment.save_results(results_dict, failed_runs, os.path.dirname(checkpoint_manager.exp_dir))
+        experiment.save_results(results_dict, failed_runs, directory)
 
-    return is_valid and is_complete
+    return is_valid
 
 
 # ============================================================================
@@ -220,27 +222,31 @@ def run_single_trial(
     status = RunStatus(context.run_key, results_dict, failed_runs, context.num_steps, context.no_save)
 
     if not status.should_run:
-        return status.is_successful
+        # If we skip, it's because it's already complete for this context.
+        return True
 
     trial_runner = get_trial_runner(context)
 
     if trial_runner:
         result = trial_runner.run()
-        is_successful = validate_and_store_result(
+        is_valid = _validate_and_store_partial_result(
             result,
             context.run_key,
             results_dict,
             failed_runs,
             context.experiment,
-            context.checkpoint_manager,
             context.no_save,
+            context.checkpoint_manager.directory,
         )
+        is_complete = is_valid and _is_run_complete(result, context)
+        if is_complete and not context.no_save:
+            context.checkpoint_manager.cleanup_live_checkpoint(context.run_key)
     else:
         logging.error(f"Could not create a trial runner for {context.run_key}. Marking as failed.")
         failed_runs.add(context.run_key)
-        is_successful = False
+        is_complete = False
 
-    return is_successful
+    return is_complete
 
 
 # ============================================================================
@@ -376,25 +382,3 @@ def get_trial_runner(context: TrialContext):
             f"Experiment type {type(context.experiment).__name__} does not implement get_trial_runner_class()."
         )
         return None
-
-
-def are_all_runs_complete(
-    experiment, results_dict: dict, failed_runs: set, batch_sizes: list[int], etas: list[float]
-) -> bool:
-    """
-    Checks if all specified runs for an experiment are either completed, failed, or skipped.
-    """
-    for b in batch_sizes:
-        if experiment.should_skip_batch_size(b, train_ds=None):
-            continue
-
-        for eta in etas:
-            run_key = RunKey(batch_size=b, eta=eta)
-            if run_key in failed_runs:
-                continue  # Failed runs are accounted for.
-
-            result = results_dict.get(run_key)
-            if result is None or not experiment.is_run_complete(result, run_key):
-                return False  # Missing or incomplete runs mean the sweep is not complete.
-
-    return True

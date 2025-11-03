@@ -15,6 +15,7 @@ from batch_size_studies.experiments import (
     SyntheticExperimentFixedTime,
 )
 from batch_size_studies.runner import run_experiment_sweep
+from batch_size_studies.trainer import MNISTTrialRunner
 
 # --- Fixtures ---
 
@@ -238,7 +239,7 @@ class TestSweepRunnerIntegration:
         def mock_run(self):
             run_etas.append(self.run_key.eta)
             if self.run_key.eta in converging_etas:
-                return {"loss_history": [0.5, 0.4]}  # Minimal success result
+                return {"loss_history": [0.5] * self.num_steps, "expected_steps": self.num_steps}
             return None  # Failure result
 
         # Patch the trial runner's run method to control convergence
@@ -263,26 +264,47 @@ class TestSweepRunnerIntegration:
         assert run_etas == expected_run_etas, "The sweep did not run the expected sequence of etas."
         assert RunKey(16, 0.06) not in results and RunKey(16, 0.06) not in failures
 
-    def test_mnist_checkpoint_and_resume(self, mnist_config, mock_mnist_loader, tmp_path, caplog):
+    def test_mnist_checkpoint_and_resume(self, mnist_config, mock_mnist_loader, tmp_path, caplog, monkeypatch):
         """Tests that an interrupted MNIST experiment correctly resumes from the last completed epoch."""
-        total_epochs, resume_from_epoch = mnist_config.num_epochs, 2
+        total_epochs = mnist_config.num_epochs  # 4
         run_key = RunKey(batch_size=64, eta=0.01)
+        steps_per_epoch = 128 // 64  # 2
 
-        # Run partway
-        run_experiment_sweep(
-            experiment=mnist_config,
-            batch_sizes=[64],
-            etas=[0.01],
-            dataset_loader=mock_mnist_loader,
-            directory=str(tmp_path),
-            num_epochs=resume_from_epoch,
-        )
+        # --- Part 1: Simulate an interruption after the first epoch ---
+        class Interruption(Exception):
+            pass
+
+        original_should_save = MNISTTrialRunner._should_save_checkpoint
+        save_count = 0
+
+        def mock_should_save(self, step):
+            nonlocal save_count
+            should_save_now = original_should_save(self, step)
+            if should_save_now:
+                save_count += 1
+                if save_count > 1:  # Interrupt before the second save can happen
+                    raise Interruption("Simulating crash after first epoch's checkpoint")
+            return should_save_now
+
+        monkeypatch.setattr(MNISTTrialRunner, "_should_save_checkpoint", mock_should_save)
+
+        with pytest.raises(Interruption):
+            run_experiment_sweep(
+                experiment=mnist_config,
+                batch_sizes=[64],
+                etas=[0.01],
+                dataset_loader=mock_mnist_loader,
+                directory=str(tmp_path),
+                num_epochs=total_epochs,  # Run with the full goal
+            )
+
+        # --- Part 2: Verify that the checkpoint from the first epoch exists ---
         cm = CheckpointManager(mnist_config, directory=str(tmp_path))
         resume_file = cm._get_resume_filepath(run_key)
-        steps_per_epoch = 128 // 64
         assert os.path.exists(resume_file)
 
-        # Run to completion
+        # --- Part 3: Restore original behavior and run to completion ---
+        monkeypatch.setattr(MNISTTrialRunner, "_should_save_checkpoint", original_should_save)
         caplog.clear()
         with caplog.at_level(logging.INFO):
             results, _ = run_experiment_sweep(
@@ -294,10 +316,11 @@ class TestSweepRunnerIntegration:
                 num_epochs=total_epochs,
             )
 
-        expected_resume_step = resume_from_epoch * steps_per_epoch
+        # --- Part 4: Verify resumption and successful completion ---
+        expected_resume_step = steps_per_epoch  # Should resume from step 2 (start of 2nd epoch)
         assert f"Resuming run {run_key} from step {expected_resume_step}" in caplog.text
         assert len(results[run_key]["epoch_test_accuracies"]) == total_epochs
-        assert not os.path.exists(resume_file)
+        assert not os.path.exists(resume_file)  # Checkpoint should be cleaned up
 
     def test_mnist_handles_failed_runs(self, mnist_config, mock_mnist_loader, tmp_path):
         """Tests that a run that diverges is correctly marked as failed."""
