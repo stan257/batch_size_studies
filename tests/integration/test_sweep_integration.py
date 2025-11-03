@@ -124,6 +124,19 @@ class TestSweepRunnerIntegration:
             )
         assert "does not implement get_trial_runner_class()" in caplog.text
 
+    def test_synthetic_fixed_time_persists_eval_loss(self, tmp_path):
+        experiment = SyntheticExperimentFixedTime(
+            D=4, P=16, N=4, K=2, num_steps=5, L=2, gamma=1.0,
+            parameterization=Parameterization.SP, optimizer=OptimizerType.SGD, loss_type=LossType.MSE
+        )
+        losses, failures = run_experiment_sweep(
+            experiment=experiment, batch_sizes=[4], etas=[0.01], init_key=0, directory=str(tmp_path)
+        )
+        assert not failures
+        for result in losses.values():
+            assert "final_eval_loss" in result
+            assert np.isfinite(result["final_eval_loss"])
+
     def test_runs_and_returns_correct_structure(self, fixed_time_config, tmp_path):
         """Tests that the main training function runs without error and returns the expected data structures."""
         losses, failures = run_experiment_sweep(

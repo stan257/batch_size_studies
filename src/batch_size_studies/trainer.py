@@ -6,6 +6,7 @@ from unittest.mock import Mock
 import jax
 import jax.numpy as jnp
 import optax
+import numpy as np
 
 from .data_iterators import DataIterator, EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
@@ -353,9 +354,12 @@ class MNISTTrialRunner(TrialRunner):
 class SyntheticTrialRunner(TrialRunner):
     """Base trial runner for synthetic data experiments."""
 
+    EVAL_MAX_SAMPLES = 10_000
+
     def __init__(self, context):
         super().__init__(context)
         self.snapshot_steps = self._get_snapshot_steps(context.num_steps)
+        self.eval_ds = self._create_eval_dataset(context.init_key)
 
     def _create_loss_fn(self) -> Callable:
         def loss_fn(params, x_batch, y_batch):
@@ -380,6 +384,27 @@ class SyntheticTrialRunner(TrialRunner):
 
         return jax.jit(update_step_fn)
 
+    def _create_eval_dataset(self, init_key: int):
+        """Generates a deterministic evaluation dataset for synthetic experiments, if supported."""
+        if not hasattr(self.experiment, "generate_data"):
+            return None
+        if not isinstance(init_key, (int, np.integer)):
+            return None
+
+        eval_key = jax.random.PRNGKey(init_key + 17)
+        try:
+            X_eval, y_eval = self.experiment.generate_data(eval_key)
+        except TypeError:
+            return None
+
+        if X_eval.shape[0] > self.EVAL_MAX_SAMPLES:
+            subset_key = jax.random.PRNGKey(init_key + 19)
+            indices = jax.random.permutation(subset_key, X_eval.shape[0])[: self.EVAL_MAX_SAMPLES]
+            X_eval = X_eval[indices]
+            y_eval = y_eval[indices]
+
+        return X_eval, y_eval
+
     def _get_snapshot_steps(self, max_steps: int) -> list[int]:
         """
         Generate logarithmically-spaced checkpoint steps.
@@ -396,6 +421,15 @@ class SyntheticTrialRunner(TrialRunner):
 
     def _should_save_checkpoint(self, step: int) -> bool:
         return step in self.snapshot_steps
+
+    def _post_training_hook(self, params, results: dict) -> dict:
+        results = super()._post_training_hook(params, results)
+        if self.eval_ds is not None:
+            X_eval, y_eval = self.eval_ds
+            preds = self.model_instance(params, X_eval)
+            eval_loss = jnp.mean((y_eval - preds) ** 2)
+            results["final_eval_loss"] = float(eval_loss)
+        return results
 
     def is_complete(self, result: dict) -> bool:
         """A run is complete if the number of loss history entries matches the expected number of steps."""

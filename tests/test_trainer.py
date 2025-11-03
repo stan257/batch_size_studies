@@ -88,6 +88,15 @@ class TestMNISTTrialRunnerUnit:
         assert mnist_runner.is_complete({"epoch_test_accuracies": [0.9] * 5}) is True  # uses default
 
 
+class TestSyntheticFixedTimeEvalDataset:
+    def test_eval_dataset_skipped_for_mock_key(self):
+        context = MagicMock()
+        context.num_steps = 10
+        context.init_key = MagicMock()
+        context.experiment.optimizer = OptimizerType.SGD
+        runner = SyntheticFixedTimeTrialRunner(context)
+        assert runner.eval_ds is None
+
 class TestSyntheticFixedTimeTrialRunnerUnit:
     """Unit tests for the SyntheticFixedTimeTrialRunner class."""
 
