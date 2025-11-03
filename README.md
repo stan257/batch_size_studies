@@ -1,112 +1,59 @@
 # Batch Size Studies
 
-This repository contains a framework for systematically studying the effects of hyperparameters—primarily `batch_size` and `learning_rate`—on the training dynamics of neural networks, with a focus on Standard (SP) and µ-Parametrization (µP).
+Framework for exploring how `batch_size`, `learning_rate`, and model scaling interact in SP and µP regimes. The tooling runs reproducible sweeps, tracks checkpoints, and keeps results easy to analyze so you can focus on the science.
 
-The codebase is designed to be modular and extensible, allowing for easy definition of new experiments, models, and analysis routines.
+## Quick start for sweeps
 
-## Installation
+1. **Install once** (any Python ≥3.10):
+   ```bash
+   pip install -e .
+   ```
 
-1.  **Clone the repository and navigate into it:**
-    ```bash
-    git clone https://github.com/stan257/batch_size_studies.git
-    cd batch_size_studies
-    ```
+2. **Datasets**
+   - MNIST downloads automatically via `tensorflow_datasets`.
+   - For MNIST-1M, generate `data/mnist1m/mnist1m.npz` with `python scripts/process_mnist1m.py` after sourcing the raw files.
 
-2.  **Create and activate a Python environment:**
-    ```bash
-    python3 -m venv .venv
-    source .venv/bin/activate
-    ```
+3. **Launch a sweep**
+   ```bash
+   python scripts/run_experiments.py --name mnist1m_mup_SGD_gamma1p0 ...
+   ```
+   Useful flags: `--no-save` (dry run), `--max-eval-samples 2000` (faster validation), `--eta-stability-depth 3` (stop once three stable etas appear). Results are stored in `experiments/<experiment_type>/` with losses, metadata, and checkpoints.
 
-3.  **Install dependencies:**
-    Install the project in editable mode, which is recommended for development:
-    ```bash
-    pip install -e .
-    ```
+4. **Inspect results**
+   - Use notebooks in `notebooks/` or the utilities in `scripts/analyze_small_muP_results.py` and `scripts/generate_reports.py` for plots and HTML summaries.
 
-## Data Setup
+## Other sweeps at a glance
 
-This project uses the MNIST and MNIST-1M datasets.
+| Script | What it explores |
+| --- | --- |
+| `scripts/run_width_sweep.py` | Width transfer experiments at fixed `(batch_size, eta)`. |
+| `scripts/run_small_muP_experiments.py` | Finds minimum widths that exhibit µP behaviour. |
 
-*   The standard **MNIST** dataset will be downloaded automatically by `tensorflow_datasets` on the first run.
-*   The **MNIST-1M** dataset must be processed first. After downloading the raw data, run the provided script to create a consolidated `.npz` file:
-    ```bash
-    # (Instructions on where to get the raw MNIST-1M data)
-    python scripts/process_mnist1m.py
-    ```
+All scripts ultimately call `run_experiment_sweep`, so any experiment defined in `configs.py` shows up everywhere automatically.
 
-## Usage
+## Repository map
 
-The `scripts/` directory contains high-level scripts to run experiments and generate reports.
-
-#### Running Experiments
-
-The main script for running hyperparameter sweeps is `run_experiments.py`. You can run all defined experiments or select specific ones by name.
-
-To run all main experiments:
-    ```bash
-    python scripts/run_experiments.py
-    ```
-
-To run a specific experiment (e.g., `mnist_classification_mup`):
-    ```bash
-    python scripts/run_experiments.py --name mnist_classification_mup
-    ```
-
-Other specialized runner scripts are also available:
-*   `run_small_muP_experiments.py`: Runs experiments designed to find the smallest widths at which µP properties emerge.
-*   `run_width_sweep.py`: Sweeps over model width for a fixed `batch_size` and `eta`.
-*   `run_experimental_sweep.py`: Runs a 2D sweep over `gamma` and `eta` for a fixed batch size.
-
-For example, to run a width sweep:
-```bash
-python scripts/run_width_sweep.py \
-    --base_experiment mnist1m_sampled_mup_L3_N64_gamma1p0 \
-    --widths 64 128 256 512 \
-    --batch_size 256 \
-    --eta 0.01
+```
+src/batch_size_studies/
+├── configs.py         # canonical experiment definitions and grids
+├── experiments.py     # dataclasses for synthetic & MNIST families
+├── runner.py          # orchestrates sweeps, checkpointing, resumption
+├── trainer.py         # TrialRunner hierarchy (MNIST vs synthetic)
+├── models.py          # SP / µP models
+├── data_loading.py    # dataset access (MNIST, MNIST-1M)
+└── plotting_utils.py  # loss heatmaps, stability curves
+scripts/               # command-line entry points for sweeps & reports
+tests/                 # unit + integration suites (reproducibility, CLI)
 ```
 
-#### Analyzing Results and Generating Reports
+## Adding a new study
 
-After running experiments, you can analyze the results and generate plots or HTML reports.
+1. Create the dataclass in `experiments.py` (inherit the SP/µP mixins).
+2. Register it in `configs.py` with its hyperparameter grid.
+3. Run `python scripts/run_experiments.py --name <your_experiment>`.
 
-1.  **Analyze Raw Results**:
-    This script processes the raw experiment data into a structured format for easier plotting.
-    ```bash
-    python scripts/analyze_small_muP_results.py --mode analyze
-    ```
+The runner handles checkpoints, resumability, and logging; plots and reports work out of the box once results exist.
 
-2.  **Generate Plots**:
-    You can generate individual plots from the analyzed data.
-    ```bash
-    python scripts/analyze_small_muP_results.py \
-        --mode plot \
-        --experiment_type mnist1m_sampled_classification \
-        --gamma 1.0 \
-        --batch_size 256 \
-        --eta 0.01
-    ```
+## Getting help
 
-3.  **Generate HTML Report**:
-    This creates a self-contained HTML report with embedded plots for easy sharing.
-    ```bash
-    python scripts/generate_reports.py
-    ```
-
-## Project Structure
-
-The codebase is organized into three main components:
-
-*   `src/batch_size_studies/`: The core library.
-    *   `configs.py`: Defines all experiment configurations and hyperparameter grids. This is the main entry point for defining new studies.
-    *   `experiments.py`: Contains the `dataclass` definitions for different experiment types.
-    *   `runner.py`: A unified, high-level function (`run_experiment_sweep`) that orchestrates all experiment runs.
-    *   `trainer.py`: Contains the `TrialRunner` class hierarchy, which encapsulates the detailed training and evaluation logic for each experiment family (e.g., `MNISTTrialRunner`, `SyntheticTrialRunner`).
-    *   `models.py`: Defines the MLP model and its parameterizations (SP and µP).
-    *   `data_loading.py`: Handles loading and pre-processing of datasets.
-    *   `checkpoint_utils.py`: Manages saving and loading for resumability and analysis.
-
-*   `scripts/`: Executable scripts that provide the command-line interface for running experiments and analysis. These scripts use the core library.
-
-*   `tests/`: The `pytest` test suite, including unit tests, integration tests, and reproducibility tests to ensure the correctness of the training logic.
+Open a GitHub issue or discussion if you need to hook in a new dataset or want to contribute additional analysis scripts—contributions that sharpen research workflows are welcome.

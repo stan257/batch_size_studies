@@ -1,6 +1,5 @@
-import sys
-
 import importlib.util
+import sys
 from pathlib import Path
 
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization
