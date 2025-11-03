@@ -8,7 +8,14 @@ from batch_size_studies.trainer import (
     MNISTTrialRunner,
     SyntheticFixedDataTrialRunner,
     SyntheticFixedTimeTrialRunner,
+    TrialRunner,
 )
+
+
+@pytest.fixture(autouse=True)
+def clear_jit_cache():
+    """Ensures the JIT cache is cleared before each test function."""
+    TrialRunner.clear_cache()
 
 
 class TestMNISTTrialRunnerUnit:
@@ -148,13 +155,13 @@ class TestSyntheticFixedDataTrialRunnerUnit:
     def test_post_step_hook(self, sfd_runner):
         results = {"epoch": -1}
         # Not end of epoch
-        updated_results = sfd_runner._post_step_hook(step=8, params="dummy", results=results)
+        updated_results = sfd_runner._post_step_hook(step=8, params="dummy", results=results, aux=None)
         assert updated_results["epoch"] == -1  # Unchanged
 
         # End of first epoch (step 9 is 10th step)
-        updated_results = sfd_runner._post_step_hook(step=9, params="dummy", results=results)
+        updated_results = sfd_runner._post_step_hook(step=9, params="dummy", results=results, aux=None)
         assert updated_results["epoch"] == 0
 
         # End of second epoch (step 19 is 20th step)
-        updated_results = sfd_runner._post_step_hook(step=19, params="dummy", results=results)
+        updated_results = sfd_runner._post_step_hook(step=19, params="dummy", results=results, aux=None)
         assert updated_results["epoch"] == 1

@@ -52,14 +52,16 @@ def reverse_eta_adjustment_theoretical(func: Callable[[int], float], experiment)
     return theoretical_reversed_func
 
 
-def create_optimizer(experiment, learning_rate: float):
+def create_base_optimizer_transform(optimizer_type: OptimizerType):
     """
-    Creates an optax optimizer based on the experiment configuration.
+    Creates the part of the optimizer transform before learning rate scaling.
     """
-    match experiment.optimizer:
+    match optimizer_type:
         case OptimizerType.SGD:
-            return optax.sgd(learning_rate)
+            # For basic SGD, there's no stateful transform before scaling.
+            return optax.identity()
         case OptimizerType.ADAM:
-            return optax.adam(learning_rate)
+            # For Adam, it's the scale_by_adam transform.
+            return optax.scale_by_adam()
         case _:
-            raise NotImplementedError(f"Optimizer {experiment.optimizer} not implemented.")
+            raise NotImplementedError(f"Optimizer {optimizer_type} not implemented.")

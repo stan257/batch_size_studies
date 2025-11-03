@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Callable
+from typing import Any, Callable
 from unittest.mock import Mock
 
 import jax
@@ -9,7 +9,8 @@ import optax
 
 from .data_iterators import DataIterator, EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
-from .training_utils import create_optimizer
+from .runner import TrialContext
+from .training_utils import create_base_optimizer_transform
 
 
 class DivergenceError(Exception):
@@ -19,7 +20,9 @@ class DivergenceError(Exception):
 class TrialRunner(ABC):
     """Abstract base class for running a single experiment trial."""
 
-    def __init__(self, context):
+    _JIT_CACHE = {}
+
+    def __init__(self, context: TrialContext):
         self.experiment = context.experiment
         self.run_key = context.run_key
         self.params0 = context.params0
@@ -40,13 +43,63 @@ class TrialRunner(ABC):
         self.num_steps = context.num_steps
         self.lr = self.experiment.get_adjusted_eta(self.run_key.eta)
 
-        # These will be initialized by the template method pattern
-        self.optimizer = self._create_optimizer()
-        self.loss_fn = self._create_loss_fn()
-        self.update_step = self._create_update_step()
+        # --- JIT Function Caching ---
+        param_shapes_pytree = jax.tree_util.tree_map(lambda x: x.shape, self.params0)
+        # The pytree of shapes must be converted to a hashable type. We flatten it
+        # into a tuple of leaves, treating shape tuples as leaves.
+        param_shapes_tuple = tuple(
+            jax.tree_util.tree_leaves(param_shapes_pytree, is_leaf=lambda x: isinstance(x, tuple))
+        )
+
+        # The cache key must uniquely identify the compiled function's structure.
+        # - type(self): Differentiates between MNIST, Synthetic, etc. runners.
+        # - optimizer/loss_type: These change the computation graph.
+        # - id(self.model_instance): The model instance can close over `params0`
+        #   (e.g., in CenteredModel). Its ID ensures we don't reuse a function
+        #   with a stale `params0` from a previous sweep.
+        # - param_shapes_tuple: The shapes of the parameters define the shapes
+        #   for which the function is compiled.
+        cache_key = (
+            type(self),
+            self.experiment.optimizer,
+            self.experiment.loss_type,
+            id(self.model_instance),  # Uniquely identify the model instance
+            param_shapes_tuple,
+        )
+
+        if cache_key in self._JIT_CACHE:
+            cached_funcs = self._JIT_CACHE[cache_key]
+            self.loss_fn = cached_funcs["loss_fn"]
+            self.jitted_update_step = cached_funcs["jitted_update_step"]
+            self.base_optimizer_transform = cached_funcs["base_optimizer_transform"]
+            if "eval_step" in cached_funcs:
+                self.eval_step = cached_funcs["eval_step"]
+        else:
+            # Create functions for the first time and cache them
+            self.loss_fn = self._create_loss_fn()
+            self.base_optimizer_transform = create_base_optimizer_transform(self.experiment.optimizer)
+            self.jitted_update_step = self._create_jitted_update_step(self.loss_fn, self.base_optimizer_transform)
+
+            cached_funcs = {
+                "loss_fn": self.loss_fn,
+                "jitted_update_step": self.jitted_update_step,
+                "base_optimizer_transform": self.base_optimizer_transform,
+            }
+            if hasattr(self, "_create_eval_step"):
+                self.eval_step = self._create_eval_step()
+                cached_funcs["eval_step"] = self.eval_step
+
+            self._JIT_CACHE[cache_key] = cached_funcs
+
+        self.opt_state_init_fn = self.base_optimizer_transform.init
+
+    @classmethod
+    def clear_cache(cls):
+        """Clears the JIT function cache. Primarily for use in tests."""
+        cls._JIT_CACHE.clear()
 
     def _check_divergence(self, loss: jnp.ndarray) -> None:
-        """Checks for NaN or Inf in the loss and logs a warning."""
+        """Checks for NaN or Inf in the loss and raises a DivergenceError if found."""
         if not jnp.isfinite(loss):
             raise DivergenceError(f"Run {self.run_key} diverged with loss: {loss}")
 
@@ -61,12 +114,25 @@ class TrialRunner(ABC):
         Main entry point to run the trial. This is a template method that
         orchestrates the entire lifecycle and should not be overridden.
         """
-        params, opt_state, results, start_step = self.checkpoint_manager.load_live_checkpoint(self.run_key)
+        params, loaded_opt_state, results, start_step = self.checkpoint_manager.load_live_checkpoint(self.run_key)
+
+        # --- Compatibility fix for optimizer state ---
+        # The new opt_state is a tuple `(base_state, EmptyState)`.
+        # If we load an old checkpoint, we need to convert it.
+        if loaded_opt_state is not None and not isinstance(loaded_opt_state, tuple):
+            logging.info("Migrating old optimizer state format to new tuple format.")
+            # The state for the second part of the chain (scale) is always empty.
+            opt_state = (loaded_opt_state, optax.EmptyState())
+        else:
+            opt_state = loaded_opt_state
 
         # Initialize state only if no valid checkpoint was loaded
         if params is None:
             params = self.params0
-            opt_state = self.optimizer.init(params)
+            # The state for optax.chain is a tuple of states for each part of the chain.
+            base_opt_state = self.opt_state_init_fn(params)
+            scale_state = optax.EmptyState()
+            opt_state = (base_opt_state, scale_state)
             results = self._init_results()
             start_step = 0  # Ensure start_step is 0 if no checkpoint
 
@@ -91,13 +157,13 @@ class TrialRunner(ABC):
             if current_step >= num_steps:
                 break
 
-            update_result = self.update_step(params, opt_state, x_batch, y_batch)
-            params, opt_state, loss = update_result[0], update_result[1], update_result[2]
+            update_result = self.jitted_update_step(params, opt_state, x_batch, y_batch, self.lr)
+            params, opt_state, loss, aux = update_result
 
             self._check_divergence(loss)
             results["loss_history"].append(loss.item())
 
-            results = self._post_step_hook(current_step, params, results)
+            results = self._post_step_hook(current_step, params, results, aux)
             results = self._capture_iterator_state(data_iterator, results)
 
             if self._should_save_checkpoint(current_step):
@@ -118,7 +184,9 @@ class TrialRunner(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _create_update_step(self) -> Callable:
+    def _create_jitted_update_step(
+        self, loss_fn: Callable, base_optimizer_transform: optax.GradientTransformation
+    ) -> Callable:
         raise NotImplementedError
 
     @abstractmethod
@@ -126,10 +194,7 @@ class TrialRunner(ABC):
         """Creates the data iterator, configured to start at the correct step."""
         raise NotImplementedError
 
-    def _create_optimizer(self) -> optax.GradientTransformation:
-        return create_optimizer(self.experiment, self.lr)
-
-    def _post_step_hook(self, step: int, params, results: dict) -> dict:
+    def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
         """Optional hook for actions after each training step. Returns updated results."""
         return results
 
@@ -159,7 +224,6 @@ class MNISTTrialRunner(TrialRunner):
     def __init__(self, context):
         super().__init__(context)
         self.num_epochs = context.num_epochs
-        self.eval_step = self._create_eval_step()
 
         original_num_train = context.train_ds["image"].shape[0]
         self.steps_per_epoch = original_num_train // self.run_key.batch_size
@@ -201,16 +265,21 @@ class MNISTTrialRunner(TrialRunner):
             case _:
                 raise NotImplementedError(f"Loss type {self.experiment.loss_type} not implemented.")
 
-    def _create_update_step(self) -> Callable:
-        @jax.jit
-        def update_step(params, opt_state, x_batch, y_batch):
-            (loss, logits), grads = jax.value_and_grad(self.loss_fn, has_aux=True)(params, x_batch, y_batch)
-            updates, new_opt_state = self.optimizer.update(grads, opt_state)
+    def _create_jitted_update_step(
+        self, loss_fn: Callable, base_optimizer_transform: optax.GradientTransformation
+    ) -> Callable:
+        """Creates and JIT-compiles the update step function for MNIST."""
+
+        def update_step_fn(params, opt_state, x_batch, y_batch, lr):
+            optimizer = optax.chain(base_optimizer_transform, optax.scale(-lr))
+            (loss, logits), grads = jax.value_and_grad(loss_fn, has_aux=True)(params, x_batch, y_batch)
+            # Adam needs params in update, SGD does not. Pass it to be safe.
+            updates, new_opt_state = optimizer.update(grads, opt_state, params)
             new_params = optax.apply_updates(params, updates)
             accuracy = jnp.mean(jnp.argmax(logits, -1) == y_batch)
             return new_params, new_opt_state, loss, accuracy
 
-        return update_step
+        return jax.jit(update_step_fn)
 
     def _create_eval_step(self) -> Callable:
         apply_fn = self.model_instance
@@ -253,7 +322,7 @@ class MNISTTrialRunner(TrialRunner):
         """Converts a training step (0-indexed) to a completed epoch number (0-indexed)."""
         return (step + 1) // self.steps_per_epoch - 1
 
-    def _post_step_hook(self, step: int, params, results: dict) -> dict:
+    def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
         if (step + 1) % self.steps_per_epoch == 0:
             # Calculate epoch once and use it for both description and hook
             epoch = self._step_to_completed_epoch(step)
@@ -289,25 +358,29 @@ class SyntheticTrialRunner(TrialRunner):
     def _create_loss_fn(self) -> Callable:
         def loss_fn(params, x_batch, y_batch):
             pred = self.model_instance(params, x_batch)
-            return jnp.mean((y_batch - pred) ** 2)
+            # Return a dummy aux output for a consistent interface with MNISTTrialRunner
+            return jnp.mean((y_batch - pred) ** 2), None
 
         return loss_fn
 
-    def _create_update_step(self) -> Callable:
-        @jax.jit
-        def update_step(params, opt_state, x_batch, y_batch):
-            loss, grad = jax.value_and_grad(self.loss_fn)(params, x_batch, y_batch)
-            updates, new_opt_state = self.optimizer.update(grad, opt_state)
-            new_params = optax.apply_updates(params, updates)
-            return new_params, new_opt_state, loss
+    def _create_jitted_update_step(
+        self, loss_fn: Callable, base_optimizer_transform: optax.GradientTransformation
+    ) -> Callable:
+        """Creates and JIT-compiles the update step function for synthetic experiments."""
 
-        return update_step
+        def update_step_fn(params, opt_state, x_batch, y_batch, lr):
+            optimizer = optax.chain(base_optimizer_transform, optax.scale(-lr))
+            (loss, _), grad = jax.value_and_grad(loss_fn, has_aux=True)(params, x_batch, y_batch)
+            updates, new_opt_state = optimizer.update(grad, opt_state, params)
+            new_params = optax.apply_updates(params, updates)
+            # Return a dummy aux output for a consistent signature
+            return new_params, new_opt_state, loss, None
+
+        return jax.jit(update_step_fn)
 
     def _get_snapshot_steps(self, max_steps: int) -> list[int]:
         """
         Generate logarithmically-spaced checkpoint steps.
-        Uses 1, 2, 5 pattern across powers of 10 (e.g., 1, 2, 5, 10, 20, 50, 100...)
-        to balance checkpoint density with storage efficiency.
         """
         steps = {0}
         for magnitude in [1, 10, 100, 1000, 10000, 100000, 1000000]:
@@ -384,7 +457,7 @@ class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
         """Converts a training step (0-indexed) to a completed epoch number (0-indexed)."""
         return (step + 1) // self.steps_per_epoch - 1
 
-    def _post_step_hook(self, step: int, params, results: dict) -> dict:
+    def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
         """Saves the current epoch number to the results for checkpointing."""
         if (step + 1) % self.steps_per_epoch == 0:
             # Called at the end of an epoch, so step+1 has completed an epoch.
