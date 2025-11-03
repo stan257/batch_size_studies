@@ -6,7 +6,6 @@ from batch_size_studies.definitions import RunKey
 from batch_size_studies.experiments import ExperimentBase
 from batch_size_studies.runner import (
     TrialContext,
-    _is_run_complete,
     _validate_and_store_partial_result,
     run_single_trial,
 )
@@ -74,36 +73,6 @@ class Test_validate_and_store_partial_result:
         assert s["run_key"] not in s["failed_runs"]
 
 
-class Test_is_run_complete:
-    """Tests for the focused completion checking helper function."""
-
-    def test_step_based_completion(self):
-        context = MagicMock(spec=TrialContext, num_steps=100)
-        # Complete
-        complete_result = {"loss_history": [0.1] * 100, "expected_steps": 100}
-        assert _is_run_complete(complete_result, context) is True
-        # Incomplete
-        incomplete_result = {"loss_history": [0.1] * 99, "expected_steps": 100}
-        assert _is_run_complete(incomplete_result, context) is False
-        # More steps than expected is still complete
-        over_result = {"loss_history": [0.1] * 101, "expected_steps": 100}
-        assert _is_run_complete(over_result, context) is True
-
-    def test_epoch_based_completion(self):
-        context = MagicMock(spec=TrialContext, num_epochs=4)
-        # Complete
-        complete_result = {"epoch_test_accuracies": [0.9] * 4, "expected_epochs": 4}
-        assert _is_run_complete(complete_result, context) is True
-        # Incomplete
-        incomplete_result = {"epoch_test_accuracies": [0.9] * 3, "expected_epochs": 4}
-        assert _is_run_complete(incomplete_result, context) is False
-
-    def test_missing_keys_is_not_complete(self):
-        context = MagicMock(spec=TrialContext, num_steps=100)
-        assert _is_run_complete({}, context) is False
-        assert _is_run_complete({"loss_history": [0.1]}, context) is False  # Missing expected_steps
-
-
 @patch("batch_size_studies.runner._validate_and_store_partial_result")
 @patch("batch_size_studies.runner.get_trial_runner")
 @patch("batch_size_studies.runner.RunStatus")
@@ -143,6 +112,7 @@ class TestSingleTrialExecution:
         mock_runner = mock_get_runner.return_value
         # A result that will be considered complete
         mock_runner.run.return_value = {"loss_history": [0.1] * 100, "expected_steps": 100}
+        mock_runner.is_complete.return_value = True
 
         mock_validate.return_value = True  # Simulate successful validation
 
@@ -161,6 +131,7 @@ class TestSingleTrialExecution:
         mock_runner = mock_get_runner.return_value
         # An incomplete result
         mock_runner.run.return_value = {"loss_history": [0.1] * 50, "expected_steps": 100}
+        mock_runner.is_complete.return_value = False
         mock_validate.return_value = True
 
         is_successful = run_single_trial(mock_context, {}, set())

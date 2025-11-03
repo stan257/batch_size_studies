@@ -101,6 +101,22 @@ def get_synthetic_config():
     )
 
 
+def get_synthetic_adam_config():
+    """Same as synthetic_config but with the Adam optimizer."""
+    return SyntheticExperimentFixedData(
+        D=10,
+        P=1024,
+        N=16,
+        K=2,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        seed=42,
+        optimizer=OptimizerType.ADAM,  # Changed
+        loss_type=LossType.MSE,
+    )
+
+
 def get_mnist_config():
     return MNIST1MSampledExperiment(
         N=16,
@@ -111,6 +127,20 @@ def get_mnist_config():
         loss_type=LossType.MSE,
         gamma=1.0,
         optimizer=OptimizerType.SGD,
+    )
+
+
+def get_mnist_xent_adam_config():
+    """MNIST config with XENT loss and Adam optimizer."""
+    return MNIST1MSampledExperiment(
+        N=16,
+        L=2,
+        parameterization=Parameterization.MUP,
+        num_epochs=2,
+        max_train_samples=4096,
+        loss_type=LossType.XENT,  # Changed
+        gamma=1.0,
+        optimizer=OptimizerType.ADAM,  # Changed
     )
 
 
@@ -146,5 +176,17 @@ def test_synthetic_reproducibility(tmp_path):
 
 
 def test_mnist_reproducibility(tmp_path, fake_mnist1m_data_dir):
+    """Tests reproducibility for an MNIST experiment using MSE loss and SGD optimizer."""
     loader = partial(load_mnist1m_dataset, data_dir=fake_mnist1m_data_dir)
     _run_reproducibility_test(get_mnist_config, "mnist_golden.pkl", tmp_path, dataset_loader=loader)
+
+
+def test_synthetic_adam_reproducibility(tmp_path):
+    """Tests reproducibility for a synthetic experiment using the Adam optimizer."""
+    _run_reproducibility_test(get_synthetic_adam_config, "synthetic_adam_golden.pkl", tmp_path)
+
+
+def test_mnist_xent_adam_reproducibility(tmp_path, fake_mnist1m_data_dir):
+    """Tests reproducibility for an MNIST experiment using XENT loss and Adam optimizer."""
+    loader = partial(load_mnist1m_dataset, data_dir=fake_mnist1m_data_dir)
+    _run_reproducibility_test(get_mnist_xent_adam_config, "mnist_xent_adam_golden.pkl", tmp_path, dataset_loader=loader)

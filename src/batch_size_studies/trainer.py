@@ -145,6 +145,11 @@ class TrialRunner(ABC):
         """Determines if a checkpoint should be saved at this step."""
         return False
 
+    @abstractmethod
+    def is_complete(self, result: dict) -> bool:
+        """Checks if a result dictionary represents a completed run."""
+        raise NotImplementedError
+
 
 class MNISTTrialRunner(TrialRunner):
     """Trial runner for MNIST-based experiments."""
@@ -269,6 +274,10 @@ class MNISTTrialRunner(TrialRunner):
             results["final_test_accuracy"] = results["epoch_test_accuracies"][-1]
         return results
 
+    def is_complete(self, result: dict) -> bool:
+        """A run is complete if the number of test accuracies matches the expected number of epochs."""
+        return len(result.get("epoch_test_accuracies", [])) >= result.get("expected_epochs", self.num_epochs)
+
 
 class SyntheticTrialRunner(TrialRunner):
     """Base trial runner for synthetic data experiments."""
@@ -312,6 +321,10 @@ class SyntheticTrialRunner(TrialRunner):
 
     def _should_save_checkpoint(self, step: int) -> bool:
         return step in self.snapshot_steps
+
+    def is_complete(self, result: dict) -> bool:
+        """A run is complete if the number of loss history entries matches the expected number of steps."""
+        return len(result.get("loss_history", [])) >= result.get("expected_steps", self.num_steps)
 
 
 class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):

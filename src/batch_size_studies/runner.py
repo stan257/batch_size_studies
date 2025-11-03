@@ -139,15 +139,6 @@ def initialize_model_params(
 # ============================================================================
 
 
-def _is_run_complete(result: dict, context: TrialContext) -> bool:
-    """Checks if a run is complete with respect to the current trial's context."""
-    if "expected_steps" in result:
-        return len(result.get("loss_history", [])) >= context.num_steps
-    elif "expected_epochs" in result:
-        return len(result.get("epoch_test_accuracies", [])) >= context.num_epochs
-    return False
-
-
 def _validate_and_store_partial_result(
     result: dict | None,
     run_key: RunKey,
@@ -217,7 +208,7 @@ def run_single_trial(
             context.no_save,
             context.checkpoint_manager.directory,
         )
-        is_complete = is_valid and _is_run_complete(result, context)
+        is_complete = is_valid and trial_runner.is_complete(result)
         if is_complete and not context.no_save:
             context.checkpoint_manager.cleanup_live_checkpoint(context.run_key)
     else:

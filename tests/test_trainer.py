@@ -66,6 +66,20 @@ class TestMNISTTrialRunnerUnit:
         assert "final_test_accuracy" in updated_results
         assert updated_results["final_test_accuracy"] == 0.95
 
+    def test_is_complete(self, mnist_runner):
+        # Complete
+        complete_result = {"epoch_test_accuracies": [0.9] * 5, "expected_epochs": 5}
+        assert mnist_runner.is_complete(complete_result) is True
+        # Incomplete
+        incomplete_result = {"epoch_test_accuracies": [0.9] * 4, "expected_epochs": 5}
+        assert mnist_runner.is_complete(incomplete_result) is False
+        # More epochs than expected is still complete
+        over_result = {"epoch_test_accuracies": [0.9] * 6, "expected_epochs": 5}
+        assert mnist_runner.is_complete(over_result) is True
+        # Missing key
+        assert mnist_runner.is_complete({}) is False
+        assert mnist_runner.is_complete({"epoch_test_accuracies": [0.9] * 5}) is True  # uses default
+
 
 class TestSyntheticFixedTimeTrialRunnerUnit:
     """Unit tests for the SyntheticFixedTimeTrialRunner class."""
@@ -96,6 +110,20 @@ class TestSyntheticFixedTimeTrialRunnerUnit:
         results = {}
         updated_results = sft_runner._capture_iterator_state(mock_iterator, results)
         assert updated_results["batch_key_seed"] == 12345
+
+    def test_is_complete(self, sft_runner):
+        # Complete
+        complete_result = {"loss_history": [0.1] * 1000, "expected_steps": 1000}
+        assert sft_runner.is_complete(complete_result) is True
+        # Incomplete
+        incomplete_result = {"loss_history": [0.1] * 999, "expected_steps": 1000}
+        assert sft_runner.is_complete(incomplete_result) is False
+        # More steps than expected is still complete
+        over_result = {"loss_history": [0.1] * 1001, "expected_steps": 1000}
+        assert sft_runner.is_complete(over_result) is True
+        # Missing key
+        assert sft_runner.is_complete({}) is False
+        assert sft_runner.is_complete({"loss_history": [0.1] * 1000}) is True  # uses default
 
 
 class TestSyntheticFixedDataTrialRunnerUnit:
