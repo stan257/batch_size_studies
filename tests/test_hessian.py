@@ -56,10 +56,10 @@ def quadratic_problem():
 
 
 def test_hvp(quadratic_problem):
-    """
-    Tests the Hessian-Vector-Product directly against the known matrix A.
-    H @ v should be equal to A @ v.
-    """
+
+
+
+
     hessian_calc = JaxHessian(
         model=quadratic_problem["model"],
         loss_fn=quadratic_problem["loss_fn"],
@@ -82,9 +82,9 @@ def test_hvp(quadratic_problem):
 
 
 def test_eigenvalues(quadratic_problem):
-    """
-    Tests that the power iteration method finds the correct top eigenvalues.
-    """
+
+
+
     hessian_calc = JaxHessian(
         model=quadratic_problem["model"],
         loss_fn=quadratic_problem["loss_fn"],
@@ -107,9 +107,9 @@ def test_eigenvalues(quadratic_problem):
 
 
 def test_trace(quadratic_problem):
-    """
-    Tests that Hutchinson's method correctly estimates the trace.
-    """
+
+
+
     hessian_calc = JaxHessian(
         model=quadratic_problem["model"],
         loss_fn=quadratic_problem["loss_fn"],
@@ -126,9 +126,9 @@ def test_trace(quadratic_problem):
 
 
 def test_density(quadratic_problem):
-    """
-    Tests the eigenvalue density estimation from Stochastic Lanczos Quadrature.
-    """
+
+
+
     hessian_calc = JaxHessian(
         model=quadratic_problem["model"],
         loss_fn=quadratic_problem["loss_fn"],

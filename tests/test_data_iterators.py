@@ -14,10 +14,10 @@ class TestEpochBasedDataIterator:
         return np.arange(105).reshape(-1, 1)
 
     def test_data_subsetting(self, sample_data):
-        """
-        Tests that the iterator correctly uses a subset of the data when the
-        dataset size is not perfectly divisible by the batch size.
-        """
+
+
+
+
         iterator = EpochBasedDataIterator(train_ds=(sample_data, sample_data), batch_size=32, num_epochs=1, init_key=42)
 
         # Expected number of samples: (105 // 32) * 32 = 3 * 32 = 96
@@ -32,11 +32,11 @@ class TestEpochBasedDataIterator:
         assert np.unique(all_yielded_data).shape[0] == num_usable_samples
 
     def test_epoch_shuffling_and_consistency(self, sample_data):
-        """
-        Tests that:
-        1. The set of data points is identical across epochs.
-        2. The order of data points is different across epochs.
-        """
+
+
+
+
+
         iterator = EpochBasedDataIterator(train_ds=(sample_data, sample_data), batch_size=32, num_epochs=3, init_key=42)
 
         all_batches = list(iterator)
@@ -53,9 +53,9 @@ class TestEpochBasedDataIterator:
         assert not np.array_equal(epoch1_data, epoch2_data)
 
     def test_resumption_logic(self, sample_data):
-        """
-        Tests that the iterator correctly resumes from a given start_step.
-        """
+
+
+
         batch_size = 32
         steps_per_epoch = 105 // 32  # 3
         start_step = 4  # This is the 2nd step of the 2nd epoch (epoch 1, step_in_epoch 1)
@@ -112,10 +112,10 @@ class TestOnlineDataIterator:
         return mock_exp
 
     def test_on_the_fly_generation_and_seed_increment(self, mock_experiment):
-        """
-        Tests that the iterator calls generate_data with incrementing seeds
-        when it exhausts the data from the current seed.
-        """
+
+
+
+
         batch_size = 30
         steps_per_key = 100 // 30  # 3
         iterable = OnlineDataIterator(
@@ -136,10 +136,10 @@ class TestOnlineDataIterator:
         np.testing.assert_array_equal(call_keys_data[2], jr.key_data(jr.key(2)))
 
     def test_resumption_logic(self, mock_experiment):
-        """
-        Tests that the iterator correctly fast-forwards its internal seed
-        based on the start_step.
-        """
+
+
+
+
         batch_size = 30
         steps_per_key = 100 // 30  # 3
         start_step = 5  # This is the 3rd step (index 2) using data from key=1
@@ -165,9 +165,9 @@ class TestOnlineDataIterator:
         assert first_batch[0, 0] == 1060
 
     def test_handles_batch_size_larger_than_p(self, mock_experiment):
-        """
-        Tests that the iterator yields no batches and does not crash when B > P.
-        """
+
+
+
         mock_experiment.P = 50
         batch_size = 100  # B > P
 

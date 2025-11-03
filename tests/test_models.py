@@ -35,10 +35,10 @@ def test_init_params_returns_correct_shapes():
 
 
 def test_sp_and_mup_forward_pass_are_different():
-    """
-    Tests that SP and muP models produce different outputs for the same inputs
-    and parameters, due to the different output layer scaling.
-    """
+
+
+
+
     widths = [10, 20, 1]
     mlp_sp = MLP(parameterization=Parameterization.SP, gamma=1.0)
     mlp_mup = MLP(parameterization=Parameterization.MUP, gamma=1.0)

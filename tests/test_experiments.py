@@ -134,7 +134,7 @@ def mnist1m_sampled_config():
 
 
 class TestExperimentBehavior:
-    """Tests general, shared behaviors of experiment configuration classes."""
+
 
     @pytest.mark.parametrize(
         "config_fixture",
@@ -146,7 +146,7 @@ class TestExperimentBehavior:
         ],
     )
     def test_teacher_weights_are_deterministic(self, config_fixture, request):
-        """Tests that teacher weight generation is deterministic for synthetic experiments."""
+
         config = request.getfixturevalue(config_fixture)
         weights1 = config.generate_teacher_weights()
         weights2 = config.generate_teacher_weights()
@@ -190,10 +190,10 @@ class TestExperimentBehavior:
 
 
 class TestFilenameUniqueness:
-    """
-    Tests that changing any single parameter that should be part of the filename
-    results in a unique filename, preventing collisions.
-    """
+
+
+
+
 
     # Define base configurations for each experiment type
     base_synthetic_ft = {
@@ -301,10 +301,10 @@ class TestFilenameUniqueness:
 
     @pytest.mark.parametrize("exp_class, base_config, param, new_value", test_cases)
     def test_filename_is_unique_per_parameter(self, exp_class, base_config, param, new_value):
-        """
-        Verifies that changing a single parameter results in a unique filename,
-        ensuring no accidental collisions.
-        """
+
+
+
+
         # Create the base experiment instance
         base_exp = exp_class(**base_config)
 

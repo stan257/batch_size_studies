@@ -14,7 +14,7 @@ from batch_size_studies.trainer import (
 
 @pytest.fixture(autouse=True)
 def clear_jit_cache():
-    """Ensures the JIT cache is cleared before each test function."""
+
     TrialRunner.clear_cache()
 
 

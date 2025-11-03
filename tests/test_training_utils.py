@@ -7,7 +7,7 @@ from batch_size_studies.training_utils import reverse_eta_adjustment_theoretical
 
 
 class TestReverseEtaAdjustmentTheoretical:
-    """Tests for the `reverse_eta_adjustment_theoretical` utility function."""
+
 
     @pytest.mark.parametrize(
         "exp_config, base_value, expected_result",

@@ -69,10 +69,10 @@ class TestRunnerIntegration:
 
     @patch("batch_size_studies.runner.run_single_trial")
     def test_eta_stability_search_stops_early(self, mock_run_single_trial, tmp_path):
-        """
-        Tests that the eta stability search correctly skips etas after
-        'depth' consecutive successful runs.
-        """
+
+
+
+
         # 1. Setup
         # This mock will always report success to trigger the stability tracker.
         mock_run_single_trial.return_value = True

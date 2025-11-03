@@ -12,7 +12,6 @@ from batch_size_studies.runner import (
 
 
 class Test_validate_and_store_partial_result:
-    """Tests for the focused validation and storage helper function."""
 
     @pytest.fixture
     def setup(self):
@@ -77,11 +76,9 @@ class Test_validate_and_store_partial_result:
 @patch("batch_size_studies.runner.get_trial_runner")
 @patch("batch_size_studies.runner.RunStatus")
 class TestSingleTrialExecution:
-    """Unit tests for the `run_single_trial` orchestration function."""
 
     @pytest.fixture
     def mock_context(self):
-        """Provides a fully configured mock TrialContext."""
         context = MagicMock(spec=TrialContext)
         context.run_key = RunKey(32, 0.1)
         context.num_steps = 100

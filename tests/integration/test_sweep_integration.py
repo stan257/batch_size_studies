@@ -87,7 +87,7 @@ def mock_mnist_loader():
 
 class TestSweepRunnerIntegration:
     def test_handles_unknown_experiment_type(self, tmp_path, caplog):
-        """Tests that the runner handles an unknown experiment type gracefully."""
+
 
         @dataclass(frozen=True)
         class UnknownExperiment(LinearStudentExperiment, ExperimentBase):
@@ -138,7 +138,7 @@ class TestSweepRunnerIntegration:
             assert np.isfinite(result["final_eval_loss"])
 
     def test_runs_and_returns_correct_structure(self, fixed_time_config, tmp_path):
-        """Tests that the main training function runs without error and returns the expected data structures."""
+
         losses, failures = run_experiment_sweep(
             experiment=fixed_time_config, batch_sizes=[4, 8], etas=[0.1], directory=str(tmp_path)
         )
@@ -151,7 +151,7 @@ class TestSweepRunnerIntegration:
         assert len(losses[expected_key]["loss_history"]) == fixed_time_config.num_steps
 
     def test_handles_failed_runs(self, fixed_time_config, tmp_path):
-        """Tests that the training function correctly identifies and logs runs that fail with NaN/inf losses."""
+
         losses, failures = run_experiment_sweep(
             experiment=fixed_time_config, batch_sizes=[4], etas=[1e6], directory=str(tmp_path)
         )
@@ -159,7 +159,7 @@ class TestSweepRunnerIntegration:
         assert failures == {RunKey(batch_size=4, eta=1e6)}
 
     def test_mnist_eval_subsampling(self, mnist_config, mock_mnist_loader, tmp_path, monkeypatch):
-        """Ensure evaluation uses the requested subsample size."""
+
 
         recorded_sizes = []
         original_hook = MNISTTrialRunner._post_epoch_hook
@@ -185,7 +185,7 @@ class TestSweepRunnerIntegration:
         assert all(size == 20 for size in recorded_sizes)
 
     def test_run_is_reproducible(self, fixed_time_config, tmp_path):
-        """Tests that two identical training runs produce the exact same results."""
+
         losses1, failed1 = run_experiment_sweep(
             experiment=fixed_time_config,
             batch_sizes=[4, 8],
@@ -206,7 +206,7 @@ class TestSweepRunnerIntegration:
             np.testing.assert_allclose(losses1[key]["loss_history"], losses2[key]["loss_history"])
 
     def test_run_with_fixed_data(self, fixed_data_config, tmp_path):
-        """Tests that a fixed-data experiment runs for the correct number of steps."""
+
         num_epochs, batch_size = 3, 8
         expected_steps, _ = fixed_data_config.compute_num_steps(batch_size, None, num_epochs)
         losses, _ = run_experiment_sweep(
@@ -222,7 +222,7 @@ class TestSweepRunnerIntegration:
         assert len(losses[expected_key]["loss_history"]) == expected_steps
 
     def test_skips_run_if_batch_size_exceeds_p_for_fixed_data(self, fixed_data_config, caplog, tmp_path):
-        """Tests that the runner skips runs where batch size > dataset size for fixed-data experiments."""
+
         with caplog.at_level(logging.WARNING):
             losses, failures = run_experiment_sweep(
                 experiment=fixed_data_config, batch_sizes=[16, 64], etas=[0.1], num_epochs=1, directory=str(tmp_path)
@@ -233,9 +233,9 @@ class TestSweepRunnerIntegration:
         assert "Skipping batch size 64 > dataset size P (32)" in caplog.text
 
     def test_sweep_runs_all_combinations_by_default(self, fixed_data_config, tmp_path):
-        """
-        Tests that without eta_stability_search_depth, the sweep runs all combinations.
-        """
+
+
+
         batch_sizes = [8, 16]
         etas = [0.1, 0.01]
 
@@ -261,10 +261,10 @@ class TestSweepRunnerIntegration:
                 assert RunKey(bs, eta) in results
 
     def test_eta_stability_search_stops_early(self, fixed_data_config, tmp_path, monkeypatch):
-        """
-        Tests that the eta stability search correctly stops after a consecutive number of successes,
-        and that the counter resets upon failure.
-        """
+
+
+
+
         batch_sizes = [16]
         # Etas are sorted descending by the runner
         etas = [1.0, 0.5, 0.25, 0.125, 0.06]
@@ -304,7 +304,7 @@ class TestSweepRunnerIntegration:
         assert RunKey(16, 0.06) not in results and RunKey(16, 0.06) not in failures
 
     def test_mnist_checkpoint_and_resume(self, mnist_config, mock_mnist_loader, tmp_path, caplog, monkeypatch):
-        """Tests that an interrupted MNIST experiment correctly resumes from the last completed epoch."""
+
         total_epochs = mnist_config.num_epochs  # 4
         run_key = RunKey(batch_size=64, eta=0.01)
         steps_per_epoch = 128 // 64  # 2
@@ -362,7 +362,7 @@ class TestSweepRunnerIntegration:
         assert not os.path.exists(resume_file)  # Checkpoint should be cleaned up
 
     def test_mnist_handles_failed_runs(self, mnist_config, mock_mnist_loader, tmp_path):
-        """Tests that a run that diverges is correctly marked as failed."""
+
         _, failures = run_experiment_sweep(
             experiment=mnist_config,
             batch_sizes=[32],
@@ -373,7 +373,7 @@ class TestSweepRunnerIntegration:
         assert len(failures) == 1 and RunKey(batch_size=32, eta=1e20) in failures
 
     def test_optimizer_selection_works(self, mnist_config, mock_mnist_loader, tmp_path):
-        """Tests that changing the optimizer in the config results in a different training outcome."""
+
         from dataclasses import replace
 
         import jax

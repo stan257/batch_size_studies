@@ -12,7 +12,7 @@ from batch_size_studies.experiments import SyntheticExperimentFixedTime
 
 
 def assert_pytree_allclose(a, b):
-    """Assert that two JAX PyTrees are numerically close."""
+
     a_flat, a_tree = jax.tree_util.tree_flatten(a)
     b_flat, b_tree = jax.tree_util.tree_flatten(b)
     assert a_tree == b_tree, "PyTree structures do not match"
@@ -211,12 +211,12 @@ class TestCheckpointManager:
         assert history == {}
 
     def test_initial_weights_consistency(self, checkpoint_manager, mock_data):
-        """
-        Tests that loading initial weights via different methods yields the same result.
-        - load_initial_params()
-        - load_analysis_snapshot() at step 0
-        - load_full_weight_history()[0]
-        """
+
+
+
+
+
+
         run_key = RunKey(batch_size=16, eta=0.1)
         initial_params, _ = mock_data
 
@@ -237,10 +237,10 @@ class TestCheckpointManager:
         assert_pytree_allclose(loaded_initial, history_at_0)
 
     def test_initial_weights_are_shared_across_runs(self, checkpoint_manager, mock_data):
-        """
-        Tests that different runs (i.e only change in (B,η)) within the same experiment share the same
-        initial weights file and do not overwrite it.
-        """
+
+
+
+
         initial_params, _ = mock_data
 
         # Save a snapshot for a first run
@@ -255,7 +255,7 @@ class TestCheckpointManager:
 
 
 class TestLoadExperimentWeights:
-    """Tests the high-level load_experiment_weights utility function."""
+
 
     @pytest.fixture
     def setup_weights_file(self, checkpoint_manager, mock_data):

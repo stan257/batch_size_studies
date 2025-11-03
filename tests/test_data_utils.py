@@ -257,7 +257,7 @@ class TestFilterExperiments:
                     assert getattr(exp, key) == value
 
     def test_empty_input_dictionary(self):
-        """Tests that filtering an empty dictionary results in an empty dictionary."""
+
         filtered = filter_experiments({}, experiment_type=MockMNISTExperiment)
         assert filtered == {}
 
@@ -387,7 +387,7 @@ class TestFilterLossDictByLossThreshold:
         assert len(filtered_dict) == 4
 
     def test_works_on_list_of_dicts(self, loss_dict_for_thresholding):
-        """Tests that the decorator correctly applies the function to a list."""
+
         threshold = 2.0
         list_of_dicts = [loss_dict_for_thresholding, loss_dict_for_thresholding.copy()]
 
