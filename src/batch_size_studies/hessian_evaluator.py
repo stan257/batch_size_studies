@@ -68,7 +68,12 @@ class HessianEvaluator:
             logging.info("Evaluating Hessian at initialization (params0).")
 
         # --- 2. Load Data ---
-        data_loader = self._prepare_data_loader(num_hessian_samples, hessian_batch_size)
+        # Use the experiment's own method to prepare the dataset.
+        # The Hessian should be evaluated on the training distribution.
+        train_ds, _ = self.experiment.prepare_datasets(init_key=self.key.sum())
+        if train_ds is None:
+            raise ValueError("Hessian evaluation requires a dataset, but prepare_datasets returned None.")
+        self.data_loader = self._create_data_loader(train_ds, num_hessian_samples, hessian_batch_size)
 
         # --- 3. Instantiate Model and Loss ---
         if isinstance(self.experiment, LinearStudentExperiment):
@@ -85,7 +90,7 @@ class HessianEvaluator:
         loss_fn_outer = self._get_outer_loss_fn()
 
         # --- 4. Instantiate JaxHessian ---
-        self.hessian_computer = JaxHessian(model=model_to_use, loss_fn=loss_fn_outer, data_loader=data_loader)
+        self.hessian_computer = JaxHessian(model=model_to_use, loss_fn=loss_fn_outer, data_loader=self.data_loader)
         logging.info("HessianEvaluator initialized successfully.")
 
     def _load_initial_params(self):
@@ -101,23 +106,14 @@ class HessianEvaluator:
             step_to_load=self.step,
         )
 
-    def _prepare_data_loader(self, num_samples, batch_size):
-        data_key = jr.PRNGKey(getattr(self.experiment, "seed", 42))
-
-        if isinstance(self.experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
-            if isinstance(self.experiment, (MNIST1MExperiment, MNIST1MSampledExperiment)):
-                from .data_loading import load_mnist1m_dataset
-
-                dataset_loader_fn = load_mnist1m_dataset
-            else:
-                from .data_loading import load_datasets
-
-                dataset_loader_fn = load_datasets
-            (_, _), (images, labels) = dataset_loader_fn()
-        elif hasattr(self.experiment, "generate_data"):  # For all synthetic experiments
-            images, labels = self.experiment.generate_data(data_key)
+    def _create_data_loader(self, dataset, num_samples, batch_size):
+        """Creates a data loader from a dataset, subsampling if necessary."""
+        if isinstance(dataset, dict):  # MNIST-like
+            images, labels = dataset["image"], dataset["label"]
+        elif isinstance(dataset, tuple):  # Synthetic-like
+            images, labels = dataset[0], dataset[1]
         else:
-            raise TypeError(f"Cannot prepare data for experiment type {type(self.experiment)}")
+            raise TypeError(f"Unsupported dataset type for Hessian evaluation: {type(dataset)}")
 
         images, labels = images[:num_samples], labels[:num_samples]
         if images.ndim > 2:
