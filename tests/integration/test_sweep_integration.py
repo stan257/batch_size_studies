@@ -158,6 +158,32 @@ class TestSweepRunnerIntegration:
         assert len(losses) == 0
         assert failures == {RunKey(batch_size=4, eta=1e6)}
 
+    def test_mnist_eval_subsampling(self, mnist_config, mock_mnist_loader, tmp_path, monkeypatch):
+        """Ensure evaluation uses the requested subsample size."""
+
+        recorded_sizes = []
+        original_hook = MNISTTrialRunner._post_epoch_hook
+
+        def patched_post_epoch_hook(self, epoch, params, results):
+            recorded_sizes.append(self.test_ds["image"].shape[0])
+            return original_hook(self, epoch, params, results)
+
+        monkeypatch.setattr(MNISTTrialRunner, "_post_epoch_hook", patched_post_epoch_hook)
+
+        run_experiment_sweep(
+            experiment=mnist_config,
+            batch_sizes=[32],
+            etas=[0.1],
+            init_key=0,
+            directory=str(tmp_path),
+            no_save=True,
+            dataset_loader=mock_mnist_loader,
+            max_eval_samples=20,
+        )
+
+        assert recorded_sizes
+        assert all(size == 20 for size in recorded_sizes)
+
     def test_run_is_reproducible(self, fixed_time_config, tmp_path):
         """Tests that two identical training runs produce the exact same results."""
         losses1, failed1 = run_experiment_sweep(
