@@ -9,7 +9,7 @@ import their configurations from here.
 import numpy as np
 
 from .definitions import LossType, OptimizerType, Parameterization
-from .experiments import MNIST1MExperiment
+from .experiments import MNIST1MExperiment, SyntheticExperimentLinearTeacher
 
 
 def get_main_hyperparameter_grids():
@@ -121,37 +121,37 @@ def get_main_experiment_configs():
     #     )
 
     # --- Linear Teacher Experiments ---
-    # linear_teacher_kwargs = dict(
-    #     D=500,
-    #     optimizer=OptimizerType.SGD,
-    #     loss_type=LossType.MSE,
-    # )
+    linear_teacher_kwargs = dict(
+        D=500,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+    )
 
-    # linear_teacher_online_kwargs = linear_teacher_kwargs | dict(P=100_000, num_epochs=1)
-    # linear_teacher_offline_kwargs = linear_teacher_kwargs | dict(P=10_000, num_epochs=10)
-    # linear_teacher_offline_longest_kwargs = linear_teacher_kwargs | dict(P=1_000, num_epochs=100)
-    # # Experiment 1: alpha=1.1, beta=0.25
-    # # alpha_beta_dict = dict(alpha=1.1, beta=0.25)
-    # # name = "online_linear_teacher_alpha1p1_beta0p25_long"
-    # # experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_online_kwargs | alpha_beta_dict))
+    linear_teacher_online_kwargs = linear_teacher_kwargs | dict(P=100_000, num_epochs=1)
+    linear_teacher_offline_kwargs = linear_teacher_kwargs | dict(P=10_000, num_epochs=10)
+    linear_teacher_offline_longest_kwargs = linear_teacher_kwargs | dict(P=1_000, num_epochs=100)
+    # Experiment 1: alpha=1.1, beta=0.25
+    alpha_beta_dict = dict(alpha=1.1, beta=0.25)
+    name = "online_linear_teacher_alpha1p1_beta0p25_long"
+    experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_online_kwargs | alpha_beta_dict))
 
-    # # name = "offline_linear_teacher_alpha1p1_beta0p25_long"
-    # # experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_offline_kwargs | alpha_beta_dict))
+    name = "offline_linear_teacher_alpha1p1_beta0p25_long"
+    experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_offline_kwargs | alpha_beta_dict))
 
-    # alpha_beta_dict = dict(alpha=2.0, beta=0.25)
-    # name = "online_linear_teacher_alpha2p0_beta0p25_long"
-    # experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_online_kwargs | alpha_beta_dict))
+    alpha_beta_dict = dict(alpha=2.0, beta=0.25)
+    name = "online_linear_teacher_alpha2p0_beta0p25_long"
+    experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_online_kwargs | alpha_beta_dict))
 
-    # name = "offline_linear_teacher_alpha2p0_beta0p25_long"
-    # experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_offline_kwargs | alpha_beta_dict))
+    name = "offline_linear_teacher_alpha2p0_beta0p25_long"
+    experiments_to_run[name] = SyntheticExperimentLinearTeacher(**(linear_teacher_offline_kwargs | alpha_beta_dict))
 
-    # name = "offline_linear_teacher_alpha2p0_beta0p25_longest"
-    # experiments_to_run[name] = SyntheticExperimentLinearTeacher(
-    #     **(linear_teacher_offline_longest_kwargs | alpha_beta_dict)
-    # )
+    name = "offline_linear_teacher_alpha2p0_beta0p25_longest"
+    experiments_to_run[name] = SyntheticExperimentLinearTeacher(
+        **(linear_teacher_offline_longest_kwargs | alpha_beta_dict)
+    )
 
-    # name = "offline_linear_teacher_alpha2p0_beta0p25_longest_fr"
-    # experiments_to_run[name] = SyntheticExperimentLinearTeacher(
-    #     **(linear_teacher_kwargs | dict(P=100, num_epochs=1000) | alpha_beta_dict)
-    # )
+    name = "offline_linear_teacher_alpha2p0_beta0p25_longest_fr"
+    experiments_to_run[name] = SyntheticExperimentLinearTeacher(
+        **(linear_teacher_kwargs | dict(P=100, num_epochs=1000) | alpha_beta_dict)
+    )
     return experiments_to_run

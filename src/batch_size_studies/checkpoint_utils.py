@@ -7,7 +7,7 @@ import numpy as np
 from filelock import FileLock
 
 from .definitions import RunKey
-from .storage_utils import CustomUnpickler, generate_experiment_filename, save_experiment
+from .storage_utils import CustomUnpickler, save_experiment
 
 
 class CheckpointManager:
@@ -21,17 +21,30 @@ class CheckpointManager:
         self.directory = directory
 
         # Generate base path for this experiment
-        exp_params = experiment.to_params_dict()
-        full_filename = generate_experiment_filename(exp_params, prefix="", extension="pkl")
-        base_filename = os.path.splitext(full_filename)[0]
         self.exp_dir = os.path.join(directory, experiment.experiment_type)
 
+        filename_variants = experiment.get_filename_variants(prefix="", extension="pkl")
+        base_variants = [os.path.splitext(name)[0] for name in filename_variants]
+
+        selected_base = None
+        for base_candidate in base_variants:
+            weights_path = os.path.join(self.exp_dir, f"{base_candidate}_weights.pkl")
+            checkpoint_dir_candidate = os.path.join(self.exp_dir, f"{base_candidate}_checkpoints")
+            if os.path.exists(weights_path) or os.path.exists(checkpoint_dir_candidate):
+                selected_base = base_candidate
+                break
+
+        if selected_base is None:
+            selected_base = base_variants[0]
+
+        self._base_filename = selected_base
+
         # Path for live resume checkpoints
-        self.checkpoint_dir = os.path.join(self.exp_dir, f"{base_filename}_checkpoints")
+        self.checkpoint_dir = os.path.join(self.exp_dir, f"{selected_base}_checkpoints")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
         # Path for analysis snapshots (weights)
-        self.weights_filepath = os.path.join(self.exp_dir, f"{base_filename}_weights.pkl")
+        self.weights_filepath = os.path.join(self.exp_dir, f"{selected_base}_weights.pkl")
 
     def _get_resume_filepath(self, run_key: RunKey):
         run_key_str = f"B={run_key.batch_size}_eta={str(run_key.eta).replace('.', 'p')}"

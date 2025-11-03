@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import itertools
 import logging
 import os
 from abc import ABC, abstractmethod
@@ -168,9 +169,35 @@ class ExperimentBase(ABC):
         # Sort the dictionary by key for consistent filenames
         return dict(sorted(params.items()))
 
-    def generate_filename(self, prefix="results", extension="pkl"):
+    def _filename_optional_params(self) -> tuple[str, ...]:
+        """Returns params that may be absent in legacy filenames."""
+        return ("loss_type",)
+
+    def get_filename_variants(self, prefix="results", extension="pkl") -> list[str]:
+        """
+        Returns possible filename variants (new first, legacy fallbacks after).
+        """
         params = self.to_params_dict()
-        return generate_experiment_filename(params, prefix, extension)
+        variants: list[str] = []
+        seen: set[str] = set()
+
+        def add_variant(active_params: dict):
+            filename = generate_experiment_filename(active_params, prefix, extension)
+            if filename not in seen:
+                variants.append(filename)
+                seen.add(filename)
+
+        add_variant(params)
+        optional_keys = [key for key in self._filename_optional_params() if key in params]
+        for r in range(1, len(optional_keys) + 1):
+            for combo in itertools.combinations(optional_keys, r):
+                variant_params = {k: v for k, v in params.items() if k not in combo}
+                add_variant(variant_params)
+
+        return variants
+
+    def generate_filename(self, prefix="results", extension="pkl"):
+        return self.get_filename_variants(prefix, extension)[0]
 
     def get_filepath(self, directory="experiments", prefix="results", extension="pkl"):
         type_specific_directory = os.path.join(directory, self.experiment_type)
@@ -178,18 +205,29 @@ class ExperimentBase(ABC):
         return os.path.join(type_specific_directory, filename)
 
     def load_results(self, directory="experiments", prefix="results", extension="pkl", silent: bool = False):
-        filepath = self.get_filepath(directory, prefix, extension)
-        data = load_experiment(filepath)
+        type_specific_directory = os.path.join(directory, self.experiment_type)
+        filepath = None
+        for filename in self.get_filename_variants(prefix, extension):
+            candidate = os.path.join(type_specific_directory, filename)
+            if os.path.exists(candidate):
+                filepath = candidate
+                break
+
+        if filepath is not None:
+            data = load_experiment(filepath)
+        else:
+            data = None
+
         if data:
             if not silent:
                 logging.info(f"Results file found, loading from: {os.path.basename(filepath)}")
             losses = data.get("losses", {})
             failed_runs = data.get("failed_runs", set())
             return losses, failed_runs
-        else:
-            if not silent:
-                logging.info("No results file found for this experiment. Initializing new results.")
-            return {}, set()
+
+        if not silent:
+            logging.info("No results file found for this experiment. Initializing new results.")
+        return {}, set()
 
     def save_results(
         self,

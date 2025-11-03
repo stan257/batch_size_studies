@@ -34,12 +34,25 @@ def _is_run_complete(result: dict) -> bool:
 
     if "expected_steps" in result:
         # For step-based experiments (e.g., synthetic fixed-time)
-        return len(result.get("loss_history", [])) >= result["expected_steps"]
+        expected_steps = result.get("expected_steps")
+        if expected_steps is not None:
+            return len(result.get("loss_history", [])) >= expected_steps
     elif "expected_epochs" in result:
         # For epoch-based experiments (e.g., MNIST)
-        return len(result.get("epoch_test_accuracies", [])) >= result["expected_epochs"]
+        expected_epochs = result.get("expected_epochs")
+        if expected_epochs is not None:
+            return len(result.get("epoch_test_accuracies", [])) >= expected_epochs
 
-    # If no expected duration is found, assume it's an old format or incomplete.
+    # Legacy fallback: older pickles do not store the expected_* fields.
+    epoch_accuracies = result.get("epoch_test_accuracies")
+    if isinstance(epoch_accuracies, list) and len(epoch_accuracies) > 0:
+        return True
+
+    loss_history = result.get("loss_history")
+    if isinstance(loss_history, list) and len(loss_history) > 0:
+        return True
+
+    # If no progress signals are found, treat as incomplete.
     return False
 
 

@@ -282,9 +282,15 @@ def _execute_sweep_loops(
                 batch_size, train_ds, num_epochs=num_epochs_override
             )
 
-            # Create and manage the lifecycle of the progress bar for the trial
-            pbar = tqdm(total=num_steps, desc=f"η={eta:.3g}", leave=False)
-            try:
+            status = RunStatus(run_key, results_dict, failed_runs, num_steps, no_save)
+            if not status.should_run:
+                is_successful = status.is_successful
+                if eta_tracker.update(is_successful):
+                    break
+                continue
+
+            # Create and manage the lifecycle of the progress bar for active trials
+            with tqdm(total=num_steps, desc=f"η={eta:.3g}", leave=False) as pbar:
                 context = TrialContext(
                     experiment=experiment,
                     run_key=run_key,
@@ -301,9 +307,6 @@ def _execute_sweep_loops(
                     kwargs=kwargs,
                 )
                 is_successful = run_single_trial(context=context, results_dict=results_dict, failed_runs=failed_runs)
-
-            finally:
-                pbar.close()
 
             if eta_tracker.update(is_successful):
                 break

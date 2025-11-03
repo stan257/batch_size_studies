@@ -1,7 +1,10 @@
+import os
+
 import jax.random as jr
 import numpy as np
 import pytest
 
+from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization
 from batch_size_studies.experiments import (
     MNIST1MExperiment,
@@ -12,6 +15,7 @@ from batch_size_studies.experiments import (
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentMLPTeacher,
 )
+from batch_size_studies.storage_utils import generate_experiment_filename, save_experiment
 
 # ============================================================================
 # FIXTURES
@@ -320,3 +324,47 @@ class TestFilenameUniqueness:
         assert base_filename != modified_filename, (
             f"Changing '{param}' did not produce a unique filename for {exp_class.__name__}"
         )
+
+
+class TestLegacyStorageCompatibility:
+    @pytest.mark.parametrize(
+        "config_fixture",
+        [
+            "fixed_time_config",
+            "fixed_data_config",
+            "mlp_teacher_config",
+            "linear_teacher_config",
+            "mnist_config",
+            "mnist1m_config",
+            "mnist1m_sampled_config",
+        ],
+    )
+    def test_legacy_results_and_weights_are_discoverable(self, tmp_path, config_fixture, request):
+        experiment = request.getfixturevalue(config_fixture)
+
+        experiments_root = tmp_path / "experiments" / experiment.experiment_type
+        experiments_root.mkdir(parents=True, exist_ok=True)
+
+        params = experiment.to_params_dict()
+        legacy_params = dict(params)
+        legacy_params.pop("loss_type", None)
+
+        legacy_results_filename = generate_experiment_filename(legacy_params, prefix="results", extension="pkl")
+        legacy_results_path = experiments_root / legacy_results_filename
+        legacy_results_payload = {"losses": {"legacy": {"loss_history": [1.0]}}, "failed_runs": set()}
+        save_experiment(legacy_results_payload, str(legacy_results_path))
+
+        legacy_base = os.path.splitext(generate_experiment_filename(legacy_params, prefix="", extension="pkl"))[0]
+        legacy_weights_path = experiments_root / f"{legacy_base}_weights.pkl"
+        legacy_weights_payload = {"initial_params": {"theta": 0.1}, "weight_snapshots": {}}
+        save_experiment(legacy_weights_payload, str(legacy_weights_path))
+
+        experiments_dir = tmp_path / "experiments"
+        manager = CheckpointManager(experiment, directory=str(experiments_dir))
+        assert manager.weights_filepath == str(legacy_weights_path)
+        assert manager.checkpoint_dir == str(experiments_root / f"{legacy_base}_checkpoints")
+        assert manager.load_initial_params() == legacy_weights_payload["initial_params"]
+
+        loaded_losses, loaded_failed = experiment.load_results(directory=str(experiments_dir))
+        assert loaded_losses == legacy_results_payload["losses"]
+        assert loaded_failed == legacy_results_payload["failed_runs"]
