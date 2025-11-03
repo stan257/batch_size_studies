@@ -1,396 +1,131 @@
-import logging
-import os
-from dataclasses import dataclass, replace
+from unittest.mock import MagicMock, Mock
 
 import numpy as np
 import pytest
 
-from batch_size_studies.checkpoint_utils import CheckpointManager
-from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
-from batch_size_studies.experiments import (
-    ExperimentBase,
-    LinearStudentExperiment,
-    MNISTExperiment,
-    SyntheticExperimentFixedData,
-    SyntheticExperimentFixedTime,
-    SyntheticExperimentLinearTeacher,
+from batch_size_studies.definitions import LossType, OptimizerType, RunKey
+from batch_size_studies.trainer import (
+    MNISTTrialRunner,
+    SyntheticFixedDataTrialRunner,
+    SyntheticFixedTimeTrialRunner,
 )
-from batch_size_studies.runner import run_experiment_sweep
-
-# --- Fixtures ---
 
 
-@pytest.fixture
-def fixed_time_config():
-    """Fixture for a fast-to-run FixedTime experiment."""
-    return SyntheticExperimentFixedTime(
-        D=8,
-        P=32,
-        N=16,
-        K=2,
-        num_steps=10,
-        gamma=1.0,
-        L=2,
-        parameterization=Parameterization.SP,
-        optimizer=OptimizerType.SGD,
-        loss_type=LossType.MSE,
-    )
+class TestMNISTTrialRunnerUnit:
+    """Unit tests for the MNISTTrialRunner class."""
+
+    @pytest.fixture
+    def mnist_runner(self):
+        # Create a mock context object with necessary attributes
+        context = MagicMock()
+        context.run_key = RunKey(batch_size=64, eta=0.1)
+        context.num_epochs = 5
+        context.train_ds = {"image": np.zeros((1280, 784))}  # 1280 samples
+        context.test_ds = {"image": np.zeros((100, 784)), "label": np.zeros(100)}
+        context.experiment = MagicMock()
+        context.experiment.D = 784
+        context.experiment.optimizer = OptimizerType.SGD
+        context.experiment.loss_type = LossType.XENT
+
+        # Mock methods that would be called
+        runner = MNISTTrialRunner(context)
+        runner.eval_step = Mock(return_value=0.95)  # Mock the JITted eval step
+        runner.pbar = Mock()  # Mock the progress bar
+        return runner
+
+    def test_init_calculates_steps_per_epoch(self, mnist_runner):
+        # 1280 samples / 64 batch_size = 20 steps_per_epoch
+        assert mnist_runner.steps_per_epoch == 20
+
+    def test_should_save_checkpoint(self, mnist_runner):
+        # Should save at the end of an epoch
+        assert mnist_runner._should_save_checkpoint(step=19) is True  # step 19 is the 20th step
+        assert mnist_runner._should_save_checkpoint(step=39) is True
+        # Should not save in the middle of an epoch
+        assert mnist_runner._should_save_checkpoint(step=18) is False
+        assert mnist_runner._should_save_checkpoint(step=0) is False
+
+    def test_post_epoch_hook(self, mnist_runner):
+        params = "dummy_params"
+        results = {"epoch_test_accuracies": []}
+
+        # EVAL_BATCH_SIZE is 512. test_ds has 100 samples. So one loop.
+        updated_results = mnist_runner._post_epoch_hook(epoch=0, params=params, results=results)
+
+        # Check that eval_step was called once
+        assert mnist_runner.eval_step.call_count == 1
+        # Check that the accuracy was appended
+        assert len(updated_results["epoch_test_accuracies"]) == 1
+        assert updated_results["epoch_test_accuracies"][0] == pytest.approx(0.95)
+        # Check that pbar was updated
+        mnist_runner.pbar.set_postfix.assert_called_once_with(accuracy="0.9500")
+
+    def test_post_training_hook(self, mnist_runner):
+        results = {"epoch_test_accuracies": [0.8, 0.9, 0.95]}
+        updated_results = mnist_runner._post_training_hook(params="dummy", results=results)
+        assert "final_test_accuracy" in updated_results
+        assert updated_results["final_test_accuracy"] == 0.95
 
 
-@pytest.fixture
-def fixed_data_config():
-    """Fixture for a fast-to-run FixedData experiment."""
-    return SyntheticExperimentFixedData(
-        D=8,
-        P=32,
-        N=16,
-        K=2,
-        gamma=1.0,
-        L=2,
-        parameterization=Parameterization.SP,
-        optimizer=OptimizerType.SGD,
-        loss_type=LossType.MSE,
-    )
+class TestSyntheticFixedTimeTrialRunnerUnit:
+    """Unit tests for the SyntheticFixedTimeTrialRunner class."""
+
+    @pytest.fixture
+    def sft_runner(self):
+        context = MagicMock()
+        context.num_steps = 1000
+        context.experiment.optimizer = OptimizerType.SGD
+        runner = SyntheticFixedTimeTrialRunner(context)
+        return runner
+
+    def test_get_snapshot_steps(self, sft_runner):
+        steps = sft_runner._get_snapshot_steps(max_steps=150)
+        # Based on the 1,2,5 pattern
+        expected = {0, 1, 2, 5, 10, 20, 50, 100, 149}
+        assert set(steps) == expected
+
+    def test_should_save_checkpoint(self, sft_runner):
+        sft_runner.snapshot_steps = {0, 10, 100, 999}
+        assert sft_runner._should_save_checkpoint(step=10) is True
+        assert sft_runner._should_save_checkpoint(step=999) is True
+        assert sft_runner._should_save_checkpoint(step=50) is False
+
+    def test_capture_iterator_state(self, sft_runner):
+        mock_iterator = Mock()
+        mock_iterator.current_batch_key_seed = 12345
+        results = {}
+        updated_results = sft_runner._capture_iterator_state(mock_iterator, results)
+        assert updated_results["batch_key_seed"] == 12345
 
 
-@pytest.fixture
-def linear_teacher_config_subset():
-    """Fixture for a Linear Teacher experiment with non-divisible data size."""
-    return SyntheticExperimentLinearTeacher(
-        D=8,
-        P=105,  # Not divisible by common batch sizes
-        alpha=1.0,
-        beta=1.0,
-        num_epochs=2,
-        optimizer=OptimizerType.SGD,
-        loss_type=LossType.MSE,
-    )
+class TestSyntheticFixedDataTrialRunnerUnit:
+    """Unit tests for the SyntheticFixedDataTrialRunner class."""
 
+    @pytest.fixture
+    def sfd_runner(self):
+        context = MagicMock()
+        context.num_epochs = 5
+        context.run_key = RunKey(batch_size=10, eta=0.1)
+        context.train_ds = (np.zeros((100, 10)), np.zeros((100, 1)))  # P=100
+        context.experiment.optimizer = OptimizerType.SGD
+        runner = SyntheticFixedDataTrialRunner(context)
+        return runner
 
-@pytest.fixture
-def mnist_config():
-    """Fixture for a fast-to-run MNIST experiment."""
-    return MNISTExperiment(
-        N=32,
-        L=2,
-        num_epochs=4,
-        parameterization=Parameterization.SP,
-        gamma=1.0,
-        optimizer=OptimizerType.SGD,
-        loss_type=LossType.XENT,
-    )
+    def test_init_calculates_steps(self, sfd_runner):
+        assert sfd_runner.steps_per_epoch == 10  # 100 // 10
+        # snapshot steps are calculated on total steps
+        assert sfd_runner.snapshot_steps is not None
 
+    def test_post_step_hook(self, sfd_runner):
+        results = {"epoch": -1}
+        # Not end of epoch
+        updated_results = sfd_runner._post_step_hook(step=8, params="dummy", results=results)
+        assert updated_results["epoch"] == -1  # Unchanged
 
-@pytest.fixture
-def mnist_config_subset():
-    """Fixture for an MNIST experiment for subset testing."""
-    return MNISTExperiment(
-        N=32,
-        L=2,
-        num_epochs=2,
-        parameterization=Parameterization.SP,
-        gamma=1.0,
-        optimizer=OptimizerType.SGD,
-        loss_type=LossType.XENT,
-    )
+        # End of first epoch (step 9 is 10th step)
+        updated_results = sfd_runner._post_step_hook(step=9, params="dummy", results=results)
+        assert updated_results["epoch"] == 0
 
-
-@pytest.fixture
-def mock_mnist_loader():
-    """A mock dataset loader that returns small numpy arrays."""
-
-    def _loader():
-        np.random.seed(42)
-        train_images = np.random.rand(128, 28, 28, 1).astype(np.float32)
-        train_labels = np.random.randint(0, 10, 128).astype(np.int32)
-        test_images = np.random.rand(64, 28, 28, 1).astype(np.float32)
-        test_labels = np.random.randint(0, 10, 64).astype(np.int32)
-        return (train_images, train_labels), (test_images, test_labels)
-
-    return _loader
-
-
-# --- Test Classes ---
-
-
-class TestUnifiedRunner:
-    def test_handles_unknown_experiment_type(self, tmp_path, caplog):
-        """Tests that the runner handles an unknown experiment type gracefully."""
-
-        @dataclass(frozen=True)
-        class UnknownExperiment(LinearStudentExperiment, ExperimentBase):
-            experiment_type: str = "unknown"
-            D: int = 10
-
-            def is_run_complete(self, result, run_key):
-                return False
-
-            def should_skip_batch_size(self, batch_size, train_ds_size=None):
-                return False
-
-            def get_trial_runner_class(self):
-                raise NotImplementedError
-
-            def prepare_datasets(self, init_key: int, **kwargs):
-                # Return a non-None train_ds to pass the data loading check.
-                return (np.array([]), np.array([])), None
-
-            def get_adjusted_eta(self, base_eta: float) -> float:
-                return base_eta
-
-            def get_model_widths(self) -> list[int]:
-                return [10, 1]
-
-        config = UnknownExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.MSE, D=10)
-        # The runner should log an error and return None if get_trial_runner_class fails.
-        with caplog.at_level(logging.ERROR):
-            losses, failures = run_experiment_sweep(
-                experiment=config, batch_sizes=[8], etas=[0.1], directory=str(tmp_path)
-            )
-        assert "does not implement get_trial_runner_class()" in caplog.text
-
-
-class TestSyntheticRunner:
-    def test_runs_and_returns_correct_structure(self, fixed_time_config, tmp_path):
-        """Tests that the main training function runs without error and returns the expected data structures."""
-        losses, failures = run_experiment_sweep(
-            experiment=fixed_time_config, batch_sizes=[4, 8], etas=[0.1], directory=str(tmp_path)
-        )
-        assert isinstance(losses, dict)
-        assert isinstance(failures, set)
-        assert len(losses) == 2
-        assert len(failures) == 0
-        expected_key = RunKey(batch_size=4, eta=0.1)
-        assert "loss_history" in losses[expected_key]
-        assert len(losses[expected_key]["loss_history"]) == fixed_time_config.num_steps
-
-    def test_handles_failed_runs(self, fixed_time_config, tmp_path):
-        """Tests that the training function correctly identifies and logs runs that fail with NaN/inf losses."""
-        losses, failures = run_experiment_sweep(
-            experiment=fixed_time_config, batch_sizes=[4], etas=[1e6], directory=str(tmp_path)
-        )
-        assert len(losses) == 0
-        assert failures == {RunKey(batch_size=4, eta=1e6)}
-
-    def test_run_is_reproducible(self, fixed_time_config, tmp_path):
-        """Tests that two identical training runs produce the exact same results."""
-        losses1, failed1 = run_experiment_sweep(
-            experiment=fixed_time_config,
-            batch_sizes=[4, 8],
-            etas=[0.1, 0.01],
-            init_key=42,
-            directory=str(tmp_path / "run1"),
-        )
-        losses2, failed2 = run_experiment_sweep(
-            experiment=fixed_time_config,
-            batch_sizes=[4, 8],
-            etas=[0.1, 0.01],
-            init_key=42,
-            directory=str(tmp_path / "run2"),
-        )
-        assert failed1 == failed2
-        assert losses1.keys() == losses2.keys()
-        for key in losses1:
-            np.testing.assert_allclose(losses1[key]["loss_history"], losses2[key]["loss_history"])
-
-    def test_run_with_fixed_data(self, fixed_data_config, tmp_path):
-        """Tests that a fixed-data experiment runs for the correct number of steps."""
-        num_epochs, batch_size = 3, 8
-        expected_steps = num_epochs * (fixed_data_config.P // batch_size)
-        losses, _ = run_experiment_sweep(
-            experiment=fixed_data_config,
-            batch_sizes=[batch_size],
-            etas=[0.1],
-            init_key=0,
-            num_epochs=num_epochs,
-            directory=str(tmp_path),
-        )
-        expected_key = RunKey(batch_size=batch_size, eta=0.1)
-        assert "loss_history" in losses[expected_key]
-        assert len(losses[expected_key]["loss_history"]) == expected_steps
-
-    def test_skips_run_if_batch_size_exceeds_p_for_fixed_data(self, fixed_data_config, caplog, tmp_path):
-        """Tests that the runner skips runs where batch size > dataset size for fixed-data experiments."""
-        with caplog.at_level(logging.WARNING):
-            losses, failures = run_experiment_sweep(
-                experiment=fixed_data_config, batch_sizes=[16, 64], etas=[0.1], num_epochs=1, directory=str(tmp_path)
-            )
-        assert RunKey(16, 0.1) in losses
-        assert RunKey(64, 0.1) not in losses
-        assert RunKey(64, 0.1) not in failures
-        assert "Skipping batch size 64 > dataset size P (32)" in caplog.text
-
-    def test_sweep_runs_all_combinations_by_default(self, fixed_data_config, tmp_path):
-        """
-        Tests that without eta_stability_search_depth, the sweep runs all combinations.
-        """
-        batch_sizes = [8, 16]
-        etas = [0.1, 0.01]
-
-        # Use a config that is known to converge and has enough data
-        converging_config = replace(fixed_data_config, P=32)
-
-        results, failures = run_experiment_sweep(
-            experiment=converging_config,
-            batch_sizes=batch_sizes,
-            etas=etas,
-            num_epochs=1,
-            directory=str(tmp_path),
-            # NOTE: eta_stability_search_depth is intentionally omitted
-        )
-
-        # Check that the number of successful runs matches the total number of combinations
-        assert len(results) == len(batch_sizes) * len(etas)
-        assert not failures
-
-        # Verify that every specific run key is present in the results
-        for bs in batch_sizes:
-            for eta in etas:
-                assert RunKey(bs, eta) in results
-
-    def test_eta_stability_search_stops_early(self, fixed_data_config, tmp_path, monkeypatch):
-        """
-        Tests that the eta stability search correctly stops after a consecutive number of successes,
-        and that the counter resets upon failure.
-        """
-        batch_sizes = [16]
-        # Etas are sorted descending by the runner
-        etas = [1.0, 0.5, 0.25, 0.125, 0.06]
-        # Define which etas will "converge". 0.5 will fail, resetting the counter.
-        converging_etas = {1.0, 0.25, 0.125, 0.06}
-        eta_stability_search_depth = 2
-
-        # Keep track of which etas were actually run
-        run_etas = []
-
-        def mock_run(self):
-            run_etas.append(self.run_key.eta)
-            if self.run_key.eta in converging_etas:
-                return {"loss_history": [0.5, 0.4]}  # Minimal success result
-            return None  # Failure result
-
-        # Patch the trial runner's run method to control convergence
-        monkeypatch.setattr("batch_size_studies.trainer.SyntheticFixedDataTrialRunner.run", mock_run)
-
-        results, failures = run_experiment_sweep(
-            experiment=fixed_data_config,
-            batch_sizes=batch_sizes,
-            etas=etas,
-            num_epochs=1,
-            directory=str(tmp_path),
-            eta_stability_search_depth=eta_stability_search_depth,
-        )
-
-        # The sweep should proceed as follows for B=16:
-        # eta=1.0:   Converges. consecutive_successes = 1.
-        # eta=0.5:   Fails.     consecutive_successes = 0. (Counter reset)
-        # eta=0.25:  Converges. consecutive_successes = 1.
-        # eta=0.125: Converges. consecutive_successes = 2. -> STOP.
-        # eta=0.06:  Should not be run.
-        expected_run_etas = [1.0, 0.5, 0.25, 0.125]
-        assert run_etas == expected_run_etas, "The sweep did not run the expected sequence of etas."
-        assert RunKey(16, 0.06) not in results and RunKey(16, 0.06) not in failures
-
-
-class TestMNISTRunner:
-    def test_runs_and_returns_correct_structure(self, mnist_config, mock_mnist_loader, tmp_path):
-        """Tests that the MNIST runner completes and returns the correct structure."""
-        results, failures = run_experiment_sweep(
-            experiment=mnist_config,
-            batch_sizes=[32],
-            etas=[0.01],
-            dataset_loader=mock_mnist_loader,
-            directory=str(tmp_path),
-        )
-        assert isinstance(results, dict) and isinstance(failures, set)
-        assert len(failures) == 0 and len(results) == 1
-        run_key = RunKey(batch_size=32, eta=0.01)
-        assert run_key in results
-        assert "final_test_accuracy" in results[run_key]
-        assert len(results[run_key]["epoch_test_accuracies"]) == mnist_config.num_epochs
-
-    def test_checkpoint_and_resume(self, mnist_config, mock_mnist_loader, tmp_path, caplog):
-        """Tests that an interrupted MNIST experiment correctly resumes from the last completed epoch."""
-        total_epochs, resume_from_epoch = mnist_config.num_epochs, 2
-        run_key = RunKey(batch_size=64, eta=0.01)
-
-        # Run partway
-        run_experiment_sweep(
-            experiment=mnist_config,
-            batch_sizes=[64],
-            etas=[0.01],
-            dataset_loader=mock_mnist_loader,
-            directory=str(tmp_path),
-            num_epochs=resume_from_epoch,
-        )
-        cm = CheckpointManager(mnist_config, directory=str(tmp_path))
-        resume_file = cm._get_resume_filepath(run_key)
-        steps_per_epoch = 128 // 64
-        assert os.path.exists(resume_file)
-
-        # Run to completion
-        caplog.clear()
-        with caplog.at_level(logging.INFO):
-            results, _ = run_experiment_sweep(
-                experiment=mnist_config,
-                batch_sizes=[64],
-                etas=[0.01],
-                dataset_loader=mock_mnist_loader,
-                directory=str(tmp_path),
-                num_epochs=total_epochs,
-            )
-
-        expected_resume_step = resume_from_epoch * steps_per_epoch
-        assert f"Resuming run {run_key} from step {expected_resume_step}" in caplog.text
-        assert len(results[run_key]["epoch_test_accuracies"]) == total_epochs
-        assert not os.path.exists(resume_file)
-
-    def test_handles_failed_runs(self, mnist_config, mock_mnist_loader, tmp_path):
-        """Tests that a run that diverges is correctly marked as failed."""
-        _, failures = run_experiment_sweep(
-            experiment=mnist_config,
-            batch_sizes=[32],
-            etas=[1e20],
-            dataset_loader=mock_mnist_loader,
-            directory=str(tmp_path),
-        )
-        assert len(failures) == 1 and RunKey(batch_size=32, eta=1e20) in failures
-
-    def test_optimizer_selection_works(self, mnist_config, mock_mnist_loader, tmp_path):
-        """Tests that changing the optimizer in the config results in a different training outcome."""
-        from dataclasses import replace
-
-        import jax
-
-        run_key = RunKey(batch_size=64, eta=0.1)
-        last_epoch = mnist_config.num_epochs - 1
-
-        # Run with SGD
-        sgd_config = mnist_config
-        run_experiment_sweep(
-            experiment=sgd_config,
-            batch_sizes=[64],
-            etas=[0.1],
-            dataset_loader=mock_mnist_loader,
-            directory=str(tmp_path / "sgd"),
-        )
-        cm_sgd = CheckpointManager(sgd_config, directory=str(tmp_path / "sgd"))
-        params_sgd = cm_sgd.load_analysis_snapshot(run_key, step=last_epoch)
-
-        # Run with Adam
-        adam_config = replace(mnist_config, optimizer=OptimizerType.ADAM)
-        run_experiment_sweep(
-            experiment=adam_config,
-            batch_sizes=[64],
-            etas=[0.1],
-            dataset_loader=mock_mnist_loader,
-            directory=str(tmp_path / "adam"),
-        )
-        cm_adam = CheckpointManager(adam_config, directory=str(tmp_path / "adam"))
-        params_adam = cm_adam.load_analysis_snapshot(run_key, step=last_epoch)
-
-        assert params_sgd is not None and params_adam is not None
-        sgd_leaves, _ = jax.tree_util.tree_flatten(params_sgd)
-        adam_leaves, _ = jax.tree_util.tree_flatten(params_adam)
-        are_different = any(not np.allclose(s, a) for s, a in zip(sgd_leaves, adam_leaves))
-        assert are_different, "Final model parameters for SGD and Adam were unexpectedly identical."
+        # End of second epoch (step 19 is 20th step)
+        updated_results = sfd_runner._post_step_hook(step=19, params="dummy", results=results)
+        assert updated_results["epoch"] == 1

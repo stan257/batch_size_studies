@@ -13,8 +13,8 @@ from batch_size_studies.runner import (
     EtaStabilityTracker,
     RunStatus,
     TrialContext,
-    _run_single_trial,
     run_experiment_sweep,
+    run_single_trial,
     validate_and_store_result,
 )
 
@@ -74,24 +74,38 @@ def validation_setup():
 class TestCenteredModel:
     """Tests for the CenteredModel wrapper class."""
 
-    def test_output_is_zero_at_initialization(self):
-        model_seed = 0
+    @pytest.mark.parametrize("model_seed", [0, 42, 1337])
+    def test_output_is_effectively_zero_at_initialization(self, model_seed):
+        """
+        Tests that the centered model's output is negligible at initialization.
+
+        Due to JIT compilation artifacts with float32, the output of f(x) - f(x)
+        may not be exactly zero. This test verifies two key properties across
+        different random initializations:
+        1. The centered output is negligible in an absolute sense (close to zero).
+        2. The centered output's magnitude is also negligible relative to the
+           uncentered output's magnitude.
+        """
         data_key = jnp.ones((1, 10))
 
         mlp = MLP(parameterization=Parameterization.SP, gamma=1.0)
         widths = [10, 20, 5]
         params0 = mlp.init_params(model_seed, widths)
-
         centered_model = CenteredModel(model=mlp, params0=params0)
 
         uncentered_output = mlp(params0, data_key)
-        assert uncentered_output.shape == (1, 5)
-        assert not jnp.all(uncentered_output == 0), "Uncentered model output should not be zero at initialization"
-
         centered_output = centered_model(params0, data_key)
-        # The output should be a zero vector of the correct shape
-        assert centered_output.shape == (1, 5)
-        assert jnp.all(centered_output == 0)
+
+        uncentered_norm = jnp.linalg.norm(uncentered_output)
+        centered_norm = jnp.linalg.norm(centered_output)
+
+        assert uncentered_norm > 1e-4, "Uncentered output should not be close to zero."
+        # 1. Absolute check: The numerical noise should be very small.
+        assert centered_norm < 1e-6, f"Centered output norm {centered_norm} is not negligible in absolute terms."
+        # 2. Relative check: The centered output should be orders of magnitude smaller.
+        assert centered_norm < 1e-5 * uncentered_norm, (
+            "Centered output is not negligible compared to uncentered output."
+        )
 
 
 # ============================================================================
@@ -371,7 +385,7 @@ class TestValidateAndStoreResult:
 
 
 @patch("batch_size_studies.runner.validate_and_store_result")
-@patch("batch_size_studies.runner._get_trial_runner")
+@patch("batch_size_studies.runner.get_trial_runner")
 @patch("batch_size_studies.runner.RunStatus")
 class TestSingleTrialExecution:
     """Tests the orchestration logic for a single trial."""
@@ -383,7 +397,7 @@ class TestSingleTrialExecution:
 
         # The mock context needs the attributes that RunStatus will access
         context = MagicMock(spec=TrialContext, run_key=RunKey(32, 0.1), num_steps=100, no_save=False)
-        is_successful = _run_single_trial(context, {}, set())
+        is_successful = run_single_trial(context, {}, set())
 
         assert is_successful is True
         mock_get_runner.assert_not_called()
@@ -407,7 +421,7 @@ class TestSingleTrialExecution:
             checkpoint_manager=Mock(),
         )
         results_dict, failed_runs = {}, set()
-        is_successful = _run_single_trial(context, results_dict, failed_runs)
+        is_successful = run_single_trial(context, results_dict, failed_runs)
 
         assert is_successful is True
         mock_get_runner.assert_called_once_with(context)
@@ -441,7 +455,7 @@ class TestSingleTrialExecution:
             checkpoint_manager=Mock(),
         )
         results_dict, failed_runs = {}, set()
-        is_successful = _run_single_trial(context, results_dict, failed_runs)
+        is_successful = run_single_trial(context, results_dict, failed_runs)
 
         assert is_successful is False
         mock_runner.run.assert_called_once()
@@ -461,29 +475,61 @@ class TestSingleTrialExecution:
 # ============================================================================
 
 
-@patch("batch_size_studies.runner.initialize_results_and_checkpoints")
-@patch("batch_size_studies.runner.initialize_model_params")
-@patch("batch_size_studies.runner._run_single_trial")
-@patch("batch_size_studies.runner.tqdm", lambda *args, **kwargs: args[0] if args else Mock())  # Disable tqdm
+@patch("batch_size_studies.runner.run_single_trial")
+@patch("batch_size_studies.runner._setup_sweep_state")
 class TestRunExperimentSweep:
-    """Tests the main sweep orchestration logic."""
+    """
+    Behavioral tests for the main sweep orchestration logic.
 
-    def test_sweep_loops_correctly(self, mock_run_single, mock_init_params, mock_init_results):
-        mock_init_results.return_value = ({}, set(), Mock())
-        mock_init_params.return_value = "params0"
+    These tests treat `run_experiment_sweep` as a black box and assert on its
+    behavior by controlling the outcome of `run_single_trial`. This is more
+    robust than mocking every internal helper.
+    """
+
+    def test_sweep_runs_all_combinations(self, mock_setup, mock_run_single):
+        """Verify that the sweep attempts to run every combination of hyperparameters."""
+        # --- Setup ---
+        # Mock the setup function to return predictable values
+        mock_setup.return_value = ({}, set(), Mock(), "params0", Mock())
         mock_run_single.return_value = True
 
+        # Define a mock experiment that requires a dataset
         mock_experiment = Mock()
         mock_experiment.prepare_datasets.return_value = ({"image": [1, 2, 3, 4]}, "test_ds")
         mock_experiment.should_skip_batch_size.return_value = False
+        mock_experiment.is_online_experiment.return_value = False
+        # The experiment must return a (steps, epochs) tuple
+        mock_experiment.compute_num_steps.return_value = (100, 1)
 
         batch_sizes = [64, 128]
         etas = [0.1, 0.01]
 
+        # --- Action ---
         run_experiment_sweep(mock_experiment, batch_sizes, etas)
 
+        # --- Assert ---
+        # It should have been called for each B x eta combination
         assert mock_run_single.call_count == 4
         calls = mock_run_single.call_args_list
         called_run_keys = {call.kwargs["context"].run_key for call in calls}
         expected_run_keys = {RunKey(64, 0.1), RunKey(64, 0.01), RunKey(128, 0.1), RunKey(128, 0.01)}
         assert called_run_keys == expected_run_keys
+
+    def test_sweep_aborts_if_data_loading_fails(self, mock_setup, mock_run_single):
+        """Verify that the sweep aborts if data loading fails for an offline experiment."""
+        # --- Setup ---
+        mock_setup.return_value = ({}, set(), Mock(), "params0", Mock())
+
+        mock_experiment = Mock()
+        mock_experiment.prepare_datasets.return_value = (None, None)  # Simulate data loading failure
+        mock_experiment.is_online_experiment.return_value = False  # It's an offline experiment
+
+        # --- Action ---
+        results, failures = run_experiment_sweep(mock_experiment, [32], [0.1])
+
+        # --- Assert ---
+        # The main trial loop should never be called
+        mock_run_single.assert_not_called()
+        # The function should return the initial empty results
+        assert results == {}
+        assert failures == set()

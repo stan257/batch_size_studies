@@ -104,7 +104,8 @@ class TrialRunner(ABC):
                 self._save_checkpoint(current_step, params, opt_state, results)
 
             if self.pbar:
-                self.pbar.set_postfix(loss=f"{loss.item():.4f}", step=f"{current_step + 1}/{num_steps}")
+                self.pbar.update(1)
+                self.pbar.set_postfix(loss=f"{loss.item():.4f}")
 
         return results
 
@@ -113,11 +114,11 @@ class TrialRunner(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def _create_loss_fn(self):
+    def _create_loss_fn(self) -> Callable:
         raise NotImplementedError
 
     @abstractmethod
-    def _create_update_step(self):
+    def _create_update_step(self) -> Callable:
         raise NotImplementedError
 
     @abstractmethod

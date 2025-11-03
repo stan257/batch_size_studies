@@ -9,7 +9,6 @@ dispatching to type-specific trial runners.
 
 import logging
 import os
-from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -18,16 +17,7 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from .checkpoint_utils import CheckpointManager
-from .definitions import RunKey
-from .experiments import (
-    MNIST1MExperiment,
-    MNIST1MSampledExperiment,
-    MNISTExperiment,
-    SyntheticExperimentFixedData,
-    SyntheticExperimentFixedTime,
-    SyntheticExperimentLinearTeacher,
-    SyntheticExperimentMLPTeacher,
-)
+from .definitions import ModelProtocol, RunKey
 from .paths import EXPERIMENTS_DIR
 
 
@@ -61,14 +51,14 @@ class CenteredModel:
     def __init__(self, model, params0):
         self.model = model
         self.params0 = params0
-        # The model's __call__ needs to be jitted for performance.
-        self.apply_fn = jax.jit(self.model)
+        # Jit the entire centered computation for efficiency
+        self._centered_fn = jax.jit(self._compute_centered)
+
+    def _compute_centered(self, params, inputs):
+        return self.model(params, inputs) - self.model(self.params0, inputs)
 
     def __call__(self, params, inputs):
-        """
-        Computes model(params, inputs) - model(params0, inputs).
-        """
-        return self.apply_fn(params, inputs) - self.apply_fn(self.params0, inputs)
+        return self._centered_fn(params, inputs)
 
 
 @dataclass
@@ -139,7 +129,7 @@ class EtaStabilityTracker:
 def initialize_results_and_checkpoints(experiment, directory: str, no_save: bool):
     """Initializes results, failed runs, and the checkpoint manager."""
     if no_save:
-        results_dict, failed_runs = defaultdict(list), set()
+        results_dict, failed_runs = {}, set()
     else:
         results_dict, failed_runs = experiment.load_results(directory=directory, silent=True)
 
@@ -148,7 +138,11 @@ def initialize_results_and_checkpoints(experiment, directory: str, no_save: bool
 
 
 def initialize_model_params(
-    model_instance, checkpoint_manager: CheckpointManager, init_key: int, widths: list[int], no_save: bool
+    model_instance: ModelProtocol,
+    checkpoint_manager: CheckpointManager,
+    init_key: int,
+    widths: list[int],
+    no_save: bool,
 ):
     """Initializes or loads the initial model parameters (params0)."""
     if no_save:
@@ -156,29 +150,6 @@ def initialize_model_params(
 
     # This method handles both loading and safe, locked initialization.
     return checkpoint_manager.initialize_and_save_initial_params(init_key, model_instance, widths)
-
-
-# ============================================================================
-# RUN CONFIGURATION HELPERS
-# ============================================================================
-
-
-def compute_num_steps(experiment, batch_size: int, train_ds, **kwargs) -> int:
-    """Computes the total number of training steps for a trial."""
-    if isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)):
-        return experiment.num_steps
-
-    num_epochs = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
-
-    if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
-        num_train_samples = len(train_ds["image"])
-    elif isinstance(experiment, (SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)):
-        num_train_samples = experiment.P
-    else:
-        return 0
-
-    steps_per_epoch = num_train_samples // batch_size
-    return num_epochs * steps_per_epoch
 
 
 # ============================================================================
@@ -195,35 +166,40 @@ def validate_and_store_result(
     checkpoint_manager: CheckpointManager,
     no_save: bool,
 ) -> bool:
-    """Validates the result of a trial and updates result/failure tracking."""
-    # Remove any previous result for this key, successful or not
-    results_dict.pop(run_key, None)
-    failed_runs.discard(run_key)
+    """
+    Validates a trial's result and updates tracking dictionaries.
 
-    is_complete = experiment.is_run_complete(result, run_key) if result else False
+    A result is "valid" if it's not None and contains finite metrics.
+    A run is "successful" if it's valid and fully complete.
 
-    # A result is valid if it exists and doesn't contain non-finite values.
+    Returns:
+        True if the run is both valid and complete, False otherwise.
+    """
     is_valid = result is not None
     if "final_test_accuracy" in (result or {}) and not np.isfinite(result["final_test_accuracy"]):
         is_valid = False
 
     if is_valid:
-        # Store any valid result, even if incomplete. It will be overwritten on resume.
+        # A valid result is always stored, even if incomplete.
+        # This allows for resumption.
         results_dict[run_key] = result
+        failed_runs.discard(run_key)  # Remove from failed set if it previously failed
+
+        is_complete = experiment.is_run_complete(result, run_key)
         if not no_save:
             if is_complete:
                 checkpoint_manager.cleanup_live_checkpoint(run_key)
     else:
-        # Only runs that are invalid (e.g., returned None from divergence) are marked as failures.
-        # Incomplete runs are not failures.
+        # An invalid result (e.g., from divergence) means the run has failed.
+        # The previous partial result (if any) is removed.
         failed_runs.add(run_key)
+        results_dict.pop(run_key, None)
+        is_complete = False
 
     if not no_save:
         # Save results after every trial
         experiment.save_results(results_dict, failed_runs, os.path.dirname(checkpoint_manager.exp_dir))
 
-    # The run is only considered "successful" for the purpose of the eta stability search
-    # if it is both valid and fully complete.
     return is_valid and is_complete
 
 
@@ -232,7 +208,7 @@ def validate_and_store_result(
 # ============================================================================
 
 
-def _run_single_trial(
+def run_single_trial(
     context: TrialContext,
     results_dict: dict,
     failed_runs: set,
@@ -246,7 +222,7 @@ def _run_single_trial(
     if not status.should_run:
         return status.is_successful
 
-    trial_runner = _get_trial_runner(context)
+    trial_runner = get_trial_runner(context)
 
     if trial_runner:
         result = trial_runner.run()
@@ -260,6 +236,7 @@ def _run_single_trial(
             context.no_save,
         )
     else:
+        logging.error(f"Could not create a trial runner for {context.run_key}. Marking as failed.")
         failed_runs.add(context.run_key)
         is_successful = False
 
@@ -267,8 +244,77 @@ def _run_single_trial(
 
 
 # ============================================================================
-# MAIN SWEEP ORCHESTRATION
+# SWEEP ORCHESTRATION HELPERS
 # ============================================================================
+
+
+def _setup_sweep_state(experiment, directory, no_save, init_key):
+    """Handles all initial setup for a sweep."""
+    results_dict, failed_runs, checkpoint_manager = initialize_results_and_checkpoints(experiment, directory, no_save)
+
+    model_instance = experiment.create_model_instance()
+    widths = experiment.get_model_widths()
+    params0 = initialize_model_params(model_instance, checkpoint_manager, init_key, widths, no_save)
+    model_for_runner = experiment.get_model_wrapper(model_instance, params0)
+
+    return results_dict, failed_runs, checkpoint_manager, params0, model_for_runner
+
+
+def _execute_sweep_loops(
+    experiment,
+    batch_sizes,
+    etas,
+    init_key,
+    no_save,
+    eta_stability_search_depth,
+    results_dict,
+    failed_runs,
+    checkpoint_manager,
+    params0,
+    model_for_runner,
+    train_ds,
+    test_ds,
+    **kwargs,
+):
+    """Contains the main nested loops for the hyperparameter sweep."""
+    for batch_size in tqdm(batch_sizes, desc="Batch Size Sweep"):
+        if experiment.should_skip_batch_size(batch_size, train_ds):
+            continue
+
+        eta_tracker = EtaStabilityTracker(eta_stability_search_depth)
+        sorted_etas = sorted(etas, reverse=True)
+
+        for eta in tqdm(sorted_etas, desc=f"Eta Sweep (B={batch_size})", leave=False):
+            run_key = RunKey(batch_size=batch_size, eta=eta)
+            num_epochs_override = kwargs.get("num_epochs")
+            num_steps, num_epochs_for_run = experiment.compute_num_steps(
+                batch_size, train_ds, num_epochs=num_epochs_override
+            )
+
+            # Create and manage the lifecycle of the progress bar for the trial
+            pbar = tqdm(total=num_steps, desc=f"η={eta:.3g}", leave=False)
+            try:
+                context = TrialContext(
+                    experiment=experiment,
+                    run_key=run_key,
+                    params0=params0,
+                    model_instance=model_for_runner,
+                    checkpoint_manager=checkpoint_manager,
+                    train_ds=train_ds,
+                    test_ds=test_ds,
+                    pbar=pbar,
+                    no_save=no_save,
+                    init_key=init_key,
+                    num_steps=num_steps,
+                    num_epochs=num_epochs_for_run,
+                    kwargs=kwargs,
+                )
+                is_successful = run_single_trial(context=context, results_dict=results_dict, failed_runs=failed_runs)
+            finally:
+                pbar.close()
+
+            if eta_tracker.update(is_successful):
+                break
 
 
 def run_experiment_sweep(
@@ -286,75 +332,41 @@ def run_experiment_sweep(
     training logic based on the type of the experiment object.
     """
     # 1. Setup
-    results_dict, failed_runs, checkpoint_manager = initialize_results_and_checkpoints(experiment, directory, no_save)
-
-    # Polymorphic call to the experiment to create its own model instance.
-    model_instance = experiment.create_model_instance()
-
-    widths = experiment.get_model_widths()
-    params0 = initialize_model_params(model_instance, checkpoint_manager, init_key, widths, no_save)
-    model_for_runner = experiment.get_model_wrapper(model_instance, params0)  # e.g. centering the model or not
+    results_dict, failed_runs, checkpoint_manager, params0, model_for_runner = _setup_sweep_state(
+        experiment, directory, no_save, init_key
+    )
 
     # 2. Load Data
     train_ds, test_ds = experiment.prepare_datasets(init_key, **kwargs)
-    if train_ds is None and not isinstance(experiment, (SyntheticExperimentFixedTime, SyntheticExperimentMLPTeacher)):
+    # Data loading failure is a fatal error for offline experiments, so abort the sweep.
+    if train_ds is None and not experiment.is_online_experiment():
         logging.error("Failed to load dataset. Aborting sweep.")
-        return dict(results_dict), failed_runs
+        # Return copies to prevent external mutation of internal state
+        return results_dict.copy(), failed_runs.copy()
 
     # 3. Run Sweep
-    for batch_size in tqdm(batch_sizes, desc="Batch Size Sweep"):
-        # Determine dataset size for the polymorphic check, if applicable.
-        train_ds_size = None
-        if isinstance(experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)) and train_ds:
-            train_ds_size = len(train_ds["image"])
+    _execute_sweep_loops(
+        experiment,
+        batch_sizes,
+        etas,
+        init_key,
+        no_save,
+        eta_stability_search_depth,
+        results_dict,
+        failed_runs,
+        checkpoint_manager,
+        params0,
+        model_for_runner,
+        train_ds,
+        test_ds,
+        **kwargs,
+    )
 
-        # Polymorphic call to check if the batch size is valid.
-        if experiment.should_skip_batch_size(batch_size, train_ds_size=train_ds_size):
-            continue
-
-        eta_tracker = EtaStabilityTracker(eta_stability_search_depth)
-
-        sorted_etas = sorted(etas, reverse=True)
-        eta_pbar = tqdm(total=len(sorted_etas), desc="Eta Sweep", leave=False)
-        eta_pbar.reset()
-        eta_pbar.set_description(f"Eta Sweep (B={batch_size})")
-
-        for eta in sorted_etas:
-            run_key = RunKey(batch_size=batch_size, eta=eta)
-            # Pass num_epochs from kwargs if it exists, to correctly calculate total steps
-            num_epochs_for_run = kwargs.get("num_epochs", getattr(experiment, "num_epochs", 1))
-            num_steps = compute_num_steps(experiment, batch_size, train_ds, num_epochs=num_epochs_for_run)
-
-            # Create the context object for this trial
-            context = TrialContext(
-                experiment=experiment,
-                run_key=run_key,
-                params0=params0,
-                model_instance=model_for_runner,
-                checkpoint_manager=checkpoint_manager,
-                train_ds=train_ds,
-                test_ds=test_ds,
-                pbar=eta_pbar,
-                no_save=no_save,
-                init_key=init_key,
-                num_steps=num_steps,
-                num_epochs=num_epochs_for_run,
-                kwargs=kwargs,
-            )
-            is_successful = _run_single_trial(context=context, results_dict=results_dict, failed_runs=failed_runs)
-
-            if eta_tracker.update(is_successful):
-                # Fast-forward the progress bar to the end for this batch size
-                eta_pbar.update(len(sorted_etas) - eta_pbar.n)
-                break
-
-            eta_pbar.update(1)
-
-        eta_pbar.close()
-    return dict(results_dict), failed_runs
+    # Return copies to prevent external mutation of internal state
+    return results_dict.copy(), failed_runs.copy()
 
 
-def _get_trial_runner(context: TrialContext):
+def get_trial_runner(context: TrialContext):
     """Factory function to create the appropriate trial runner."""
     try:
         runner_class = context.experiment.get_trial_runner_class()
@@ -367,33 +379,22 @@ def _get_trial_runner(context: TrialContext):
 
 
 def are_all_runs_complete(
-    experiment, losses: dict, failed_runs: set, batch_sizes: list[int], etas: list[float]
+    experiment, results_dict: dict, failed_runs: set, batch_sizes: list[int], etas: list[float]
 ) -> bool:
     """
     Checks if all specified runs for an experiment are either completed, failed, or skipped.
     """
     for b in batch_sizes:
-        # We pass train_ds_size=None because this is a pre-flight check
-        # before data is loaded.
-        if experiment.should_skip_batch_size(b, train_ds_size=None):
+        if experiment.should_skip_batch_size(b, train_ds=None):
             continue
 
         for eta in etas:
-            run_key = RunKey(b, eta)
-            result = losses.get(run_key)
-            is_failed = run_key in failed_runs
+            run_key = RunKey(batch_size=b, eta=eta)
+            if run_key in failed_runs:
+                continue  # Failed runs are accounted for.
 
-            if result is None and not is_failed:
-                # The run is neither in the successful results nor in the failed set.
-                # It's genuinely missing.
-                return False
-
-            if result is not None:
-                # The run exists, check if it's complete.
-                if not experiment.is_run_complete(result, run_key):
-                    return False  # It's incomplete.
-
-            # If result is None but is_failed is True, we consider it "accounted for"
-            # and continue checking the next run.
+            result = results_dict.get(run_key)
+            if result is None or not experiment.is_run_complete(result, run_key):
+                return False  # Missing or incomplete runs mean the sweep is not complete.
 
     return True

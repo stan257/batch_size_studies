@@ -237,7 +237,7 @@ class ExperimentBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
         """
         Checks if a given batch size is invalid for this experiment.
         """
@@ -277,6 +277,21 @@ class ExperimentBase(ABC):
         Returns the final, adjusted learning rate for the optimizer.
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+        """
+        Computes the total number of training steps and the effective number of epochs for a trial.
+        Returns: (num_steps, effective_num_epochs)
+        """
+        raise NotImplementedError
+
+    def is_online_experiment(self) -> bool:
+        """
+        Returns True if the experiment does not require a pre-loaded dataset.
+        This is used by the runner to decide if it should abort on data loading failure.
+        """
+        return False
 
 
 class SyntheticExperiment(ABC):
@@ -319,9 +334,16 @@ class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, Synthet
         loss_history = result.get("loss_history", [])
         return len(loss_history) >= self.num_steps
 
-    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
         # Fixed-time experiments do not depend on dataset size.
         return False
+
+    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+        # For fixed-time experiments, num_epochs is not relevant. We can consider it as 1.
+        return self.num_steps, 1
+
+    def is_online_experiment(self) -> bool:
+        return True
 
     def get_trial_runner_class(self) -> Type[TrialRunner]:
         """Returns the runner for fixed-time synthetic experiments."""
@@ -340,6 +362,7 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
     D: int
     P: int
     K: int
+    num_epochs: int = 1
     seed: int = 0  # Seed for reproducible data generation
     experiment_type: str = field(default="fixed_data_poly_teacher", init=False)
 
@@ -367,13 +390,16 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
         return f"{line1}\n{line2}"
 
     def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        num_epochs = getattr(self, "num_epochs", 1)
-        steps_per_epoch = self.P // run_key.batch_size
-        num_steps = num_epochs * steps_per_epoch
+        num_steps, _ = self.compute_num_steps(run_key.batch_size, None, self.num_epochs)
         loss_history = result.get("loss_history", [])
         return len(loss_history) >= num_steps
 
-    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+        epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
+        steps_per_epoch = self.P // batch_size
+        return epochs_to_run * steps_per_epoch, epochs_to_run
+
+    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
         if batch_size > self.P:
             logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
             return True
@@ -445,9 +471,13 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
         loss_history = result.get("loss_history", [])
         return len(loss_history) >= self.num_steps
 
-    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
         # Fixed-time experiments do not depend on dataset size.
         return False
+
+    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+        # For fixed-time experiments, num_epochs is not relevant. We can consider it as 1.
+        return self.num_steps, 1
 
     def get_trial_runner_class(self) -> Type[TrialRunner]:
         """Returns the runner for fixed-time synthetic experiments."""
@@ -458,6 +488,9 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
         """Fixed-time experiments do not load a dataset upfront."""
         return None, None
+
+    def is_online_experiment(self) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -520,13 +553,16 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
         return f"{line1}\n{line2}"
 
     def is_run_complete(self, result: dict, run_key: RunKey) -> bool:
-        num_epochs = getattr(self, "num_epochs", 1)
-        steps_per_epoch = self.P // run_key.batch_size
-        num_steps = num_epochs * steps_per_epoch
+        num_steps, _ = self.compute_num_steps(run_key.batch_size, None, self.num_epochs)
         loss_history = result.get("loss_history", [])
         return len(loss_history) >= num_steps
 
-    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+        epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
+        steps_per_epoch = self.P // batch_size
+        return epochs_to_run * steps_per_epoch, epochs_to_run
+
+    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
         if batch_size > self.P:
             logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
             return True
@@ -574,10 +610,11 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
         epoch_accuracies = result.get("epoch_test_accuracies", [])
         return len(epoch_accuracies) >= self.num_epochs
 
-    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
-        if train_ds_size is None:
+    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
+        if train_ds is None:
             # In a pre-flight check, we don't know the dataset size, so we can't skip.
             return False
+        train_ds_size = len(train_ds["image"])
         if batch_size > train_ds_size:
             logging.warning(f"Skipping batch size {batch_size} > dataset size ({train_ds_size}).")
             return True
@@ -592,6 +629,15 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
         """Loads the MNIST dataset."""
         return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
+
+    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+        epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
+        if train_ds is None:
+            # During pre-flight checks, we can't calculate steps but can report epochs.
+            return 0, epochs_to_run
+        num_train_samples = len(train_ds["image"])
+        steps_per_epoch = num_train_samples // batch_size
+        return epochs_to_run * steps_per_epoch, epochs_to_run
 
 
 @dataclass(frozen=True)
@@ -620,10 +666,11 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
         epoch_accuracies = result.get("epoch_test_accuracies", [])
         return len(epoch_accuracies) >= self.num_epochs
 
-    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
-        if train_ds_size is None:
+    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
+        if train_ds is None:
             # In a pre-flight check, we don't know the dataset size, so we can't skip.
             return False
+        train_ds_size = len(train_ds["image"])
         if batch_size > train_ds_size:
             logging.warning(f"Skipping batch size {batch_size} > dataset size ({train_ds_size}).")
             return True
@@ -638,6 +685,14 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
         """Loads the MNIST-1M dataset."""
         return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
+
+    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+        epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
+        if train_ds is None:
+            return 0, epochs_to_run
+        num_train_samples = len(train_ds["image"])
+        steps_per_epoch = num_train_samples // batch_size
+        return epochs_to_run * steps_per_epoch, epochs_to_run
 
 
 @dataclass(frozen=True)
@@ -666,12 +721,12 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
         epoch_accuracies = result.get("epoch_test_accuracies", [])
         return len(epoch_accuracies) >= self.num_epochs
 
-    def should_skip_batch_size(self, batch_size: int, train_ds_size: int | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: typing.Any | None = None) -> bool:
         # For sampled experiments, the config's `max_train_samples` is the
         # effective dataset size we should check against.
         effective_size = self.max_train_samples
-        if train_ds_size is not None:
-            effective_size = min(self.max_train_samples, train_ds_size)
+        if train_ds is not None:
+            effective_size = min(self.max_train_samples, len(train_ds["image"]))
         if batch_size > effective_size:
             logging.warning(f"Skipping batch size {batch_size} > effective dataset size ({effective_size}).")
             return True
@@ -686,4 +741,11 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[typing.Any, typing.Any]:
         """Loads and subsamples the MNIST-1M dataset."""
         return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
-        return MNISTTrialRunner
+
+    def compute_num_steps(self, batch_size: int, train_ds: typing.Any, num_epochs: int | None) -> tuple[int, int]:
+        epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
+        if train_ds is None:
+            return 0, epochs_to_run
+        num_train_samples = len(train_ds["image"])
+        steps_per_epoch = num_train_samples // batch_size
+        return epochs_to_run * steps_per_epoch, epochs_to_run

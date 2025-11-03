@@ -67,7 +67,7 @@ class TestRunnerIntegration:
         resume_filepath = cm._get_resume_filepath(run_key)
         assert not os.path.exists(resume_filepath), "Live checkpoint file was not cleaned up after successful run."
 
-    @patch("batch_size_studies.runner._run_single_trial")
+    @patch("batch_size_studies.runner.run_single_trial")
     def test_eta_stability_search_stops_early(self, mock_run_single_trial, tmp_path):
         """
         Tests that the eta stability search correctly skips etas after

@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Any
 
 import numpy as np
 import pytest
@@ -51,6 +52,9 @@ class MockSynthExperiment(LinearStudentExperiment, ExperimentBase):
     def get_adjusted_eta(self, base_eta: float) -> float:
         pass
 
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:
+        return 0, 0
+
 
 @dataclass(frozen=True)
 class MockMNISTExperiment(MLPStudentExperiment, ExperimentBase):
@@ -83,6 +87,9 @@ class MockMNISTExperiment(MLPStudentExperiment, ExperimentBase):
 
     def get_adjusted_eta(self, base_eta: float) -> float:
         pass
+
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:
+        return 0, 0
 
 
 @pytest.fixture

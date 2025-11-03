@@ -247,7 +247,7 @@ class TestIsRunComplete:
             # Fixed Data (e.g., SyntheticExperimentFixedData, SyntheticExperimentLinearTeacher)
             (
                 "fixed_data_config",  # P=128, num_epochs=1 (default)
-                RunKey(32, 0.1),  # steps = 1 * (128//32) = 4
+                RunKey(32, 0.1),
                 {"loss_history": [0.1] * 4},
                 {"loss_history": [0.1] * 3},
             ),
