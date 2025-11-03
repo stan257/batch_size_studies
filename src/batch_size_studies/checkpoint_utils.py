@@ -3,6 +3,7 @@ import os
 import pickle
 
 import jax
+import numpy as np
 from filelock import FileLock
 
 from .definitions import RunKey
@@ -148,6 +149,46 @@ class CheckpointManager:
             weights_data = {"initial_params": params0, "weight_snapshots": {}}
             save_experiment(weights_data, self.weights_filepath)
             return params0
+
+    def save_sweep_metadata(self, metadata_to_add: dict):
+        """Saves or updates sweep-level metadata in the weights file."""
+        lock_path = self.weights_filepath + ".lock"
+        with FileLock(lock_path):
+            weights_data = {}
+            if os.path.exists(self.weights_filepath):
+                try:
+                    with open(self.weights_filepath, "rb") as f:
+                        weights_data = CustomUnpickler(f).load()
+                except (pickle.UnpicklingError, EOFError):
+                    logging.warning(f"Corrupted weights file {self.weights_filepath}. Overwriting.")
+
+            if "metadata" not in weights_data:
+                weights_data["metadata"] = {}
+
+            # Check for potential overwrites before updating to ensure data provenance.
+            existing_metadata = weights_data["metadata"]
+            for key, new_value in metadata_to_add.items():
+                if key in existing_metadata and not np.array_equal(existing_metadata[key], new_value):
+                    logging.warning(
+                        f"Overwriting sweep metadata key '{key}'. "
+                        f"Old value: {existing_metadata[key]}, New value: {new_value}. "
+                        "This may invalidate provenance for existing results in this directory."
+                    )
+
+            weights_data["metadata"].update(metadata_to_add)
+            save_experiment(weights_data, self.weights_filepath)
+
+    def load_sweep_metadata(self) -> dict:
+        """Loads sweep-level metadata from the weights file."""
+        if not os.path.exists(self.weights_filepath):
+            return {}
+        try:
+            with open(self.weights_filepath, "rb") as f:
+                data = CustomUnpickler(f).load()
+            return data.get("metadata", {})
+        except (pickle.UnpicklingError, EOFError) as e:
+            logging.warning(f"Could not load metadata from {self.weights_filepath}. Error: {e}")
+            return {}
 
     def load_analysis_snapshot(self, run_key: RunKey, step: int):
         """

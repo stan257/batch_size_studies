@@ -1,6 +1,6 @@
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 from unittest.mock import Mock
 
 import jax
@@ -9,8 +9,10 @@ import optax
 
 from .data_iterators import DataIterator, EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
-from .runner import TrialContext
 from .training_utils import create_base_optimizer_transform
+
+if TYPE_CHECKING:
+    from .runner import TrialContext
 
 
 class DivergenceError(Exception):
@@ -22,7 +24,7 @@ class TrialRunner(ABC):
 
     _JIT_CACHE = {}
 
-    def __init__(self, context: TrialContext):
+    def __init__(self, context: "TrialContext"):
         self.experiment = context.experiment
         self.run_key = context.run_key
         self.params0 = context.params0

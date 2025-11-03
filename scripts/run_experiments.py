@@ -96,6 +96,7 @@ def run_single_experiment(
     directory=EXPERIMENTS_DIR,
     no_save: bool = False,
     eta_stability_search_depth: int | None = None,
+    max_eval_samples: int | None = None,
 ):
     """
     A wrapper function to run a single experiment trial. This is designed
@@ -110,6 +111,7 @@ def run_single_experiment(
         "directory": directory,
         "no_save": no_save,
         "eta_stability_search_depth": eta_stability_search_depth,
+        "max_eval_samples": max_eval_samples,
     }
 
     # Selectively apply a default number of epochs only if the experiment
@@ -163,6 +165,12 @@ def main():
         type=int,
         default=None,
         help="Number of consecutive stable etas to find before stopping the sweep for a given batch size. If not set, all etas are run.",
+    )
+    parser.add_argument(
+        "--max-eval-samples",
+        type=int,
+        default=None,
+        help="Maximum number of test samples to use for evaluation each epoch. If not set, the full test set is used.",
     )
     args = parser.parse_args()
 
@@ -251,6 +259,7 @@ def main():
                 directory,
                 args.no_save,
                 args.eta_stability_depth,
+                args.max_eval_samples,
             ): name
             for name, config in experiments_that_need_running.items()
         }

@@ -11,6 +11,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+import jax
 import numpy as np
 from tqdm.auto import tqdm
 
@@ -37,6 +38,20 @@ class TrialContext:
     # Data fields, can be None
     train_ds: Any | None = None
     test_ds: Any | None = None
+
+
+def _subsample_dataset(dataset: dict, max_samples: int, key: jax.random.PRNGKey) -> dict:
+    """Helper to subsample a dictionary-based dataset."""
+    num_original_samples = len(dataset["image"])
+    if num_original_samples > max_samples:
+        indices_to_use = jax.random.permutation(key, num_original_samples)[:max_samples]
+        subsampled_dataset = {
+            "image": dataset["image"][np.array(indices_to_use)],
+            "label": dataset["label"][np.array(indices_to_use)],
+        }
+        logging.info(f"Evaluating on a fixed random subset of {len(subsampled_dataset['image'])} test samples.")
+        return subsampled_dataset
+    return dataset
 
 
 @dataclass
@@ -286,6 +301,7 @@ def _execute_sweep_loops(
                     kwargs=kwargs,
                 )
                 is_successful = run_single_trial(context=context, results_dict=results_dict, failed_runs=failed_runs)
+
             finally:
                 pbar.close()
 
@@ -301,6 +317,7 @@ def run_experiment_sweep(
     directory=EXPERIMENTS_DIR,
     no_save: bool = False,
     eta_stability_search_depth: int | None = None,
+    max_eval_samples: int | None = None,
     **kwargs,
 ):
     """
@@ -314,6 +331,17 @@ def run_experiment_sweep(
 
     # 2. Load Data
     train_ds, test_ds = experiment.prepare_datasets(init_key, **kwargs)
+    # --- Save sweep-level metadata (e.g., data subsampling seed) ---
+    sweep_metadata = experiment.get_sweep_metadata(init_key)
+    if sweep_metadata and not no_save:
+        checkpoint_manager.save_sweep_metadata(sweep_metadata)
+
+    # --- Subsample test set for faster evaluation if requested ---
+    if max_eval_samples is not None and test_ds is not None:
+        # Use a derived key for determinism, different from the training subsample key
+        eval_subsample_key = jax.random.PRNGKey(init_key + 1)
+        test_ds = _subsample_dataset(test_ds, max_eval_samples, eval_subsample_key)
+
     # Data loading failure is a fatal error for offline experiments, so abort the sweep.
     if train_ds is None and not experiment.is_online_experiment():
         logging.error("Failed to load dataset. Aborting sweep.")

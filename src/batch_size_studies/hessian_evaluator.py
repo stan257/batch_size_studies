@@ -68,9 +68,16 @@ class HessianEvaluator:
             logging.info("Evaluating Hessian at initialization (params0).")
 
         # --- 2. Load Data ---
+        # For sampled experiments, ensure we use the same data subset as training.
+        cm = CheckpointManager(self.experiment, directory=self.directory)
+        metadata = cm.load_sweep_metadata()
+        subsample_seed = metadata.get("subsample_seed")
+        if subsample_seed is not None:
+            logging.info(f"Found and using subsample_seed: {subsample_seed}")
+
         # Use the experiment's own method to prepare the dataset.
         # The Hessian should be evaluated on the training distribution.
-        train_ds, _ = self.experiment.prepare_datasets(init_key=self.key.sum())
+        train_ds, _ = self.experiment.prepare_datasets(init_key=self.key.sum(), forced_subsample_seed=subsample_seed)
         if train_ds is None:
             raise ValueError("Hessian evaluation requires a dataset, but prepare_datasets returned None.")
         self.data_loader = self._create_data_loader(train_ds, num_hessian_samples, hessian_batch_size)

@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Type
+from typing import TYPE_CHECKING, Type
 
 import jax.random as jr
 import numpy as np
@@ -15,7 +15,9 @@ from .data_loading import load_datasets, load_mnist1m_dataset
 from .definitions import LossType, OptimizerType, Parameterization
 from .models import MLP, LinearModel
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
-from .trainer import TrialRunner
+
+if TYPE_CHECKING:
+    from .trainer import TrialRunner
 
 
 def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
@@ -32,7 +34,7 @@ def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
     return train_images, train_labels
 
 
-def _load_mnist_dataset(experiment, init_key: int, dataset_loader=None):
+def _load_mnist_dataset(experiment, init_key: int, dataset_loader=None, forced_subsample_seed=None):
     """Loads MNIST dataset with optional subsampling."""
     if dataset_loader is None:
         dataset_loader = load_datasets if isinstance(experiment, MNISTExperiment) else load_mnist1m_dataset
@@ -40,7 +42,9 @@ def _load_mnist_dataset(experiment, init_key: int, dataset_loader=None):
     try:
         (train_images, train_labels), (test_images, test_labels) = dataset_loader()
         if isinstance(experiment, MNIST1MSampledExperiment):
-            train_images, train_labels = _subsample_mnist_data(train_images, train_labels, experiment, init_key)
+            # Use the forced seed if provided (for analysis tools), otherwise use the runtime init_key.
+            seed_to_use = forced_subsample_seed if forced_subsample_seed is not None else init_key
+            train_images, train_labels = _subsample_mnist_data(train_images, train_labels, experiment, seed_to_use)
         train_ds = {"image": train_images, "label": train_labels}
         test_ds = {"image": test_images, "label": test_labels}
         return train_ds, test_ds
@@ -211,11 +215,15 @@ class ExperimentBase(ABC):
         raise NotImplementedError
 
     @abstractmethod
-    def get_trial_runner_class(self) -> Type[TrialRunner]:
+    def get_trial_runner_class(self) -> Type["TrialRunner"]:
         """
         Returns the specific TrialRunner class required for this experiment.
         """
         raise NotImplementedError
+
+    def get_sweep_metadata(self, init_key: int) -> dict:
+        """Returns sweep-level metadata to be saved, e.g., seeds for data subsampling."""
+        return {}
 
     @abstractmethod
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
@@ -616,7 +624,12 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
 
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Loads the MNIST dataset."""
-        return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
+        return _load_mnist_dataset(
+            self,
+            init_key,
+            dataset_loader=kwargs.get("dataset_loader"),
+            forced_subsample_seed=kwargs.get("forced_subsample_seed"),
+        )
 
     def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
@@ -674,7 +687,12 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
 
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Loads the MNIST-1M dataset."""
-        return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
+        return _load_mnist_dataset(
+            self,
+            init_key,
+            dataset_loader=kwargs.get("dataset_loader"),
+            forced_subsample_seed=kwargs.get("forced_subsample_seed"),
+        )
 
     def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
@@ -733,9 +751,18 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
 
         return MNISTTrialRunner
 
+    def get_sweep_metadata(self, init_key: int) -> dict:
+        """This experiment uses a random subset of data, so we save the seed."""
+        return {"subsample_seed": init_key}
+
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Loads and subsamples the MNIST-1M dataset."""
-        return _load_mnist_dataset(self, init_key, kwargs.get("dataset_loader"))
+        return _load_mnist_dataset(
+            self,
+            init_key,
+            dataset_loader=kwargs.get("dataset_loader"),
+            forced_subsample_seed=kwargs.get("forced_subsample_seed"),
+        )
 
     def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
