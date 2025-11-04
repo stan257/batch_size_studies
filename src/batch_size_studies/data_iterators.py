@@ -42,6 +42,9 @@ class EpochBasedDataIterator(DataIterator):
         self.subset_indices = jr.permutation(subset_key, self.original_num_train)[:num_usable_samples]
 
     def __iter__(self) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
+        if self.steps_per_epoch == 0:
+            return
+
         start_epoch = self.start_step // self.steps_per_epoch
         step_in_epoch = self.start_step % self.steps_per_epoch
 

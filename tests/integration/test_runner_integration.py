@@ -2,10 +2,73 @@ import os
 import pickle
 from unittest.mock import patch
 
+import jax
+import jax.numpy as jnp
+import pytest
+
+import batch_size_studies.runner as runner_module
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import SyntheticExperimentFixedData
 from batch_size_studies.runner import run_experiment_sweep
+
+
+class DummyTqdm:
+    def __init__(self, iterable=None, total=None, **kwargs):
+        self.iterable = iterable if iterable is not None else range(total or 0)
+
+    def __iter__(self):
+        return iter(self.iterable)
+
+    def update(self, *args, **kwargs):
+        pass
+
+    def set_postfix(self, *args, **kwargs):
+        pass
+
+    def set_description(self, *args, **kwargs):
+        pass
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        pass
+
+
+class TinyModel:
+    def __call__(self, params, inputs):
+        return jnp.matmul(inputs, params["w"]) + params["b"]
+
+    def init_params(self, init_key: int, widths: list[int]):
+        w_key, b_key = jax.random.split(jax.random.PRNGKey(init_key))
+        return {
+            "w": jax.random.normal(w_key, (widths[0], widths[1])),
+            "b": jax.random.normal(b_key, (widths[1],)),
+        }
+
+
+class TinyExperiment(SyntheticExperimentFixedData):
+    def create_model_instance(self):
+        return TinyModel()
+
+    def get_model_widths(self) -> list[int]:
+        return [self.D, 1]
+
+    def get_model_wrapper(self, model_instance, params0):
+        return model_instance
+
+
+class DummyCheckpointManager:
+    def __init__(self, directory):
+        self.directory = directory
+        self.metadata_saved = []
+
+    def save_sweep_metadata(self, metadata):
+        self.metadata_saved.append(metadata)
+
+    def cleanup_live_checkpoint(self, run_key):
+        pass
 
 
 class TestRunnerIntegration:
@@ -112,3 +175,78 @@ class TestRunnerIntegration:
         called_etas = {call.kwargs["context"].run_key.eta for call in mock_run_single_trial.call_args_list}
         expected_run_etas = {8.0, 4.0, 2.0}
         assert called_etas == expected_run_etas
+
+
+class TestRunExperimentSweepNoSaveIntegration:
+    @pytest.fixture(autouse=True)
+    def patch_tqdm(self, monkeypatch):
+        monkeypatch.setattr(runner_module, "tqdm", DummyTqdm)
+
+    def make_experiment(self):
+        return TinyExperiment(
+            D=2,
+            P=4,
+            N=2,
+            K=1,
+            num_epochs=1,
+            seed=0,
+            gamma=1.0,
+            L=2,
+            parameterization=Parameterization.SP,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+        )
+
+    def test_single_run_success(self, tmp_path):
+        experiment = self.make_experiment()
+
+        results, failed = run_experiment_sweep(
+            experiment=experiment,
+            batch_sizes=[2],
+            etas=[0.1],
+            init_key=0,
+            directory=str(tmp_path),
+            no_save=True,
+        )
+
+        run_key = RunKey(batch_size=2, eta=0.1)
+        assert run_key in results
+        run_result = results[run_key]
+        assert "loss_history" in run_result
+        assert len(run_result["loss_history"]) == experiment.compute_num_steps(2, experiment.prepare_datasets(0)[0], None)[0]
+        assert run_key not in failed
+
+    def test_skips_completed_run(self, tmp_path, monkeypatch):
+        experiment = self.make_experiment()
+        run_key = RunKey(batch_size=2, eta=0.1)
+        pre_results = {run_key: {"loss_history": [0.1, 0.1]}}
+
+        dummy_cm = DummyCheckpointManager(str(tmp_path))
+
+        def fake_setup(experiment, directory, no_save, init_key):
+            model_instance = experiment.create_model_instance()
+            params0 = model_instance.init_params(init_key, experiment.get_model_widths())
+            model_wrapper = experiment.get_model_wrapper(model_instance, params0)
+            return pre_results.copy(), set(), dummy_cm, params0, model_wrapper
+
+        run_calls = {"count": 0}
+
+        def fake_run_single_trial(*args, **kwargs):
+            run_calls["count"] += 1
+            return True
+
+        monkeypatch.setattr(runner_module, "_setup_sweep_state", fake_setup)
+        monkeypatch.setattr(runner_module, "run_single_trial", fake_run_single_trial)
+
+        results, failed = run_experiment_sweep(
+            experiment=experiment,
+            batch_sizes=[2],
+            etas=[0.1],
+            init_key=0,
+            directory=str(tmp_path),
+            no_save=False,
+        )
+
+        assert run_calls["count"] == 0
+        assert results == pre_results
+        assert failed == set()

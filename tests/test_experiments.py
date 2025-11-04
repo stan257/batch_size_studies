@@ -1,11 +1,14 @@
+import logging
 import os
+from dataclasses import replace
+from types import SimpleNamespace
 
 import jax.random as jr
 import numpy as np
 import pytest
 
 from batch_size_studies.checkpoint_utils import CheckpointManager
-from batch_size_studies.definitions import LossType, OptimizerType, Parameterization
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import (
     MNIST1MExperiment,
     MNIST1MSampledExperiment,
@@ -14,6 +17,8 @@ from batch_size_studies.experiments import (
     SyntheticExperimentFixedTime,
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentMLPTeacher,
+    _load_mnist_dataset,
+    _subsample_mnist_data,
 )
 from batch_size_studies.storage_utils import generate_experiment_filename, save_experiment
 
@@ -368,3 +373,120 @@ class TestLegacyStorageCompatibility:
         loaded_losses, loaded_failed = experiment.load_results(directory=str(experiments_dir))
         assert loaded_losses == legacy_results_payload["losses"]
         assert loaded_failed == legacy_results_payload["failed_runs"]
+
+
+class TestExperimentUtilities:
+    def test_to_params_dict_converts_enums_and_excludes_fixed_fields(self, mnist_config):
+        params = mnist_config.to_params_dict()
+        assert params["optimizer"] == mnist_config.optimizer.value
+        assert params["loss_type"] == mnist_config.loss_type.value
+        assert "num_outputs" not in params
+        assert "experiment_type" not in params
+
+    def test_filename_variants_include_legacy(self, mnist_config):
+        variants = mnist_config.get_filename_variants()
+        assert variants  # non-empty
+        assert any("loss_type" in name for name in variants)
+        assert any("loss_type" not in name for name in variants)
+
+    def test_save_and_load_results_roundtrip(self, tmp_path, mnist_config, caplog):
+        run_key = RunKey(batch_size=1, eta=0.5)
+        losses = {run_key: {"loss_history": [0.1], "expected_steps": 1}}
+        failed = set()
+
+        with caplog.at_level(logging.INFO):
+            filepath = mnist_config.save_results(losses, failed, directory=str(tmp_path))
+            assert os.path.exists(filepath)
+            loaded_losses, loaded_failed = mnist_config.load_results(directory=str(tmp_path), silent=False)
+
+        assert "Results file found" in "".join(caplog.messages)
+        assert loaded_losses == losses
+        assert loaded_failed == failed
+
+    def test_mnist_prepare_datasets_success(self, monkeypatch, mnist_config):
+        dummy_train = (np.ones((4, 28, 28)), np.zeros(4, dtype=int))
+        dummy_test = (np.zeros((2, 28, 28)), np.ones(2, dtype=int))
+
+        def fake_loader():
+            return dummy_train, dummy_test
+
+        monkeypatch.setattr("batch_size_studies.experiments.load_datasets", fake_loader)
+        train_ds, test_ds = mnist_config.prepare_datasets(init_key=0)
+
+        np.testing.assert_array_equal(train_ds["image"], dummy_train[0])
+        np.testing.assert_array_equal(test_ds["label"], dummy_test[1])
+
+    def test_load_mnist_dataset_handles_failure(self, caplog, mnist_config):
+        def failing_loader():
+            raise RuntimeError("boom")
+
+        with caplog.at_level(logging.ERROR):
+            train_ds, test_ds = _load_mnist_dataset(mnist_config, init_key=0, dataset_loader=failing_loader)
+
+        assert train_ds is None and test_ds is None
+        assert "Failed to load dataset" in "".join(caplog.messages)
+
+    def test_subsample_mnist_data_respects_max_samples(self, mnist1m_sampled_config):
+        images = np.arange(10 * 3).reshape(10, 3)
+        labels = np.arange(10)
+        experiment = SimpleNamespace(max_train_samples=4)
+
+        sub_images, sub_labels = _subsample_mnist_data(images, labels, experiment, init_key=0)
+
+        assert len(sub_images) == 4
+        assert len(sub_labels) == 4
+
+    def test_adjusted_eta_scaling(self, mnist_config):
+        base_eta = 0.01
+
+        # SP parameterization should leave eta unchanged when gamma = 1
+        assert mnist_config.get_adjusted_eta(base_eta) == pytest.approx(base_eta)
+
+        mup_sgd = replace(mnist_config, parameterization=Parameterization.MUP, optimizer=OptimizerType.SGD)
+        assert mup_sgd.get_adjusted_eta(base_eta) == pytest.approx(base_eta * mup_sgd.N)
+
+        mup_adam = replace(mup_sgd, optimizer=OptimizerType.ADAM)
+        assert mup_adam.get_adjusted_eta(base_eta) == pytest.approx(base_eta * np.sqrt(mup_adam.N))
+
+    def test_mnist1m_sampled_prepare_datasets_passes_forced_seed(self, monkeypatch, mnist1m_sampled_config):
+        captured = {}
+
+        def fake_loader(experiment, init_key, dataset_loader=None, forced_subsample_seed=None):
+            captured["experiment"] = experiment
+            captured["forced"] = forced_subsample_seed
+            dummy = {"image": np.zeros((1, 28, 28)), "label": np.zeros(1, dtype=int)}
+            return dummy, dummy
+
+        monkeypatch.setattr("batch_size_studies.experiments._load_mnist_dataset", fake_loader)
+        train_ds, test_ds = mnist1m_sampled_config.prepare_datasets(init_key=123, forced_subsample_seed=999)
+
+        assert captured["experiment"] is mnist1m_sampled_config
+        assert captured["forced"] == 999
+        assert train_ds["image"].shape == (1, 28, 28)
+        assert test_ds["label"].shape == (1,)
+
+    def test_mnist1m_sampled_metadata_and_skip_logic(self, mnist1m_sampled_config):
+        assert mnist1m_sampled_config.get_sweep_metadata(7) == {"subsample_seed": 7}
+
+        train_ds = {"image": np.zeros((50, 28, 28)), "label": np.zeros(50, dtype=int)}
+        assert not mnist1m_sampled_config.should_skip_batch_size(32, train_ds)
+        assert mnist1m_sampled_config.should_skip_batch_size(1024, train_ds)
+
+        num_steps, epochs = mnist1m_sampled_config.compute_num_steps(batch_size=50, train_ds=train_ds, num_epochs=None)
+        assert num_steps == mnist1m_sampled_config.num_epochs * (len(train_ds["image"]) // 50)
+        assert epochs == mnist1m_sampled_config.num_epochs
+
+    def test_synthetic_experiment_behaviors(self, fixed_time_config, fixed_data_config):
+        assert fixed_time_config.is_online_experiment()
+        assert not fixed_time_config.should_skip_batch_size(16)
+        X_online, y_online = fixed_time_config.generate_data(jr.key(0))
+        assert X_online.shape[0] == fixed_time_config.P
+        assert y_online.shape[0] == fixed_time_config.P
+
+        train_ds = {"image": np.zeros((fixed_data_config.P, 1)), "label": np.zeros(fixed_data_config.P)}
+        assert not fixed_data_config.should_skip_batch_size(32, train_ds)
+        assert fixed_data_config.should_skip_batch_size(fixed_data_config.P + 1, train_ds)
+
+        num_steps, epochs = fixed_data_config.compute_num_steps(batch_size=32, train_ds=train_ds, num_epochs=None)
+        assert epochs == fixed_data_config.num_epochs
+        assert num_steps == epochs * (fixed_data_config.P // 32)

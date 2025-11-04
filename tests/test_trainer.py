@@ -1,5 +1,8 @@
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock
 
+import jax
+import jax.numpy as jnp
 import numpy as np
 import pytest
 
@@ -10,6 +13,35 @@ from batch_size_studies.trainer import (
     SyntheticFixedTimeTrialRunner,
     TrialRunner,
 )
+
+
+class SimpleExperiment:
+    def __init__(self, optimizer=OptimizerType.SGD, loss_type=LossType.MSE, num_outputs=1, d=1, p=8):
+        self.optimizer = optimizer
+        self.loss_type = loss_type
+        self.num_outputs = num_outputs
+        self.D = d
+        self.P = p
+
+    def get_adjusted_eta(self, eta: float) -> float:
+        return eta
+
+
+class MinimalCheckpointManager:
+    def __init__(self, params):
+        self.params = params
+        self.saved_checkpoints = []
+        self.saved_snapshots = []
+
+    def load_live_checkpoint(self, run_key):
+        legacy_state = {"loss_history": [], "expected_steps": 0}
+        return self.params, "legacy_state", legacy_state, 0
+
+    def save_live_checkpoint(self, run_key, step, params, opt_state, results):
+        self.saved_checkpoints.append(step)
+
+    def save_analysis_snapshot(self, run_key, step, params, params0):
+        self.saved_snapshots.append(step)
 
 
 @pytest.fixture(autouse=True)
@@ -174,3 +206,158 @@ class TestSyntheticFixedDataTrialRunnerUnit:
         # End of second epoch (step 19 is 20th step)
         updated_results = sfd_runner._post_step_hook(step=19, params="dummy", results=results, aux=None)
         assert updated_results["epoch"] == 1
+
+
+class MinimalTrialRunner(TrialRunner):
+    def _init_results(self) -> dict:
+        return {"loss_history": [], "expected_steps": self.num_steps}
+
+    def _create_loss_fn(self):
+        def loss_fn(params, x_batch, y_batch):
+            return jnp.array(0.0), None
+
+        return loss_fn
+
+    def _create_jitted_update_step(self, loss_fn, base_optimizer_transform):
+        @jax.jit
+        def update_step_fn(params, opt_state, x_batch, y_batch, lr):
+            return params, opt_state, jnp.array(0.0), None
+
+        return update_step_fn
+
+    def _create_data_iterator(self, start_step: int, results: dict):
+        return iter([])
+
+    def is_complete(self, result: dict) -> bool:
+        return True
+
+
+class SmallEvalSyntheticRunner(SyntheticFixedTimeTrialRunner):
+    EVAL_MAX_SAMPLES = 5
+
+
+def make_mnist_context(experiment, model_instance, params0):
+    train_images = np.zeros((64, experiment.D))
+    test_images = np.zeros((32, experiment.D))
+    train_ds = {"image": train_images, "label": np.zeros(64, dtype=int)}
+    test_ds = {"image": test_images, "label": np.zeros(32, dtype=int)}
+    return SimpleNamespace(
+        experiment=experiment,
+        run_key=RunKey(batch_size=64, eta=0.1),
+        params0=params0,
+        model_instance=model_instance,
+        no_save=True,
+        checkpoint_manager=None,
+        pbar=None,
+        kwargs={},
+        num_steps=0,
+        num_epochs=1,
+        train_ds=train_ds,
+        test_ds=test_ds,
+        init_key=0,
+    )
+
+
+def make_sft_context(experiment, init_key=0):
+    params0 = jnp.zeros((1,))
+
+    def model_instance(params, inputs):
+        return jnp.zeros((inputs.shape[0], 1))
+
+    return SimpleNamespace(
+        experiment=experiment,
+        run_key=RunKey(batch_size=1, eta=0.1),
+        params0=params0,
+        model_instance=model_instance,
+        no_save=True,
+        checkpoint_manager=None,
+        pbar=None,
+        kwargs={},
+        num_steps=1,
+        num_epochs=1,
+        train_ds=None,
+        test_ds=None,
+        init_key=init_key,
+    )
+
+
+def test_trialrunner_migrates_legacy_opt_state(caplog):
+    experiment = SimpleExperiment()
+    params0 = jnp.zeros((1,))
+    checkpoint_manager = MinimalCheckpointManager(jnp.ones((1,)))
+    context = SimpleNamespace(
+        experiment=experiment,
+        run_key=RunKey(batch_size=1, eta=0.1),
+        params0=params0,
+        model_instance=lambda params, inputs: jnp.zeros((inputs.shape[0], 1)),
+        no_save=False,
+        checkpoint_manager=checkpoint_manager,
+        pbar=None,
+        kwargs={},
+        num_steps=0,
+        num_epochs=1,
+        train_ds=None,
+        test_ds=None,
+        init_key=0,
+    )
+
+    with caplog.at_level("INFO"):
+        runner = MinimalTrialRunner(context)
+        result = runner.run()
+
+    assert result == {"loss_history": [], "expected_steps": 0}
+    assert any("Migrating old optimizer state format" in msg for msg in caplog.messages)
+    assert runner._should_save_checkpoint(0) is False
+
+
+def test_mnist_trialrunner_reuses_cached_eval_step(monkeypatch):
+    TrialRunner.clear_cache()
+    experiment = SimpleExperiment(optimizer=OptimizerType.SGD, loss_type=LossType.XENT, num_outputs=10, d=784)
+    model_instance = lambda params, x: jnp.zeros((x.shape[0], experiment.num_outputs))
+    params0 = {"w": jnp.zeros((experiment.D, experiment.num_outputs)), "b": jnp.zeros((experiment.num_outputs,))}
+
+    context1 = make_mnist_context(experiment, model_instance, params0)
+    runner1 = MNISTTrialRunner(context1)
+    assert hasattr(runner1, "eval_step")
+
+    def fail_create_eval(self):
+        raise AssertionError("Should not be called when cache is hit")
+
+    monkeypatch.setattr(MNISTTrialRunner, "_create_eval_step", fail_create_eval)
+    context2 = make_mnist_context(experiment, model_instance, params0)
+    runner2 = MNISTTrialRunner(context2)
+    assert hasattr(runner2, "eval_step")
+
+
+def test_synthetic_eval_dataset_without_generate_data():
+    experiment = SimpleExperiment()
+    context = make_sft_context(experiment, init_key=0)
+    runner = SyntheticFixedTimeTrialRunner(context)
+    assert runner.eval_ds is None
+
+
+def test_synthetic_eval_dataset_handles_type_error():
+    class FailingExperiment(SimpleExperiment):
+        def generate_data(self, key):
+            raise TypeError("missing argument")
+
+    experiment = FailingExperiment()
+    context = make_sft_context(experiment, init_key=0)
+    runner = SyntheticFixedTimeTrialRunner(context)
+    assert runner.eval_ds is None
+
+
+def test_synthetic_eval_dataset_respects_max_samples():
+    class LargeExperiment(SimpleExperiment):
+        def generate_data(self, key):
+            X = jnp.arange(20, dtype=jnp.float32).reshape(10, 2)
+            y = X[:, :1]
+            return X, y
+
+    experiment = LargeExperiment()
+    context = make_sft_context(experiment, init_key=3)
+    runner = SmallEvalSyntheticRunner(context)
+    assert runner.eval_ds is not None
+    X_eval, y_eval = runner.eval_ds
+    assert X_eval.shape[0] == SmallEvalSyntheticRunner.EVAL_MAX_SAMPLES
+    assert y_eval.shape[0] == SmallEvalSyntheticRunner.EVAL_MAX_SAMPLES

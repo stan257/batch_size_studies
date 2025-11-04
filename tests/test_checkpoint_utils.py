@@ -170,6 +170,48 @@ class TestCheckpointManager:
         loaded_initial_params = checkpoint_manager.load_initial_params()
         assert_pytree_allclose(loaded_initial_params, initial_params)
 
+    def test_save_and_load_sweep_metadata(self, checkpoint_manager):
+        metadata = {"subsample_seed": 123, "note": np.array([1, 2, 3])}
+        checkpoint_manager.save_sweep_metadata(metadata)
+
+        loaded_metadata = checkpoint_manager.load_sweep_metadata()
+        assert loaded_metadata.keys() == metadata.keys()
+        for key in metadata:
+            if isinstance(metadata[key], np.ndarray):
+                np.testing.assert_array_equal(loaded_metadata[key], metadata[key])
+            else:
+                assert loaded_metadata[key] == metadata[key]
+
+    def test_load_live_checkpoint_backward_compatibility(self, checkpoint_manager, tmp_path):
+        run_key = RunKey(batch_size=10, eta=0.5)
+        filepath = checkpoint_manager._get_resume_filepath(run_key)
+        os.makedirs(os.path.dirname(filepath), exist_ok=True)
+
+        old_format_data = {
+            "step": 2,  # epoch index
+            "loss_history": [0.5, 0.4, 0.3],
+            "params": {"w": np.ones((2, 2))},
+            "opt_state": {"momentum": np.zeros((2, 2))},
+        }
+
+        with open(filepath, "wb") as f:
+            pickle.dump(old_format_data, f)
+
+        params, opt_state, results, start_step = checkpoint_manager.load_live_checkpoint(run_key)
+
+        steps_per_epoch = checkpoint_manager.experiment.P // run_key.batch_size
+        expected_last_step = (old_format_data["step"] + 1) * steps_per_epoch - 1
+
+        assert start_step == expected_last_step + 1
+        assert results["loss_history"] == old_format_data["loss_history"]
+        assert params.keys() == old_format_data["params"].keys()
+        for key in params:
+            np.testing.assert_array_equal(params[key], old_format_data["params"][key])
+
+        assert opt_state.keys() == old_format_data["opt_state"].keys()
+        for key in opt_state:
+            np.testing.assert_array_equal(opt_state[key], old_format_data["opt_state"][key])
+
     def test_resume_filepath_generation(self, checkpoint_manager):
         run_key = RunKey(batch_size=128, eta=0.05)
         filepath = checkpoint_manager._get_resume_filepath(run_key)

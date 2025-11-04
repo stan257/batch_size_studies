@@ -61,6 +61,9 @@ def run_single_experiment(name, experiment_config, batch_sizes, etas, directory=
 
 
 def main():
+    # Import argparse here to prevent it from being parsed when imported by other modules.
+    import argparse
+
     parser = argparse.ArgumentParser(description="Run a series of small muP experiments.")
     parser.add_argument(
         "--max_workers",

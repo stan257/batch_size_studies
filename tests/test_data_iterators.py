@@ -83,6 +83,38 @@ class TestEpochBasedDataIterator:
         total_steps = 2 * steps_per_epoch  # 6
         assert len(resumed_sequence) == total_steps - start_step  # 6 - 4 = 2
 
+    def test_dict_dataset_batches_are_flattened(self):
+        num_samples = 64
+        batch_size = 16
+        images = np.arange(num_samples * 6).reshape(num_samples, 2, 3)
+        labels = np.arange(num_samples)
+        train_ds = {"image": images, "label": labels}
+
+        iterator = EpochBasedDataIterator(
+            train_ds=train_ds,
+            batch_size=batch_size,
+            num_epochs=1,
+            init_key=0,
+        )
+
+        batches = list(iterator)
+        assert len(batches) == num_samples // batch_size
+
+        first_images, first_labels = batches[0]
+        assert first_images.shape == (batch_size, 6)
+        np.testing.assert_array_equal(first_labels.shape, (batch_size,))
+
+    def test_handles_batch_size_larger_than_dataset(self, sample_data):
+        batch_size = sample_data.shape[0] + 10
+        iterator = EpochBasedDataIterator(
+            train_ds=(sample_data, sample_data),
+            batch_size=batch_size,
+            num_epochs=1,
+            init_key=0,
+        )
+
+        assert list(iterator) == []
+
 
 class TestOnlineDataIterator:
     @pytest.fixture
@@ -177,4 +209,12 @@ class TestOnlineDataIterator:
 
         all_batches = list(iterable)
         assert len(all_batches) == 0
+        mock_experiment.generate_data.assert_not_called()
+
+    def test_handles_zero_batch_size(self, mock_experiment):
+        iterable = OnlineDataIterator(
+            experiment=mock_experiment, batch_size=0, start_step=0, initial_batch_key_seed=0
+        )
+
+        assert list(iterable) == []
         mock_experiment.generate_data.assert_not_called()
