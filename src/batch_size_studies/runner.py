@@ -335,8 +335,9 @@ def run_experiment_sweep(
     # 2. Load Data
     train_ds, test_ds = experiment.prepare_datasets(init_key, **kwargs)
     # --- Save sweep-level metadata (e.g., data subsampling seed) ---
-    sweep_metadata = experiment.get_sweep_metadata(init_key)
-    if sweep_metadata and not no_save:
+    sweep_metadata = {"init_key": init_key}
+    sweep_metadata.update(experiment.get_sweep_metadata(init_key))
+    if not no_save:
         checkpoint_manager.save_sweep_metadata(sweep_metadata)
 
     # --- Subsample test set for faster evaluation if requested ---

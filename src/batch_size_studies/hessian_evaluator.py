@@ -6,6 +6,7 @@ import jax.random as jr
 import optax
 
 from .checkpoint_utils import CheckpointManager, load_experiment_weights
+from .data_iterators import EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType, RunKey
 from .experiments import (
     ExperimentBase,
@@ -34,6 +35,7 @@ class HessianEvaluator:
         directory: str = EXPERIMENTS_DIR,
         num_hessian_samples: int = 1024,
         hessian_batch_size: int = 128,
+        init_key: int | None = None,
     ):
         """
         Initializes the HessianEvaluator.
@@ -46,12 +48,16 @@ class HessianEvaluator:
             directory: The base directory for experiments.
             num_hessian_samples: Number of data samples to use for Hessian estimation.
             hessian_batch_size: Batch size for Hessian-vector products.
+            init_key: Optional override for the sweep init key. If None, the value saved
+                      alongside the sweep is used (falling back to 0).
         """
         self.experiment = experiment
         self.run_key = run_key
         self.step = step
         self.directory = directory
         self.key = jr.PRNGKey(42)  # A fixed key for reproducibility
+        self.num_hessian_samples = num_hessian_samples
+        self.hessian_batch_size = hessian_batch_size
 
         # --- 1. Load Parameters ---
         self.params0 = self._load_initial_params()
@@ -68,19 +74,29 @@ class HessianEvaluator:
             logging.info("Evaluating Hessian at initialization (params0).")
 
         # --- 2. Load Data ---
-        # For sampled experiments, ensure we use the same data subset as training.
         cm = CheckpointManager(self.experiment, directory=self.directory)
         metadata = cm.load_sweep_metadata()
         subsample_seed = metadata.get("subsample_seed")
         if subsample_seed is not None:
             logging.info(f"Found and using subsample_seed: {subsample_seed}")
+        stored_init_key = metadata.get("init_key")
+        if init_key is None:
+            self.init_key = int(stored_init_key) if stored_init_key is not None else 0
+        else:
+            self.init_key = init_key
+        if stored_init_key is not None and init_key is not None and stored_init_key != init_key:
+            logging.info(
+                "Overriding stored init_key=%s with provided init_key=%s for Hessian evaluation.",
+                stored_init_key,
+                init_key,
+            )
 
-        # Use the experiment's own method to prepare the dataset.
-        # The Hessian should be evaluated on the training distribution.
-        train_ds, _ = self.experiment.prepare_datasets(init_key=self.key.sum(), forced_subsample_seed=subsample_seed)
-        if train_ds is None:
-            raise ValueError("Hessian evaluation requires a dataset, but prepare_datasets returned None.")
-        self.data_loader = self._create_data_loader(train_ds, num_hessian_samples, hessian_batch_size)
+        train_ds, _ = self.experiment.prepare_datasets(
+            init_key=self.init_key,
+            forced_subsample_seed=subsample_seed,
+        )
+        inputs, targets = self._collect_training_samples(train_ds, num_hessian_samples)
+        self.data_loader = self._batch_samples(inputs, targets, hessian_batch_size)
 
         # --- 3. Instantiate Model and Loss ---
         if isinstance(self.experiment, LinearStudentExperiment):
@@ -113,27 +129,145 @@ class HessianEvaluator:
             step_to_load=self.step,
         )
 
-    def _create_data_loader(self, dataset, num_samples, batch_size):
-        """Creates a data loader from a dataset, subsampling if necessary."""
-        if isinstance(dataset, dict):  # MNIST-like
-            images, labels = dataset["image"], dataset["label"]
-        elif isinstance(dataset, tuple):  # Synthetic-like
-            images, labels = dataset[0], dataset[1]
+    def _collect_training_samples(self, train_ds, num_samples: int):
+        if train_ds is None:
+            return self._collect_online_samples(num_samples)
+        return self._collect_offline_samples(train_ds, num_samples)
+
+    def _collect_offline_samples(self, dataset, num_samples: int):
+        if self.run_key is not None:
+            samples = self._samples_via_epoch_iterator(dataset, num_samples)
+            if samples is not None:
+                return samples
+
+        images, labels = self._dataset_to_arrays(dataset)
+        dataset_size = images.shape[0]
+        if dataset_size == 0:
+            raise ValueError("Training dataset is empty; cannot evaluate Hessian.")
+
+        max_take = min(num_samples, dataset_size)
+        shuffle_key = jr.PRNGKey(self.init_key + 7)
+        permutation = jr.permutation(shuffle_key, dataset_size)
+        selection = permutation[:max_take]
+
+        return images[selection], labels[selection]
+
+    def _samples_via_epoch_iterator(self, dataset, num_samples: int):
+        dataset_size = self._get_dataset_size(dataset)
+        if dataset_size == 0:
+            return None
+
+        batch_size = min(self.run_key.batch_size, dataset_size)
+        if batch_size <= 0:
+            return None
+
+        steps_per_epoch = dataset_size // batch_size
+        if steps_per_epoch == 0:
+            return None
+
+        num_epochs = getattr(self.experiment, "num_epochs", 1)
+        iterator = EpochBasedDataIterator(
+            train_ds=dataset,
+            batch_size=batch_size,
+            num_epochs=max(1, num_epochs),
+            init_key=self.init_key,
+        )
+        gathered = self._gather_from_iterator(iterator, num_samples)
+        return gathered
+
+    def _collect_online_samples(self, num_samples: int):
+        if not hasattr(self.experiment, "generate_data"):
+            raise ValueError(
+                "Experiment does not provide generate_data; provide a dataset or override init_key for offline use."
+            )
+
+        batch_size = self.run_key.batch_size if self.run_key is not None else self.hessian_batch_size
+        online_iterator = OnlineDataIterator(
+            experiment=self.experiment,
+            batch_size=max(1, batch_size),
+            start_step=0,
+            initial_batch_key_seed=0,
+        )
+        gathered = self._gather_from_iterator(online_iterator, num_samples)
+        if gathered is not None:
+            return gathered
+
+        # Fallback: manually accumulate synthetic data using deterministic seeds.
+        inputs_list = []
+        targets_list = []
+        total = 0
+        seed = 0
+        while total < num_samples:
+            data_key = jr.key(self.init_key + seed)
+            inputs, targets = self.experiment.generate_data(data_key)
+            inputs = jnp.asarray(inputs)
+            targets = jnp.asarray(targets)
+            take = min(inputs.shape[0], num_samples - total)
+            if take == 0:
+                break
+            inputs_list.append(inputs[:take])
+            targets_list.append(targets[:take])
+            total += take
+            seed += 1
+
+        if not inputs_list:
+            raise ValueError("Unable to generate data for online experiment; dataset size may be zero.")
+
+        inputs = jnp.concatenate(inputs_list, axis=0)
+        targets = jnp.concatenate(targets_list, axis=0)
+        return inputs, targets
+
+    def _dataset_to_arrays(self, dataset):
+        if isinstance(dataset, dict):
+            images = jnp.asarray(dataset["image"])
+            labels = jnp.asarray(dataset["label"])
+        elif isinstance(dataset, tuple):
+            images = jnp.asarray(dataset[0])
+            labels = jnp.asarray(dataset[1])
         else:
             raise TypeError(f"Unsupported dataset type for Hessian evaluation: {type(dataset)}")
 
-        images, labels = images[:num_samples], labels[:num_samples]
         if images.ndim > 2:
             images = images.reshape(images.shape[0], -1)
 
-        data_loader = []
-        for i in range(0, len(images), batch_size):
-            batch_img, batch_lbl = images[i : i + batch_size], labels[i : i + batch_size]
-            if len(batch_img) == batch_size:
-                data_loader.append((batch_img, batch_lbl))
+        return images, labels
 
-        if not data_loader:
-            raise ValueError("Data loader is empty. Check num_samples and batch_size.")
+    def _get_dataset_size(self, dataset) -> int:
+        if isinstance(dataset, dict):
+            return int(dataset["image"].shape[0])
+        if isinstance(dataset, tuple):
+            return int(dataset[0].shape[0])
+        return 0
+
+    def _gather_from_iterator(self, iterator, num_samples: int):
+        inputs_batches = []
+        targets_batches = []
+        collected = 0
+
+        for batch_inputs, batch_targets in iterator:
+            batch_inputs = jnp.asarray(batch_inputs)
+            batch_targets = jnp.asarray(batch_targets)
+            inputs_batches.append(batch_inputs)
+            targets_batches.append(batch_targets)
+            collected += batch_inputs.shape[0]
+            if collected >= num_samples:
+                break
+
+        if collected == 0:
+            return None
+
+        inputs = jnp.concatenate(inputs_batches, axis=0)[: min(collected, num_samples)]
+        targets = jnp.concatenate(targets_batches, axis=0)[: min(collected, num_samples)]
+        return inputs, targets
+
+    def _batch_samples(self, inputs: jnp.ndarray, targets: jnp.ndarray, batch_size: int):
+        if inputs.shape[0] == 0:
+            raise ValueError("Collected zero samples for Hessian evaluation.")
+
+        data_loader = []
+        for start in range(0, inputs.shape[0], batch_size):
+            end = min(start + batch_size, inputs.shape[0])
+            data_loader.append((inputs[start:end], targets[start:end]))
         return data_loader
 
     def _get_outer_loss_fn(self):
