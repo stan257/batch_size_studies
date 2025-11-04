@@ -1,59 +1,49 @@
 # Batch Size Studies
 
-Framework for exploring how `batch_size`, `learning_rate`, and model scaling interact in SP and µP regimes. The tooling runs reproducible sweeps, tracks checkpoints, and keeps results easy to analyze so you can focus on the science.
+This repository captures the code used to generate our batch size and learning rate sweeps across synthetic teachers, MNIST, and MNIST‑1M. The emphasis is on reproducible sweeps rather than a polished library; the structure below is meant to help readers replicate our experiments or inspect intermediate artefacts.
 
-## Quick start for sweeps
+## Repository layout
 
-1. **Install once** (any Python ≥3.10):
+```
+src/batch_size_studies/
+├── experiments.py      # experiment configurations and dataset preparation
+├── runner.py           # sweep orchestration, resumability, stability checks
+├── trainer.py          # TrialRunner implementations (MNIST vs. synthetic)
+├── data_iterators.py   # offline vs. online data presentation paradigms
+├── models.py           # SP/µP MLPs, linear baselines, centered wrapper
+├── checkpoint_utils.py # checkpoints, metadata, legacy compatibility
+├── storage_utils.py    # atomic pickle helpers
+├── configs.py          # grids used in the main sweeps
+└── plotting_utils.py   # plotting helpers used in notebooks
+scripts/                # CLI entry points for sweeps & post-processing
+notebooks/              # analysis notebooks accompanying the paper
+```
+
+## Running the sweeps
+
+1. Install the package (Python ≥3.10):
    ```bash
    pip install -e .
    ```
 
-2. **Datasets**
-   - MNIST downloads automatically via `tensorflow_datasets`.
-   - For MNIST-1M, generate `data/mnist1m/mnist1m.npz` with `python scripts/process_mnist1m.py` after sourcing the raw files.
+2. Prepare datasets:
+   * MNIST downloads automatically through `tensorflow_datasets`.
+   * MNIST‑1M requires `python scripts/process_mnist1m.py` to convert the diffusion-generated set into `data/mnist1m/mnist1m.npz`.
 
-3. **Launch a sweep**
+3. Launch a sweep defined in `configs.py`:
    ```bash
-   python scripts/run_experiments.py --name mnist1m_mup_SGD_gamma1p0 ...
+   python scripts/run_experiments.py --name mnist1m_mup_SGD_gamma1p0
    ```
-   Useful flags: `--no-save` (dry run), `--max-eval-samples 2000` (faster validation), `--eta-stability-depth 3` (stop once three stable etas appear). Results are stored in `experiments/<experiment_type>/` with losses, metadata, and checkpoints.
+   Optional flags:
+   * `--no-save` to dry-run in place (useful while inspecting behaviour).
+   * `--max-eval-samples N` to limit validation cost.
+   * `--eta-stability-depth K` to stop exploring learning rates once K consecutive stable learning rates are observed per batch size.
 
-4. **Inspect results**
-   - Use notebooks in `notebooks/` or the utilities in `scripts/analyze_small_muP_results.py` and `scripts/generate_reports.py` for plots and HTML summaries.
+4. Results land in `experiments/<experiment_type>/`:
+   * `results_*.pkl` store loss histories and failure logs.
+   * `_weights.pkl` capture initial parameters, deltas, and sweep metadata.
+   * `_checkpoints/` contain live resume files, cleaned automatically when runs finish successfully.
 
-## Other sweeps at a glance
+5. Use the notebooks in `notebooks/` or scripts in `scripts/` to regenerate figures and summaries.
 
-| Script | What it explores |
-| --- | --- |
-| `scripts/run_width_sweep.py` | Width transfer experiments at fixed `(batch_size, eta)`. |
-| `scripts/run_small_muP_experiments.py` | Finds minimum widths that exhibit µP behaviour. |
-
-All scripts ultimately call `run_experiment_sweep`, so any experiment defined in `configs.py` shows up everywhere automatically.
-
-## Repository map
-
-```
-src/batch_size_studies/
-├── configs.py         # canonical experiment definitions and grids
-├── experiments.py     # dataclasses for synthetic & MNIST families
-├── runner.py          # orchestrates sweeps, checkpointing, resumption
-├── trainer.py         # TrialRunner hierarchy (MNIST vs synthetic)
-├── models.py          # SP / µP models
-├── data_loading.py    # dataset access (MNIST, MNIST-1M)
-└── plotting_utils.py  # loss heatmaps, stability curves
-scripts/               # command-line entry points for sweeps & reports
-tests/                 # unit + integration suites (reproducibility, CLI)
-```
-
-## Adding a new study
-
-1. Create the dataclass in `experiments.py` (inherit the SP/µP mixins).
-2. Register it in `configs.py` with its hyperparameter grid.
-3. Run `python scripts/run_experiments.py --name <your_experiment>`.
-
-The runner handles checkpoints, resumability, and logging; plots and reports work out of the box once results exist.
-
-## Getting help
-
-Open a GitHub issue or discussion if you need to hook in a new dataset or want to contribute additional analysis scripts—contributions that sharpen research workflows are welcome.
+The test suite (`pytest`) focuses on regression coverage for checkpoints, runner orchestration, and iterator behaviour to ensure the code reproduces the results described in the accompanying manuscript.
