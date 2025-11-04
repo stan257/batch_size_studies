@@ -321,6 +321,7 @@ def run_experiment_sweep(
     no_save: bool = False,
     eta_stability_search_depth: int | None = None,
     max_eval_samples: int | None = None,
+    save_interstitial_snapshots: bool = True,
     **kwargs,
 ):
     """
@@ -353,6 +354,8 @@ def run_experiment_sweep(
         return results_dict.copy(), failed_runs.copy()
 
     # 3. Run Sweep
+    kwargs.setdefault("save_interstitial_snapshots", save_interstitial_snapshots)
+
     _execute_sweep_loops(
         experiment,
         batch_sizes,

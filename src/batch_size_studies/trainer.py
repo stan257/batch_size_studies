@@ -358,7 +358,8 @@ class SyntheticTrialRunner(TrialRunner):
 
     def __init__(self, context):
         super().__init__(context)
-        self.snapshot_steps = self._get_snapshot_steps(context.num_steps)
+        save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", True)
+        self.snapshot_steps = self._get_snapshot_steps(context.num_steps, save_dense_snapshots)
         self.eval_ds = self._create_eval_dataset(context.init_key)
 
     def _create_loss_fn(self) -> Callable:
@@ -405,10 +406,16 @@ class SyntheticTrialRunner(TrialRunner):
 
         return X_eval, y_eval
 
-    def _get_snapshot_steps(self, max_steps: int) -> list[int]:
+    def _get_snapshot_steps(self, max_steps: int, dense: bool) -> list[int]:
         """
         Generate logarithmically-spaced checkpoint steps.
         """
+        if not dense:
+            steps = {0}
+            if max_steps > 0:
+                steps.add(max_steps - 1)
+            return sorted(steps)
+
         steps = {0}
         for magnitude in [1, 10, 100, 1000, 10000, 100000, 1000000]:
             for base in [1, 2, 5]:

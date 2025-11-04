@@ -126,6 +126,7 @@ class TestSyntheticFixedTimeEvalDataset:
         context.num_steps = 10
         context.init_key = MagicMock()
         context.experiment.optimizer = OptimizerType.SGD
+        context.kwargs = {}
         runner = SyntheticFixedTimeTrialRunner(context)
         assert runner.eval_ds is None
 
@@ -137,14 +138,19 @@ class TestSyntheticFixedTimeTrialRunnerUnit:
         context = MagicMock()
         context.num_steps = 1000
         context.experiment.optimizer = OptimizerType.SGD
+        context.kwargs = {}
         runner = SyntheticFixedTimeTrialRunner(context)
         return runner
 
     def test_get_snapshot_steps(self, sft_runner):
-        steps = sft_runner._get_snapshot_steps(max_steps=150)
+        steps = sft_runner._get_snapshot_steps(max_steps=150, dense=True)
         # Based on the 1,2,5 pattern
         expected = {0, 1, 2, 5, 10, 20, 50, 100, 149}
         assert set(steps) == expected
+
+    def test_get_snapshot_steps_sparse(self, sft_runner):
+        steps = sft_runner._get_snapshot_steps(max_steps=150, dense=False)
+        assert steps == [0, 149]
 
     def test_should_save_checkpoint(self, sft_runner):
         sft_runner.snapshot_steps = {0, 10, 100, 999}
@@ -185,6 +191,7 @@ class TestSyntheticFixedDataTrialRunnerUnit:
         context.train_ds = (np.zeros((100, 10)), np.zeros((100, 1)))  # P=100
         context.num_steps = 50  # 5 epochs * (100 samples / 10 batch_size) = 50 steps
         context.experiment.optimizer = OptimizerType.SGD
+        context.kwargs = {}
         runner = SyntheticFixedDataTrialRunner(context)
         return runner
 
