@@ -321,7 +321,7 @@ def run_experiment_sweep(
     no_save: bool = False,
     eta_stability_search_depth: int | None = None,
     max_eval_samples: int | None = None,
-    save_interstitial_snapshots: bool = True,
+    save_interstitial_snapshots: bool = False,
     **kwargs,
 ):
     """

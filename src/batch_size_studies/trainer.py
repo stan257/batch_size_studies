@@ -21,7 +21,12 @@ class DivergenceError(Exception):
 
 
 class TrialRunner(ABC):
-    """Abstract base class for running a single experiment trial."""
+    """
+    Template that drives a single (B, η) training run end-to-end: it builds the loss,
+    runs the step loop, records metrics, and decides when to checkpoint/snapshot.
+    Subclasses only supply data iterators and per-experiment hooks while reusing this
+    orchestration logic.
+    """
 
     _JIT_CACHE = {}
 
@@ -119,9 +124,6 @@ class TrialRunner(ABC):
         """
         params, loaded_opt_state, results, start_step = self.checkpoint_manager.load_live_checkpoint(self.run_key)
 
-        # --- Compatibility fix for optimizer state ---
-        # The new opt_state is a tuple `(base_state, EmptyState)`.
-        # If we load an old checkpoint, we need to convert it.
         if loaded_opt_state is not None and not isinstance(loaded_opt_state, tuple):
             logging.info("Migrating old optimizer state format to new tuple format.")
             # The state for the second part of the chain (scale) is always empty.
@@ -213,6 +215,41 @@ class TrialRunner(ABC):
         """Determines if a checkpoint should be saved at this step."""
         return False
 
+    @staticmethod
+    def _log_spaced_steps(max_steps: int) -> set[int]:
+        steps: set[int] = set()
+        for magnitude in [1, 10, 100, 1000, 10000, 100000, 1000000]:
+            for base in [1, 2, 5]:
+                step = base * magnitude
+                if 0 < step < max_steps:
+                    steps.add(step)
+        return steps
+
+    def _compute_snapshot_steps(self, max_steps: int, dense: bool) -> list[int]:
+        steps: set[int] = {0}
+        if max_steps > 0:
+            steps.add(max_steps - 1)
+        if dense:
+            steps |= self._log_spaced_steps(max_steps)
+        return sorted(steps)
+
+    def _ensure_epoch_snapshot_steps(self, steps_per_epoch: int | None, num_epochs: int | None):
+        if steps_per_epoch is None or steps_per_epoch <= 0:
+            return
+        if num_epochs is None or num_epochs <= 0:
+            num_epochs = max(1, (self.num_steps + steps_per_epoch - 1) // steps_per_epoch)
+
+        epoch_steps = set()
+        for epoch_idx in range(num_epochs):
+            step = (epoch_idx + 1) * steps_per_epoch - 1
+            if 0 <= step < self.num_steps:
+                epoch_steps.add(step)
+        if not epoch_steps:
+            return
+
+        combined = set(getattr(self, "snapshot_steps", [])) | epoch_steps
+        self.snapshot_steps = sorted(combined)
+
     @abstractmethod
     def is_complete(self, result: dict) -> bool:
         """Checks if a result dictionary represents a completed run."""
@@ -235,6 +272,11 @@ class MNISTTrialRunner(TrialRunner):
         self.test_ds = context.test_ds
         self.train_ds = context.train_ds
         self.init_key = context.init_key
+        save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", False)
+        self.snapshot_steps = self._compute_snapshot_steps(self.num_steps, save_dense_snapshots)
+        self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
+        if self.snapshot_steps and self.snapshot_steps[0] == 0:
+            self.snapshot_steps = [step for step in self.snapshot_steps if step != 0]
 
     def _init_results(self) -> dict:
         return {
@@ -337,8 +379,7 @@ class MNISTTrialRunner(TrialRunner):
         return results
 
     def _should_save_checkpoint(self, step: int) -> bool:
-        # Save at the end of each epoch
-        return (step + 1) % self.steps_per_epoch == 0
+        return step in self.snapshot_steps
 
     def _post_training_hook(self, params, results: dict) -> dict:
         """Sets the final accuracy metric after the training loop completes."""
@@ -358,8 +399,8 @@ class SyntheticTrialRunner(TrialRunner):
 
     def __init__(self, context):
         super().__init__(context)
-        save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", True)
-        self.snapshot_steps = self._get_snapshot_steps(context.num_steps, save_dense_snapshots)
+        save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", False)
+        self.snapshot_steps = self._compute_snapshot_steps(context.num_steps, save_dense_snapshots)
         self.eval_ds = self._create_eval_dataset(context.init_key)
 
     def _create_loss_fn(self) -> Callable:
@@ -405,26 +446,6 @@ class SyntheticTrialRunner(TrialRunner):
             y_eval = y_eval[indices]
 
         return X_eval, y_eval
-
-    def _get_snapshot_steps(self, max_steps: int, dense: bool) -> list[int]:
-        """
-        Generate logarithmically-spaced checkpoint steps.
-        """
-        if not dense:
-            steps = {0}
-            if max_steps > 0:
-                steps.add(max_steps - 1)
-            return sorted(steps)
-
-        steps = {0}
-        for magnitude in [1, 10, 100, 1000, 10000, 100000, 1000000]:
-            for base in [1, 2, 5]:
-                step = base * magnitude
-                if step < max_steps:
-                    steps.add(step)
-        if max_steps > 0:
-            steps.add(max_steps - 1)
-        return sorted(steps)
 
     def _should_save_checkpoint(self, step: int) -> bool:
         return step in self.snapshot_steps
@@ -483,6 +504,7 @@ class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
         self.steps_per_epoch = original_num_train // self.run_key.batch_size
 
         self.train_ds = context.train_ds
+        self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "epoch": 0, "expected_steps": self.num_steps}

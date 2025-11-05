@@ -59,18 +59,24 @@ class TestMNISTTrialRunnerUnit:
         context = MagicMock()
         context.run_key = RunKey(batch_size=64, eta=0.1)
         context.num_epochs = 5
+        context.num_steps = 100
         context.train_ds = {"image": np.zeros((1280, 784))}  # 1280 samples
         context.test_ds = {"image": np.zeros((100, 784)), "label": np.zeros(100)}
         context.experiment = MagicMock()
         context.experiment.D = 784
         context.experiment.optimizer = OptimizerType.SGD
         context.experiment.loss_type = LossType.XENT
+        context.kwargs = {}
 
         # Mock methods that would be called
         runner = MNISTTrialRunner(context)
         runner.eval_step = Mock(return_value=0.95)  # Mock the JITted eval step
         runner.pbar = Mock()  # Mock the progress bar
         return runner
+
+    def test_snapshot_steps_include_epochs(self, mnist_runner):
+        expected_epoch_end = {19, 39, 59, 79, 99}
+        assert set(mnist_runner.snapshot_steps) >= expected_epoch_end
 
     def test_init_calculates_steps_per_epoch(self, mnist_runner):
         # 1280 samples / 64 batch_size = 20 steps_per_epoch
@@ -143,13 +149,13 @@ class TestSyntheticFixedTimeTrialRunnerUnit:
         return runner
 
     def test_get_snapshot_steps(self, sft_runner):
-        steps = sft_runner._get_snapshot_steps(max_steps=150, dense=True)
+        steps = sft_runner._compute_snapshot_steps(max_steps=150, dense=True)
         # Based on the 1,2,5 pattern
         expected = {0, 1, 2, 5, 10, 20, 50, 100, 149}
         assert set(steps) == expected
 
     def test_get_snapshot_steps_sparse(self, sft_runner):
-        steps = sft_runner._get_snapshot_steps(max_steps=150, dense=False)
+        steps = sft_runner._compute_snapshot_steps(max_steps=150, dense=False)
         assert steps == [0, 149]
 
     def test_should_save_checkpoint(self, sft_runner):
@@ -199,6 +205,8 @@ class TestSyntheticFixedDataTrialRunnerUnit:
         assert sfd_runner.steps_per_epoch == 10  # 100 // 10
         # snapshot steps are calculated on total steps
         assert sfd_runner.snapshot_steps is not None
+        expected_epochs = {9, 19, 29, 39, 49}
+        assert set(sfd_runner.snapshot_steps) >= expected_epochs
 
     def test_post_step_hook(self, sfd_runner):
         results = {"epoch": -1}
