@@ -303,7 +303,9 @@ class MNISTTrialRunner(TrialRunner):
                 def loss_fn(params, x_batch, y_batch_labels):
                     logits = apply_fn(params, x_batch)
                     one_hot_labels = jax.nn.one_hot(y_batch_labels, num_classes=self.experiment.num_outputs)
-                    loss = jnp.mean((logits - one_hot_labels) ** 2)
+                    diff = logits - one_hot_labels
+                    diff = diff.reshape(diff.shape[0], -1)
+                    loss = 0.5 * jnp.mean(jnp.sum(diff**2, axis=1))
                     return loss, logits
 
                 return loss_fn
@@ -406,8 +408,11 @@ class SyntheticTrialRunner(TrialRunner):
     def _create_loss_fn(self) -> Callable:
         def loss_fn(params, x_batch, y_batch):
             pred = self.model_instance(params, x_batch)
+            diff = y_batch - pred
+            diff = diff.reshape(diff.shape[0], -1)
+            loss = 0.5 * jnp.mean(jnp.sum(diff**2, axis=1))
             # Return a dummy aux output for a consistent interface with MNISTTrialRunner
-            return jnp.mean((y_batch - pred) ** 2), None
+            return loss, None
 
         return loss_fn
 

@@ -23,24 +23,25 @@ def reverse_eta_adjustment(func: Callable[[int], float], experiment) -> Callable
     return reversed_func
 
 
-def reverse_eta_adjustment_theoretical(func: Callable[[int], float], experiment) -> Callable[[int], float]:
-    """
-    Returns effective learning rate to match the theory. This includes
-    - reversion width and γ-adjustments (for μP)
-    - divide by 2 to match 1/2 * E[Loss] results
-    - (for classification w/ MSE) further adjusts loss f-n to account for the one hot encoding coming with MSE
+def reverse_eta_adjustment_theoretical(
+    func: Callable[[int], float], experiment, *, legacy_mse_scaling: bool = False
+) -> Callable[[int], float]:
+    """Returns the theoretical learning rate bound after undoing μP/γ scaling.
 
-    This is useful for comparing empirical stability bounds with theoretical predictions.
+    If ``legacy_mse_scaling`` is True, an additional factor (2/num_outputs) is applied
+    to reproduce the normalization used prior to the ½ ∥·∥² loss rescaling.
     """
     # Reverse all width and γ adjustments
     base_reversed_func = reverse_eta_adjustment(func, experiment)
-    # always divide by 2 to match theory
-    theoretical_divisor = 2
+    theoretical_divisor = 1.0
 
-    # for MSE and classification tasks adjsut by num targets
-    if experiment.loss_type == LossType.MSE:
+    # For legacy experiments that averaged MSE over outputs, account for the extra factor.
+    if legacy_mse_scaling and experiment.loss_type == LossType.MSE:
         num_outputs = getattr(experiment, "num_outputs", 1)
-        theoretical_divisor = 2 / num_outputs
+        if num_outputs > 0:
+            theoretical_divisor = 2.0 / num_outputs
+        else:
+            theoretical_divisor = 2.0
 
     @functools.wraps(func)
     def theoretical_reversed_func(batch_size: int) -> float:
