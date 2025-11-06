@@ -25,7 +25,8 @@ class TrialRunner(ABC):
     Template that drives a single (B, η) training run end-to-end: it builds the loss,
     runs the step loop, records metrics, and decides when to checkpoint/snapshot.
     Subclasses only supply data iterators and per-experiment hooks while reusing this
-    orchestration logic.
+    orchestration logic. Jitted update/eval functions are cached at class scope; call
+    TrialRunner.clear_cache() in interactive sessions if you redefine models or losses.
     """
 
     _JIT_CACHE = {}
@@ -438,14 +439,14 @@ class SyntheticTrialRunner(TrialRunner):
         if not isinstance(init_key, (int, np.integer)):
             return None
 
-        eval_key = jax.random.PRNGKey(init_key + 17)
+        eval_key = jax.random.PRNGKey(init_key + 257)
         try:
             X_eval, y_eval = self.experiment.generate_data(eval_key)
         except TypeError:
             return None
 
         if X_eval.shape[0] > self.EVAL_MAX_SAMPLES:
-            subset_key = jax.random.PRNGKey(init_key + 19)
+            subset_key = jax.random.PRNGKey(init_key + 259)
             indices = jax.random.permutation(subset_key, X_eval.shape[0])[: self.EVAL_MAX_SAMPLES]
             X_eval = X_eval[indices]
             y_eval = y_eval[indices]
