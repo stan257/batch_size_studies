@@ -306,6 +306,13 @@ class ExperimentBase(ABC):
         """
         return False
 
+    def is_classification(self) -> bool:
+        """
+        Returns True if the experiment targets discrete labels (e.g., MNIST variants).
+        Defaults to False; classification experiments should override.
+        """
+        return False
+
 
 class SyntheticExperiment(ABC):
     @abstractmethod
@@ -683,6 +690,9 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
         steps_per_epoch = num_train_samples // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
 
+    def is_classification(self) -> bool:
+        return True
+
 
 @dataclass(frozen=True)
 class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
@@ -745,6 +755,9 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
         num_train_samples = len(train_ds["image"])
         steps_per_epoch = num_train_samples // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
+
+    def is_classification(self) -> bool:
+        return True
 
 
 @dataclass(frozen=True)
@@ -815,3 +828,6 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
         num_train_samples = len(train_ds["image"])
         steps_per_epoch = num_train_samples // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
+
+    def is_classification(self) -> bool:
+        return True

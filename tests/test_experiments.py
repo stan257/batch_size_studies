@@ -185,6 +185,17 @@ class TestExperimentBehavior:
         y = np.array(y).reshape(-1)
         np.testing.assert_allclose(np.std(y), 1.0, rtol=5e-2)
 
+    def test_is_classification_flag(self, request):
+        mnist = request.getfixturevalue("mnist_config")
+        mnist1m = request.getfixturevalue("mnist1m_config")
+        mnist1m_sampled = request.getfixturevalue("mnist1m_sampled_config")
+        linear_teacher = request.getfixturevalue("linear_teacher_config")
+
+        assert mnist.is_classification()
+        assert mnist1m.is_classification()
+        assert mnist1m_sampled.is_classification()
+        assert not linear_teacher.is_classification()
+
     @pytest.mark.parametrize(
         "config_fixture",
         [

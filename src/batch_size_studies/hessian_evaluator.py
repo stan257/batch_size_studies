@@ -275,7 +275,7 @@ class HessianEvaluator:
             if self.experiment.loss_type == LossType.XENT:
                 return jnp.mean(optax.softmax_cross_entropy_with_integer_labels(logits=model_output, labels=targets))
             elif self.experiment.loss_type == LossType.MSE:
-                if isinstance(self.experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
+                if self.experiment.is_classification():
                     targets_one_hot = jax.nn.one_hot(targets, num_classes=self.experiment.num_outputs)
                     diff = model_output - targets_one_hot
                 else:  # Regression
