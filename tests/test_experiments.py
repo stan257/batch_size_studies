@@ -179,6 +179,12 @@ class TestExperimentBehavior:
         np.testing.assert_array_equal(X1, X2)
         np.testing.assert_array_equal(y1, y2)
 
+    def test_linear_teacher_outputs_unit_variance(self, linear_teacher_config):
+        key = jr.key(0)
+        _, y = linear_teacher_config.generate_data(key)
+        y = np.array(y).reshape(-1)
+        np.testing.assert_allclose(np.std(y), 1.0, rtol=5e-2)
+
     @pytest.mark.parametrize(
         "config_fixture",
         [

@@ -277,9 +277,11 @@ class HessianEvaluator:
             elif self.experiment.loss_type == LossType.MSE:
                 if isinstance(self.experiment, (MNISTExperiment, MNIST1MExperiment, MNIST1MSampledExperiment)):
                     targets_one_hot = jax.nn.one_hot(targets, num_classes=self.experiment.num_outputs)
-                    return jnp.mean((model_output - targets_one_hot) ** 2)
+                    diff = model_output - targets_one_hot
                 else:  # Regression
-                    return jnp.mean((model_output - targets) ** 2)
+                    diff = model_output - targets
+                diff = diff.reshape(diff.shape[0], -1)
+                return 0.5 * jnp.mean(jnp.sum(diff**2, axis=1))
             raise NotImplementedError(f"Loss type {self.experiment.loss_type} not supported.")
 
         return loss_fn_outer

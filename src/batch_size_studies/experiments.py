@@ -558,9 +558,16 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
     def generate_teacher_weights(self):
         # w_i = i^(-theta)
-        indices = np.arange(1, self.D + 1)
+        indices = np.arange(1, self.D + 1, dtype=np.float64)
         theta = 1 / 2 + 1 / 2 * self.alpha * (self.beta - 1)
         w = indices ** (-theta)
+
+        # Normalize so that Var(y) = 1 for y = w^T x with x ~ N(0, Sigma)
+        # Var(y) = sum_i w_i^2 * Sigma_ii, where Sigma_ii = i^{-alpha}
+        variance = np.sum((indices ** (-self.alpha)) * (w**2))
+        if variance > 0:
+            w = w / np.sqrt(variance)
+
         return w.reshape(-1, 1)
 
     def generate_data(self, data_key):

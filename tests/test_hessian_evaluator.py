@@ -7,7 +7,11 @@ import pytest
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.data_iterators import EpochBasedDataIterator
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
-from batch_size_studies.experiments import MNISTExperiment, SyntheticExperimentFixedTime
+from batch_size_studies.experiments import (
+    MNISTExperiment,
+    SyntheticExperimentFixedTime,
+    SyntheticExperimentLinearTeacher,
+)
 from batch_size_studies.hessian_evaluator import HessianEvaluator
 
 
@@ -144,3 +148,30 @@ def test_hessian_evaluator_keeps_partial_batches(tmp_path):
 
     batch_sizes = [batch[0].shape[0] for batch in evaluator.data_loader]
     assert batch_sizes[-1] == 3
+
+
+def test_linear_teacher_hessian_matches_unit_covariance(tmp_path):
+    experiment = SyntheticExperimentLinearTeacher(
+        D=32,
+        P=4096,
+        alpha=1.0,
+        beta=1.0,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+        num_epochs=1,
+    )
+    directory = tmp_path / "experiments"
+    _initialize_params(experiment, str(directory), init_key=0)
+
+    evaluator = HessianEvaluator(
+        experiment=experiment,
+        run_key=None,
+        step=None,
+        directory=str(directory),
+        num_hessian_samples=2048,
+        hessian_batch_size=256,
+        init_key=0,
+    )
+
+    eigenvalues, _ = evaluator.top_eigenvalues(top_n=1, max_iter=200, tol=1e-5)
+    np.testing.assert_allclose(np.array(eigenvalues[0]), 1.0, rtol=5e-2)
