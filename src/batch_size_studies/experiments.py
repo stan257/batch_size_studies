@@ -626,6 +626,42 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
 
 @dataclass(frozen=True)
+class SyntheticExperimentNoisyLinearTeacher(SyntheticExperimentLinearTeacher):
+    """
+    Linear teacher with additive Gaussian noise:
+        y = sqrt(1 - rho) * x^T w* + sqrt(rho) * ε,  ε ~ N(0, I)
+    The clean signal x^T w* is normalized to unit variance; rho ∈ [0, 1] controls noise strength.
+    """
+
+    rho: float = 0.0
+    experiment_type: str = field(default="fixed_data_noisy_linear_teacher", init=False)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not 0.0 <= self.rho <= 1.0:
+            raise ValueError(f"rho must be in [0, 1], got {self.rho}")
+
+    def signal_to_noise(self) -> float:
+        if self.rho == 0.0:
+            return np.inf
+        return (1.0 - self.rho) / self.rho
+
+    def generate_data(self, data_key):
+        rho = float(self.rho)
+        X_data, y_clean = super().generate_data(data_key)
+        if rho == 0.0:
+            return X_data, y_clean
+
+        clean_scale = np.sqrt(1.0 - rho)
+        noise_scale = np.sqrt(rho)
+        noise_key = jr.fold_in(data_key, 1)
+
+        noise = jr.normal(noise_key, y_clean.shape)
+        y_noisy = clean_scale * y_clean + noise_scale * noise
+        return X_data, y_noisy
+
+
+@dataclass(frozen=True)
 class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
     """
     Defines parameters for a 10-class MNIST classification experiment.

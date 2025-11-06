@@ -11,6 +11,7 @@ from batch_size_studies.experiments import (
     MNISTExperiment,
     SyntheticExperimentFixedTime,
     SyntheticExperimentLinearTeacher,
+    SyntheticExperimentNoisyLinearTeacher,
 )
 from batch_size_studies.hessian_evaluator import HessianEvaluator
 
@@ -159,6 +160,35 @@ def test_linear_teacher_hessian_matches_unit_covariance(tmp_path):
         optimizer=OptimizerType.SGD,
         loss_type=LossType.MSE,
         num_epochs=1,
+    )
+    directory = tmp_path / "experiments"
+    _initialize_params(experiment, str(directory), init_key=0)
+
+    evaluator = HessianEvaluator(
+        experiment=experiment,
+        run_key=None,
+        step=None,
+        directory=str(directory),
+        num_hessian_samples=2048,
+        hessian_batch_size=256,
+        init_key=0,
+    )
+
+    eigenvalues, _ = evaluator.top_eigenvalues(top_n=1, max_iter=200, tol=1e-5)
+    np.testing.assert_allclose(np.array(eigenvalues[0]), 1.0, rtol=5e-2)
+
+
+@pytest.mark.parametrize("rho", [0.0, 0.25, 0.5, 0.75])
+def test_noisy_linear_teacher_hessian_matches_recovers_largest_eigenvalue(tmp_path, rho):
+    experiment = SyntheticExperimentNoisyLinearTeacher(
+        D=32,
+        P=4096,
+        alpha=1.0,
+        beta=1.0,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+        num_epochs=1,
+        rho=rho,
     )
     directory = tmp_path / "experiments"
     _initialize_params(experiment, str(directory), init_key=0)

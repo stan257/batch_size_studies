@@ -17,6 +17,7 @@ from batch_size_studies.experiments import (
     SyntheticExperimentFixedTime,
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentMLPTeacher,
+    SyntheticExperimentNoisyLinearTeacher,
     _load_mnist_dataset,
     _subsample_mnist_data,
 )
@@ -91,6 +92,21 @@ def linear_teacher_config():
         num_epochs=5,
         optimizer=OptimizerType.SGD,
         loss_type=LossType.MSE,
+)
+
+
+@pytest.fixture
+def noisy_linear_teacher_config():
+    """Fixture for a noisy Linear Teacher experiment configuration."""
+    return SyntheticExperimentNoisyLinearTeacher(
+        D=100,
+        P=1000,
+        alpha=1.0,
+        beta=1.0,
+        num_epochs=5,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+        rho=0.3,
     )
 
 
@@ -185,16 +201,50 @@ class TestExperimentBehavior:
         y = np.array(y).reshape(-1)
         np.testing.assert_allclose(np.std(y), 1.0, rtol=5e-2)
 
+    @pytest.mark.parametrize("rho", [0.0, 0.25, 0.6, 1.0])
+    def test_noisy_linear_teacher_unit_variance(self, rho):
+        config = SyntheticExperimentNoisyLinearTeacher(
+            D=64,
+            P=5000,
+            alpha=1.0,
+            beta=1.0,
+            num_epochs=1,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+            rho=rho,
+        )
+        key = jr.key(123)
+        _, y = config.generate_data(key)
+        y = np.array(y).reshape(-1)
+        np.testing.assert_allclose(np.std(y), 1.0, rtol=5e-2)
+
+    def test_noisy_linear_teacher_pure_noise_zero_mean(self):
+        config = SyntheticExperimentNoisyLinearTeacher(
+            D=32,
+            P=2000,
+            alpha=1.0,
+            beta=1.0,
+            num_epochs=1,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+            rho=1.0,
+        )
+        key = jr.key(999)
+        _, y = config.generate_data(key)
+        y = np.array(y).reshape(-1)
+        np.testing.assert_allclose(np.mean(y), 0.0, atol=5e-2)
+
     def test_is_classification_flag(self, request):
         mnist = request.getfixturevalue("mnist_config")
         mnist1m = request.getfixturevalue("mnist1m_config")
         mnist1m_sampled = request.getfixturevalue("mnist1m_sampled_config")
         linear_teacher = request.getfixturevalue("linear_teacher_config")
-
+        noisy_linear_teacher = request.getfixturevalue("noisy_linear_teacher_config")
         assert mnist.is_classification()
         assert mnist1m.is_classification()
         assert mnist1m_sampled.is_classification()
         assert not linear_teacher.is_classification()
+        assert not noisy_linear_teacher.is_classification()
 
     @pytest.mark.parametrize(
         "config_fixture",

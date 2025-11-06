@@ -1,10 +1,16 @@
 from dataclasses import replace
 
+import jax
+import jax.random as jr
 import numpy as np
 import pytest
 
-from batch_size_studies.definitions import LossType, OptimizerType
-from batch_size_studies.experiments import SyntheticExperimentLinearTeacher
+from batch_size_studies.checkpoint_utils import CheckpointManager
+from batch_size_studies.definitions import LossType, OptimizerType, RunKey
+from batch_size_studies.experiments import (
+    SyntheticExperimentLinearTeacher,
+    SyntheticExperimentNoisyLinearTeacher,
+)
 from batch_size_studies.runner import run_experiment_sweep
 
 
@@ -141,3 +147,111 @@ class TestDataHandlingIntegration:
             assert not np.array_equal(epoch1_data, epoch2_data), (
                 f"For B={bs}, the data subset in epoch 0 of the multi-epoch run differs from the single-epoch run."
             )
+
+    def test_noisy_linear_teacher_matches_clean_for_zero_noise(self):
+        base = SyntheticExperimentLinearTeacher(
+            D=32,
+            P=2048,
+            alpha=1.0,
+            beta=1.0,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+            num_epochs=1,
+            seed=123,
+        )
+        noisy = SyntheticExperimentNoisyLinearTeacher(
+            D=32,
+            P=2048,
+            alpha=1.0,
+            beta=1.0,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+            num_epochs=1,
+            seed=123,
+            rho=0.0,
+        )
+        key = jr.key(321)
+        X_base, y_base = base.generate_data(key)
+        X_noisy, y_noisy = noisy.generate_data(key)
+        np.testing.assert_allclose(X_noisy, X_base)
+        np.testing.assert_allclose(y_noisy, y_base)
+
+    def test_noisy_linear_teacher_reproducibility(self, tmp_path):
+        config = SyntheticExperimentNoisyLinearTeacher(
+            D=16,
+            P=2048,
+            alpha=1.0,
+            beta=1.0,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+            num_epochs=2,
+            seed=99,
+            rho=0.4,
+        )
+        batch_sizes = [32]
+        etas = [0.05]
+
+        def run_once(directory):
+            run_experiment_sweep(
+                experiment=config,
+                batch_sizes=batch_sizes,
+                etas=etas,
+                directory=directory,
+                init_key=123,
+                no_save=False,
+            )
+            results, fails = config.load_results(directory=directory)
+            manager = CheckpointManager(config, directory=directory)
+            run_key = RunKey(batch_size=batch_sizes[0], eta=etas[0])
+            weights = manager.load_full_weight_history(run_key)
+            data_key = jr.key(1234)
+            data = config.generate_data(data_key)
+            return results, fails, weights, data
+
+        dir1 = tmp_path / "run1"
+        dir2 = tmp_path / "run2"
+        res1, fails1, weights1, data1 = run_once(str(dir1))
+        res2, fails2, weights2, data2 = run_once(str(dir2))
+
+        assert fails1 == fails2
+        assert res1.keys() == res2.keys()
+        for key in res1:
+            np.testing.assert_allclose(res1[key]["loss_history"], res2[key]["loss_history"])
+        assert weights1.keys() == weights2.keys()
+        for step in weights1:
+            flat1 = jax.tree_util.tree_leaves(weights1[step])
+            flat2 = jax.tree_util.tree_leaves(weights2[step])
+            for arr1, arr2 in zip(flat1, flat2):
+                np.testing.assert_allclose(np.asarray(arr1), np.asarray(arr2))
+        (X1, y1), (X2, y2) = data1, data2
+        np.testing.assert_allclose(X1, X2)
+        np.testing.assert_allclose(y1, y2)
+
+    @pytest.mark.parametrize("rho", [0.0, 0.3, 0.6, 0.9])
+    def test_noisy_linear_teacher_signal_to_noise_matches_empirical(self, rho):
+        config = SyntheticExperimentNoisyLinearTeacher(
+            D=64,
+            P=5000,
+            alpha=1.0,
+            beta=1.0,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+            num_epochs=1,
+            seed=2024,
+            rho=rho,
+        )
+
+        key = jr.key(777)
+        X, y = config.generate_data(key)
+        w = config.generate_teacher_weights()
+        raw_signal = X @ w
+        signal_component = np.sqrt(1.0 - rho) * raw_signal
+        noise_component = y - signal_component
+        signal_var = float(np.var(signal_component))
+        noise_var = float(np.var(noise_component))
+        empirical_ratio = np.inf if noise_var == 0 else signal_var / noise_var
+        expected_ratio = config.signal_to_noise()
+        if np.isinf(expected_ratio):
+            assert np.isinf(empirical_ratio)
+        else:
+            np.testing.assert_allclose(empirical_ratio, expected_ratio, rtol=5e-3)
