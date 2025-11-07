@@ -13,7 +13,8 @@ src/batch_size_studies/
 ├── models.py           # SP/µP MLPs, linear baselines, centered wrapper
 ├── checkpoint_utils.py # checkpoints, metadata, legacy compatibility
 ├── storage_utils.py    # atomic pickle helpers
-├── configs.py          # grids used in the main sweeps
+├── configs.py          # surfaces registered experiments + grids
+├── registered_experiments.py  # declarative sweep specs
 └── plotting_utils.py   # plotting helpers used in notebooks
 scripts/                # CLI entry points for sweeps & post-processing
 notebooks/              # analysis notebooks accompanying the paper
@@ -30,7 +31,7 @@ notebooks/              # analysis notebooks accompanying the paper
    * MNIST downloads automatically through `tensorflow_datasets`.
    * MNIST‑1M requires `python scripts/process_mnist1m.py` to convert the diffusion-generated set into `data/mnist1m/mnist1m.npz`.
 
-3. Launch a sweep defined in `configs.py`:
+3. Launch a sweep from the registered catalog:
    ```bash
    python scripts/run_experiments.py --name mnist1m_mup_SGD_gamma1p0
    ```
@@ -45,6 +46,6 @@ notebooks/              # analysis notebooks accompanying the paper
    * `_weights.pkl` capture initial parameters, deltas, and sweep metadata.
    * `_checkpoints/` contain live resume files, cleaned automatically when runs finish successfully.
 
-5. Use the notebooks in `notebooks/` or scripts in `scripts/` to regenerate figures and summaries.
+5. Use the notebooks in `notebooks/` (together with `src/batch_size_studies/plotting_utils.py`) to regenerate figures and bespoke summaries for each experiment family.
 
 The test suite (`pytest`) focuses on regression coverage for checkpoints, runner orchestration, and iterator behaviour to ensure the code reproduces the results described in the accompanying manuscript.
