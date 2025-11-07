@@ -11,6 +11,7 @@ from batch_size_studies.experiments import (
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentNoisyLinearTeacher,
 )
+from batch_size_studies.hessian_evaluator import HessianEvaluator
 from batch_size_studies.runner import run_experiment_sweep
 
 
@@ -255,3 +256,48 @@ class TestDataHandlingIntegration:
             assert np.isinf(empirical_ratio)
         else:
             np.testing.assert_allclose(empirical_ratio, expected_ratio, rtol=5e-3)
+
+    def test_hessian_evaluator_reads_checkpoint_and_matches_eigenvalue(self, tmp_path):
+        config = SyntheticExperimentLinearTeacher(
+            D=16,
+            P=512,
+            alpha=1.0,
+            beta=1.0,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+            num_epochs=1,
+            seed=7,
+        )
+        batch_sizes = [32]
+        etas = [0.1]
+        directory = tmp_path / "experiments"
+
+        run_experiment_sweep(
+            experiment=config,
+            batch_sizes=batch_sizes,
+            etas=etas,
+            directory=str(directory),
+            init_key=0,
+        )
+
+        manager = CheckpointManager(config, directory=str(directory))
+        run_key = RunKey(batch_size=batch_sizes[0], eta=etas[0])
+        history = manager.load_full_weight_history(run_key)
+        assert history, "Expected at least one weight snapshot for the linear teacher sweep."
+        target_step = min(history.keys())
+
+        evaluator = HessianEvaluator(
+            experiment=config,
+            run_key=run_key,
+            step=target_step,
+            directory=str(directory),
+            num_hessian_samples=config.P,
+            hessian_batch_size=32,
+        )
+
+        eigenvalues, _ = evaluator.top_eigenvalues(top_n=1, max_iter=200, tol=1e-4)
+        np.testing.assert_allclose(np.array(eigenvalues[0]), 1.0, rtol=7e-2)
+
+        expected_trace = np.sum(np.arange(1, config.D + 1, dtype=np.float64) ** (-config.alpha))
+        trace_val = evaluator.trace(max_iter=128)
+        np.testing.assert_allclose(np.array(trace_val), expected_trace, rtol=1e-1)

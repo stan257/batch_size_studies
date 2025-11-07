@@ -38,6 +38,7 @@ notebooks/              # analysis notebooks accompanying the paper
    * `--no-save` to dry-run in place (useful while inspecting behaviour).
    * `--max-eval-samples N` to limit validation cost.
    * `--eta-stability-depth K` to stop exploring learning rates once K consecutive stable learning rates are observed per batch size.
+   * `--num-processes M` to run up to M sweeps in parallel (useful on clusters; defaults to sequential execution).
 
 4. Results land in `experiments/<experiment_type>/`:
    * `results_*.pkl` store loss histories and failure logs.
