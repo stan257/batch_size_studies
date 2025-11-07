@@ -17,7 +17,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from batch_size_studies.configs import get_main_experiment_configs, get_main_hyperparameter_grids
-from batch_size_studies.definitions import Parameterization, RunKey
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import MNIST1MExperiment
 from batch_size_studies.paths import EXPERIMENTS_DIR
 from batch_size_studies.runner import run_experiment_sweep
@@ -153,6 +153,17 @@ def get_experiment_dir_by_name(name: str, base_dir: str = EXPERIMENTS_DIR) -> st
     return os.path.join(base_dir, config.experiment_type)
 
 
+def _coerce_enum(parser, enum_cls, raw_value, flag_name):
+    if raw_value is None:
+        return None
+    candidate = raw_value.strip().lower()
+    for member in enum_cls:
+        if member.name.lower() == candidate or str(member.value).lower() == candidate:
+            return member
+    valid = ", ".join([f"{m.name} ({m.value})" for m in enum_cls])
+    parser.error(f"Invalid value '{raw_value}' for {flag_name}. Valid choices: {valid}.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run a series of ML experiments.")
     parser.add_argument(
@@ -191,13 +202,42 @@ def main():
         default=1,
         help="Number of experiments to run in parallel (useful on clusters). Default=1 for sequential runs on a single machine.",
     )
+    parser.add_argument(
+        "--experiment-type",
+        action="append",
+        dest="experiment_types",
+        help="Filter experiments by their experiment_type string. Repeat the flag to include multiple types.",
+    )
+    parser.add_argument(
+        "--optimizer",
+        "--opt",
+        dest="optimizer",
+        help="Filter experiments by optimizer (e.g., SGD, Adam). Case-insensitive.",
+    )
+    parser.add_argument(
+        "--loss",
+        dest="loss",
+        help="Filter experiments by loss function (e.g., MSE, XENT). Case-insensitive.",
+    )
     args = parser.parse_args()
 
     setup_logging()
 
     directory = EXPERIMENTS_DIR
     batch_sizes, etas = get_main_hyperparameter_grids()
-    experiments_to_run = get_main_experiment_configs()
+    optimizer_filter = _coerce_enum(parser, OptimizerType, args.optimizer, "--optimizer")
+    loss_filter = _coerce_enum(parser, LossType, args.loss, "--loss")
+    config_kwargs = {}
+    if args.experiment_types:
+        config_kwargs["experiment_types"] = args.experiment_types
+    if optimizer_filter is not None:
+        config_kwargs["optimizer"] = optimizer_filter
+    if loss_filter is not None:
+        config_kwargs["loss_type"] = loss_filter
+    experiments_to_run = get_main_experiment_configs(**config_kwargs)
+    if not experiments_to_run:
+        logging.error("No experiments match the provided filters. Nothing to run.")
+        return
 
     # Filter experiments by name if provided
     if args.name:
