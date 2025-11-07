@@ -14,7 +14,7 @@ from functools import partial
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, jit
+from jax import Array, jit, lax
 from jax.tree_util import tree_leaves, tree_map, tree_structure, tree_unflatten
 
 
@@ -78,8 +78,18 @@ class JaxHessian:
         """
         self.model = model
         self.loss_fn = loss_fn
-        self.data_loader = data_loader
-        self.num_batches = len(data_loader)
+        inputs_list: list[jnp.ndarray] = []
+        targets_list: list[jnp.ndarray] = []
+        for batch_inputs, batch_targets in data_loader:
+            inputs_list.append(jnp.asarray(batch_inputs))
+            targets_list.append(jnp.asarray(batch_targets))
+
+        if not inputs_list:
+            raise ValueError("Data loader for Hessian computation must not be empty.")
+
+        self.batch_inputs = jnp.stack(inputs_list)
+        self.batch_targets = jnp.stack(targets_list)
+        self.num_batches = self.batch_inputs.shape[0]
 
     def _get_loss_fn_for_hessian(self, params, batch):
         """A closure for the model's loss function for a single batch, using direct model call."""
@@ -98,12 +108,15 @@ class JaxHessian:
 
     def _hvp_full_dataset(self, params: list[Array], v: list[Array]) -> list[Array]:
         """Computes the Hessian-vector product averaged over the full dataset."""
-        hvp_total = tree_map(jnp.zeros_like, params)
-        for batch in self.data_loader:
-            hvp_batch = self._hvp_single_batch(params, v, batch)
-            # Accumulate the HVP from each batch
-            hvp_total = tree_map(lambda x, y: x + y, hvp_total, hvp_batch)
-        # Average over the number of batches
+        def body(acc, batch_idx):
+            inputs = self.batch_inputs[batch_idx]
+            targets = self.batch_targets[batch_idx]
+            hvp_batch = self._hvp_single_batch(params, v, (inputs, targets))
+            new_acc = tree_map(lambda x, y: x + y, acc, hvp_batch)
+            return new_acc, None
+
+        init = tree_map(jnp.zeros_like, params)
+        hvp_total, _ = lax.scan(body, init, jnp.arange(self.num_batches))
         return tree_map(lambda x: x / self.num_batches, hvp_total)
 
     def eigenvalues(self, params, key, max_iter=100, tol=1e-3, top_n=1):

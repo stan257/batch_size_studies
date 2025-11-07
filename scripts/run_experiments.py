@@ -185,6 +185,12 @@ def main():
         default=None,
         help="Maximum number of test samples to use for evaluation each epoch. If not set, the full test set is used.",
     )
+    parser.add_argument(
+        "--num-processes",
+        type=int,
+        default=1,
+        help="Number of experiments to run in parallel (useful on clusters). Default=1 for sequential runs on a single machine.",
+    )
     args = parser.parse_args()
 
     setup_logging()
@@ -261,28 +267,46 @@ def main():
         return
 
     logging.info(f"\n--- Starting Pipeline for {len(experiments_that_need_running)} Incomplete Experiments ---")
-    with ProcessPoolExecutor() as executor:
-        future_to_name = {
-            executor.submit(
-                run_single_experiment,
-                name,
-                config,
-                batch_sizes,
-                etas,
-                directory,
-                args.no_save,
-                args.eta_stability_depth,
-                args.max_eval_samples,
-            ): name
-            for name, config in experiments_that_need_running.items()
-        }
-
-        for future in as_completed(future_to_name):
-            name = future_to_name[future]
+    if args.num_processes <= 1:
+        logging.info("Running experiments sequentially.")
+        for name, config in experiments_that_need_running.items():
             try:
-                future.result()
+                run_single_experiment(
+                    name,
+                    config,
+                    batch_sizes,
+                    etas,
+                    directory,
+                    args.no_save,
+                    args.eta_stability_depth,
+                    args.max_eval_samples,
+                )
             except Exception as exc:
                 logging.error(f"Experiment '{name}' generated an exception: {exc}")
+    else:
+        logging.info(f"Running experiments with up to {args.num_processes} parallel workers.")
+        with ProcessPoolExecutor(max_workers=args.num_processes) as executor:
+            future_to_name = {
+                executor.submit(
+                    run_single_experiment,
+                    name,
+                    config,
+                    batch_sizes,
+                    etas,
+                    directory,
+                    args.no_save,
+                    args.eta_stability_depth,
+                    args.max_eval_samples,
+                ): name
+                for name, config in experiments_that_need_running.items()
+            }
+
+            for future in as_completed(future_to_name):
+                name = future_to_name[future]
+                try:
+                    future.result()
+                except Exception as exc:
+                    logging.error(f"Experiment '{name}' generated an exception: {exc}")
 
     logging.info("\n--- All experiments complete. ---")
 
