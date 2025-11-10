@@ -3,6 +3,7 @@ import os
 from dataclasses import replace
 from types import SimpleNamespace
 
+import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
 import pytest
@@ -201,6 +202,16 @@ class TestExperimentBehavior:
         y = np.array(y).reshape(-1)
         np.testing.assert_allclose(np.std(y), 1.0, rtol=5e-2)
 
+    def test_linear_teacher_test_error_matches_population_mse(self, linear_teacher_config):
+        test_fn = linear_teacher_config.get_test_error_fn()
+        teacher = jnp.asarray(linear_teacher_config.generate_teacher_weights()).reshape(linear_teacher_config.D, 1)
+        assert np.isclose(float(test_fn(teacher)), 0.0)
+
+        delta = np.ones_like(teacher) * 0.1
+        sigma_diag = np.arange(1, linear_teacher_config.D + 1) ** (-linear_teacher_config.alpha)
+        expected = 0.5 * np.sum((delta.reshape(-1) ** 2) * sigma_diag)
+        assert np.isclose(float(test_fn(teacher + delta)), expected)
+
     @pytest.mark.parametrize("rho", [0.0, 0.25, 0.6, 1.0])
     def test_noisy_linear_teacher_unit_variance(self, rho):
         config = SyntheticExperimentNoisyLinearTeacher(
@@ -217,6 +228,20 @@ class TestExperimentBehavior:
         _, y = config.generate_data(key)
         y = np.array(y).reshape(-1)
         np.testing.assert_allclose(np.std(y), 1.0, rtol=5e-2)
+
+    def test_noisy_linear_teacher_test_error_includes_noise(self, noisy_linear_teacher_config):
+        test_fn = noisy_linear_teacher_config.get_test_error_fn()
+        teacher = jnp.asarray(noisy_linear_teacher_config.generate_teacher_weights()).reshape(
+            noisy_linear_teacher_config.D, 1
+        )
+        rho = noisy_linear_teacher_config.rho
+        assert np.isclose(float(test_fn(teacher)), 0.5 * rho)
+
+        delta = np.ones_like(teacher) * 0.05
+        sigma_diag = np.arange(1, noisy_linear_teacher_config.D + 1) ** (-noisy_linear_teacher_config.alpha)
+        mse = np.sum((delta.reshape(-1) ** 2) * sigma_diag)
+        expected = 0.5 * ((1 - rho) * mse + rho)
+        assert np.isclose(float(test_fn(teacher + delta)), expected)
 
     def test_noisy_linear_teacher_pure_noise_zero_mean(self):
         config = SyntheticExperimentNoisyLinearTeacher(

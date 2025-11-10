@@ -146,14 +146,16 @@ class TrialRunner(ABC):
         data_iterator = self._create_data_iterator(start_step, results)
 
         try:
-            final_results = self._run_training_loop(params, opt_state, results, start_step, data_iterator)
+            params, opt_state, final_results = self._run_training_loop(
+                params, opt_state, results, start_step, data_iterator
+            )
         except DivergenceError as e:
             logging.warning(e)
             return None
 
         return self._post_training_hook(params, final_results)
 
-    def _run_training_loop(self, params, opt_state, results, start_step, data_iterator) -> dict:
+    def _run_training_loop(self, params, opt_state, results, start_step, data_iterator):
         """Unified training loop that iterates over steps."""
         num_steps = self.num_steps
 
@@ -179,7 +181,7 @@ class TrialRunner(ABC):
                 self.pbar.update(1)
                 self.pbar.set_postfix(loss=f"{loss.item():.4f}")
 
-        return results
+        return params, opt_state, results
 
     @abstractmethod
     def _init_results(self) -> dict:

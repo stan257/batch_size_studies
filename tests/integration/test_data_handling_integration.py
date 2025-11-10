@@ -79,7 +79,7 @@ class TestDataHandlingIntegration:
 
             # Return a minimal valid result to satisfy the runner
             results["loss_history"] = [0.1] * self.num_steps
-            return results
+            return params, opt_state, results
 
         monkeypatch.setattr(
             "batch_size_studies.trainer.SyntheticFixedDataTrialRunner._run_training_loop", mock_run_training_loop

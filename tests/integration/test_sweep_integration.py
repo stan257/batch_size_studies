@@ -17,6 +17,7 @@ from batch_size_studies.experiments import (
     MNISTExperiment,
     SyntheticExperimentFixedData,
     SyntheticExperimentFixedTime,
+    SyntheticExperimentLinearTeacher,
 )
 from batch_size_studies.runner import run_experiment_sweep
 from batch_size_studies.trainer import MNISTTrialRunner
@@ -232,6 +233,38 @@ class TestSweepRunnerIntegration:
             assert history, f"No history recorded for {run_key}"
             final_step = max(history.keys())
             assert_allclose_trees(final_params, history[final_step])
+
+    def test_linear_teacher_test_error_matches_eval_loss(self, tmp_path):
+        experiment = SyntheticExperimentLinearTeacher(
+            D=16,
+            P=1000,
+            alpha=2.0,
+            beta=0.5,
+            num_epochs=1,
+            optimizer=OptimizerType.SGD,
+            loss_type=LossType.MSE,
+        )
+        batch_sizes = [1, 2, 4]
+        etas = [0.25, 0.5]
+
+        losses, failures = run_experiment_sweep(
+            experiment=experiment,
+            batch_sizes=batch_sizes,
+            etas=etas,
+            init_key=0,
+            directory=str(tmp_path),
+        )
+        assert not failures
+
+        final_weights = load_final_weights_for_experiment(experiment, directory=str(tmp_path))
+        test_error_fn = experiment.get_test_error_fn(init_key=0)
+
+        for run_key, result in losses.items():
+            assert "final_eval_loss" in result
+            params = final_weights[run_key]
+            test_err = float(test_error_fn(params))
+            expected = float(result["final_eval_loss"])
+            np.testing.assert_allclose(test_err, expected, rtol=1e-5)
 
 
 def assert_allclose_trees(a, b, rtol=1e-5, atol=1e-8):
