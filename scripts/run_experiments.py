@@ -110,6 +110,8 @@ def run_single_experiment(
     no_save: bool = False,
     eta_stability_search_depth: int | None = None,
     max_eval_samples: int | None = None,
+    save_interstitial_snapshots: bool | None = None,
+    save_epoch_snapshots: bool | None = None,
 ):
     """
     A wrapper function to run a single experiment trial. This is designed
@@ -126,6 +128,10 @@ def run_single_experiment(
         "eta_stability_search_depth": eta_stability_search_depth,
         "max_eval_samples": max_eval_samples,
     }
+    if save_interstitial_snapshots is not None:
+        run_options["save_interstitial_snapshots"] = save_interstitial_snapshots
+    if save_epoch_snapshots is not None:
+        run_options["save_epoch_snapshots"] = save_epoch_snapshots
 
     # Selectively apply a default number of epochs only if the experiment
     # configuration does not already specify one.
@@ -219,6 +225,32 @@ def main():
         dest="loss",
         help="Filter experiments by loss function (e.g., MSE, XENT). Case-insensitive.",
     )
+    parser.add_argument(
+        "--save-interstitial-snapshots",
+        dest="save_interstitial_snapshots",
+        action="store_true",
+        help="Force saving interstitial weight snapshots between checkpoints.",
+    )
+    parser.add_argument(
+        "--no-save-interstitial-snapshots",
+        dest="save_interstitial_snapshots",
+        action="store_false",
+        help="Skip interstitial weight snapshots (fewer saved deltas, faster runs).",
+    )
+    parser.set_defaults(save_interstitial_snapshots=None)
+    parser.add_argument(
+        "--save-epoch-snapshots",
+        dest="save_epoch_snapshots",
+        action="store_true",
+        help="Force saving weight snapshots at every epoch boundary for fixed-data synthetic runs.",
+    )
+    parser.add_argument(
+        "--no-save-epoch-snapshots",
+        dest="save_epoch_snapshots",
+        action="store_false",
+        help="Skip per-epoch snapshots for fixed-data synthetic runs to speed up long sweeps.",
+    )
+    parser.set_defaults(save_epoch_snapshots=None)
     args = parser.parse_args()
 
     setup_logging()
@@ -320,6 +352,8 @@ def main():
                     args.no_save,
                     args.eta_stability_depth,
                     args.max_eval_samples,
+                    args.save_interstitial_snapshots,
+                    args.save_epoch_snapshots,
                 )
             except Exception as exc:
                 logging.error(f"Experiment '{name}' generated an exception: {exc}")
@@ -337,6 +371,8 @@ def main():
                     args.no_save,
                     args.eta_stability_depth,
                     args.max_eval_samples,
+                    args.save_interstitial_snapshots,
+                    args.save_epoch_snapshots,
                 ): name
                 for name, config in experiments_that_need_running.items()
             }

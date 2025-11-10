@@ -510,7 +510,9 @@ class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
         self.steps_per_epoch = original_num_train // self.run_key.batch_size
 
         self.train_ds = context.train_ds
-        self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
+        save_epoch_snapshots = context.kwargs.get("save_epoch_snapshots", True)
+        if save_epoch_snapshots:
+            self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
 
     def _init_results(self) -> dict:
         return {"loss_history": [], "epoch": 0, "expected_steps": self.num_steps}

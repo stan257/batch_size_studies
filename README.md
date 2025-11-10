@@ -40,6 +40,8 @@ notebooks/              # analysis notebooks accompanying the paper
    * `--max-eval-samples N` to limit validation cost.
    * `--eta-stability-depth K` to stop exploring learning rates once K consecutive stable learning rates are observed per batch size.
    * `--num-processes M` to run up to M sweeps in parallel (useful on clusters; defaults to sequential execution).
+   * `--save-interstitial-snapshots` / `--no-save-interstitial-snapshots` to toggle dense weight snapshots between checkpoints (useful when trading analysis granularity for speed).
+   * `--save-epoch-snapshots` / `--no-save-epoch-snapshots` to control whether fixed-data synthetic runs store weights at every epoch boundary.
 
 4. Results land in `experiments/<experiment_type>/`:
    * `results_*.pkl` store loss histories and failure logs.
