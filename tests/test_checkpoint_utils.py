@@ -6,7 +6,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from batch_size_studies.checkpoint_utils import CheckpointManager, load_experiment_weights
+from batch_size_studies.checkpoint_utils import (
+    CheckpointManager,
+    load_experiment_weights,
+    load_final_weights_for_experiment,
+)
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import SyntheticExperimentFixedTime
 
@@ -247,6 +251,25 @@ class TestCheckpointManager:
         assert_pytree_allclose(history[100], params)
         assert_pytree_allclose(history[200], params_step200)
 
+    def test_load_final_params_for_all_runs(self, checkpoint_manager, mock_data):
+        params, _ = mock_data
+        initial_params = jax.tree_util.tree_map(lambda x: x - 0.1, params)
+        params_step200 = jax.tree_util.tree_map(lambda x: x + 0.5, params)
+        params_other = jax.tree_util.tree_map(lambda x: x - 0.3, params)
+
+        run_key1 = RunKey(16, 0.1)
+        run_key2 = RunKey(32, 0.05)
+
+        checkpoint_manager.save_analysis_snapshot(run_key1, step=100, params=params, initial_params=initial_params)
+        checkpoint_manager.save_analysis_snapshot(run_key1, step=200, params=params_step200, initial_params=initial_params)
+        checkpoint_manager.save_analysis_snapshot(run_key2, step=50, params=params_other, initial_params=initial_params)
+
+        final_params = checkpoint_manager.load_final_params_for_all_runs()
+
+        assert set(final_params.keys()) == {run_key1, run_key2}
+        assert_pytree_allclose(final_params[run_key1], params_step200)
+        assert_pytree_allclose(final_params[run_key2], params_other)
+
     def test_load_full_weight_history_not_found(self, checkpoint_manager):
         run_key = RunKey(batch_size=99, eta=0.99)
         history = checkpoint_manager.load_full_weight_history(run_key)
@@ -339,3 +362,23 @@ class TestLoadExperimentWeights:
         assert isinstance(history, dict)
         assert set(history.keys()) == {100, 200}
         assert_pytree_allclose(history[200], params_step200)
+
+    def test_load_final_weights_for_experiment(self, experiment_instance, tmp_path, mock_data):
+        checkpoint_manager = CheckpointManager(experiment_instance, directory=str(tmp_path))
+        params, _ = mock_data
+        initial_params = jax.tree_util.tree_map(lambda x: x - 0.1, params)
+        params_step200 = jax.tree_util.tree_map(lambda x: x + 0.5, params)
+        params_other = jax.tree_util.tree_map(lambda x: x - 0.3, params)
+
+        run_key1 = RunKey(16, 0.1)
+        run_key2 = RunKey(32, 0.05)
+
+        checkpoint_manager.save_analysis_snapshot(run_key1, step=100, params=params, initial_params=initial_params)
+        checkpoint_manager.save_analysis_snapshot(run_key1, step=200, params=params_step200, initial_params=initial_params)
+        checkpoint_manager.save_analysis_snapshot(run_key2, step=50, params=params_other, initial_params=initial_params)
+
+        final_params = load_final_weights_for_experiment(experiment_instance, directory=str(tmp_path))
+
+        assert set(final_params.keys()) == {run_key1, run_key2}
+        assert_pytree_allclose(final_params[run_key1], params_step200)
+        assert_pytree_allclose(final_params[run_key2], params_other)

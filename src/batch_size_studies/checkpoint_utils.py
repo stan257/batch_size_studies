@@ -259,6 +259,36 @@ class CheckpointManager:
             logging.error(f"Could not load weight history for {run_key}. Error: {e}")
             return {}
 
+    def load_final_params_for_all_runs(self) -> dict[RunKey, any]:
+        """
+        Loads the final parameters for every run stored in the weights file.
+        """
+        if not os.path.exists(self.weights_filepath):
+            logging.info(f"Weights file not found: {self.weights_filepath}. Returning empty dict.")
+            return {}
+
+        try:
+            with open(self.weights_filepath, "rb") as f:
+                data = CustomUnpickler(f).load()
+        except (pickle.UnpicklingError, EOFError) as e:
+            logging.error(f"Could not load weights file {self.weights_filepath}: {e}")
+            return {}
+
+        initial_params = data.get("initial_params")
+        if initial_params is None:
+            logging.error(f"initial_params missing from weights file {self.weights_filepath}")
+            return {}
+
+        weight_snapshots: dict[RunKey, dict[int, any]] = data.get("weight_snapshots", {})
+        final_params: dict[RunKey, any] = {}
+        for run_key, step_map in weight_snapshots.items():
+            if not step_map:
+                continue
+            final_step = max(step_map.keys())
+            delta = step_map[final_step]
+            final_params[run_key] = jax.tree_util.tree_map(lambda p0, d: p0 + d, initial_params, delta)
+        return final_params
+
     def cleanup_live_checkpoint(self, run_key: RunKey):
         filepath = self._get_resume_filepath(run_key)
         if os.path.exists(filepath):
@@ -300,3 +330,11 @@ def load_experiment_weights(
         return manager.load_analysis_snapshot(run_key, step_to_load)
     else:
         return manager.load_full_weight_history(run_key)
+
+
+def load_final_weights_for_experiment(experiment, directory: str = "experiments") -> dict[RunKey, any]:
+    """
+    Loads the final parameters for every completed run of the given experiment.
+    """
+    manager = CheckpointManager(experiment, directory=directory)
+    return manager.load_final_params_for_all_runs()

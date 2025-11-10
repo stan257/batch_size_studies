@@ -2,10 +2,14 @@ import logging
 import os
 from dataclasses import dataclass, replace
 
+import jax
 import numpy as np
 import pytest
 
-from batch_size_studies.checkpoint_utils import CheckpointManager
+from batch_size_studies.checkpoint_utils import (
+    CheckpointManager,
+    load_final_weights_for_experiment,
+)
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import (
     ExperimentBase,
@@ -204,6 +208,38 @@ class TestSweepRunnerIntegration:
         assert losses1.keys() == losses2.keys()
         for key in losses1:
             np.testing.assert_allclose(losses1[key]["loss_history"], losses2[key]["loss_history"])
+
+    def test_load_final_weights_after_sweep(self, fixed_data_config, tmp_path):
+        batch_sizes = [4]
+        etas = [0.1, 0.01]
+        losses, failures = run_experiment_sweep(
+            experiment=fixed_data_config,
+            batch_sizes=batch_sizes,
+            etas=etas,
+            init_key=0,
+            directory=str(tmp_path),
+        )
+        assert not failures
+        expected_keys = {RunKey(b, e) for b in batch_sizes for e in etas}
+        assert set(losses.keys()) == expected_keys
+
+        final_weights = load_final_weights_for_experiment(fixed_data_config, directory=str(tmp_path))
+        assert set(final_weights.keys()) == expected_keys
+
+        manager = CheckpointManager(fixed_data_config, directory=str(tmp_path))
+        for run_key, final_params in final_weights.items():
+            history = manager.load_full_weight_history(run_key)
+            assert history, f"No history recorded for {run_key}"
+            final_step = max(history.keys())
+            assert_allclose_trees(final_params, history[final_step])
+
+
+def assert_allclose_trees(a, b, rtol=1e-5, atol=1e-8):
+    a_flat, a_tree = jax.tree_util.tree_flatten(a)
+    b_flat, b_tree = jax.tree_util.tree_flatten(b)
+    assert a_tree == b_tree, "PyTree structures do not match"
+    for arr_a, arr_b in zip(a_flat, b_flat):
+        np.testing.assert_allclose(arr_a, arr_b, rtol=rtol, atol=atol)
 
     def test_run_with_fixed_data(self, fixed_data_config, tmp_path):
 
