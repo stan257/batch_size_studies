@@ -19,6 +19,27 @@ def _default_final_metric_extractor(result: Any) -> float | None:
     return None
 
 
+def _final_validation_error_extractor(result: Any) -> float | None:
+    """
+    Extracts the final validation error from a result dict.
+
+    Prefers classification metrics (1 - final_test_accuracy), falls back to
+    synthetic eval loss, and finally to the last recorded loss history entry.
+    """
+    if isinstance(result, dict):
+        final_acc = result.get("final_test_accuracy")
+        if final_acc is not None:
+            return float(1.0 - final_acc)
+        epoch_accs = result.get("epoch_test_accuracies")
+        if epoch_accs:
+            return float(1.0 - epoch_accs[-1])
+        final_eval_loss = result.get("final_eval_loss")
+        if final_eval_loss is not None:
+            return float(final_eval_loss)
+
+    return _default_final_metric_extractor(result)
+
+
 def _prepare_grouped_curves(
     loss_dict: dict[RunKey, Any],
     group_by: Literal["B", "eta", "temp"],
