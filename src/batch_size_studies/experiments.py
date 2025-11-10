@@ -9,7 +9,9 @@ from enum import Enum
 from pprint import pprint
 from typing import TYPE_CHECKING, Type
 
+import jax.numpy as jnp
 import jax.random as jr
+from jax.flatten_util import ravel_pytree
 import numpy as np
 
 from .data_loading import load_datasets, load_mnist1m_dataset
@@ -451,7 +453,6 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None
 
-
 # TODO: Make separate MLP fixed-data class for experiments, when needed
 @dataclass(frozen=True)
 class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, SyntheticExperiment):
@@ -623,6 +624,49 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
         data_key = jr.key(self.seed)
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None
+
+    def get_test_error_fn(self, init_key: int | None = None):
+        """
+        Returns a callable mapping model parameters -> test error for this teacher.
+
+        If `init_key` is None, this returns the population MSE (½ ∥·∥² + noise term).
+        If `init_key` is provided, the returned function evaluates the empirical
+        MSE on the deterministic evaluation dataset used during training (matching
+        the `final_eval_loss` metric stored in results).
+        """
+        rho = getattr(self, "rho", 0.0)
+
+        if init_key is None:
+            teacher_vec = jnp.asarray(self.generate_teacher_weights()).reshape(-1)
+            sigma_diag = jnp.arange(1, self.D + 1, dtype=teacher_vec.dtype) ** (-self.alpha)
+
+            def population_error(params):
+                flat_params, _ = ravel_pytree(params)
+                diff = flat_params - teacher_vec
+                mse = jnp.sum(diff**2 * sigma_diag)
+                return 0.5 * ((1.0 - rho) * mse + rho)
+
+            return population_error
+
+        eval_key = jr.PRNGKey(init_key + 257)
+        X_eval, y_eval = self.generate_data(eval_key)
+        X_eval = jnp.asarray(X_eval)
+        y_eval = jnp.asarray(y_eval)
+        max_samples = 10_000
+        if X_eval.shape[0] > max_samples:
+            subset_key = jr.PRNGKey(init_key + 259)
+            indices = jr.permutation(subset_key, X_eval.shape[0])[:max_samples]
+            X_eval = X_eval[indices]
+            y_eval = y_eval[indices]
+
+        def empirical_error(params):
+            flat_params, _ = ravel_pytree(params)
+            weights = flat_params.reshape(self.D, -1)
+            preds = X_eval @ weights
+            diff = y_eval - preds
+            return jnp.mean(diff**2)
+
+        return empirical_error
 
 
 @dataclass(frozen=True)
