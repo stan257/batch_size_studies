@@ -660,6 +660,15 @@ class SyntheticExperimentNoisyLinearTeacher(SyntheticExperimentLinearTeacher):
         y_noisy = clean_scale * y_clean + noise_scale * noise
         return X_data, y_noisy
 
+    def plot_title(self, task_name="linear task", model_name="Linear Model"):
+        base = super().plot_title(task_name=task_name, model_name=model_name)
+        snr = self.signal_to_noise()
+        if np.isinf(snr):
+            noise_line = "Noise: ρ = 0 (clean)"
+        else:
+            noise_line = f"Noise: ρ = {self.rho:.2f}, SNR={(snr):.2f}"
+        return f"{base}\n{noise_line}"
+
 
 @dataclass(frozen=True)
 class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
