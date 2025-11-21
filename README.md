@@ -26,6 +26,13 @@ notebooks/              # analysis notebooks accompanying the paper
    ```bash
    pip install -e .
    ```
+   For a reproducible setup matching the tested environment (Python 3.12, JAX 0.7.2), create a conda env from `environment.yml`:
+   ```bash
+   conda env create -f environment.yml
+   conda activate batch-size-studies
+   pip install -e .
+   ```
+   *If you target a non-CPU accelerator, adjust the JAX/TensorFlow wheels in `environment.yml` (e.g., CUDA/ROCm builds) before installing.*
 
 2. Prepare datasets:
    * MNIST downloads automatically through `tensorflow_datasets`.

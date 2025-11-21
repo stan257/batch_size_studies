@@ -1,0 +1,22 @@
+name: batch-size-studies
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - pip
+  - numpy=1.26.4
+  - scipy=1.16.0
+  - pandas=2.3.3
+  - matplotlib=3.10.5
+  - seaborn=0.13.2
+  - tqdm=4.67.1
+  - pillow=10.3.0
+  - scikit-learn=1.7.2
+  - pytest=8.4.1
+  - filelock=3.19.1
+  - pip:
+      - jax==0.7.2
+      - jaxlib==0.7.2
+      - optax==0.2.5
+      - flax==0.10.2
+      - tensorflow-datasets==4.9.9
