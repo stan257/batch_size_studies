@@ -11,8 +11,8 @@ from batch_size_studies.definitions import LossType, OptimizerType, Parameteriza
 from batch_size_studies.experiments import MNIST1MSampledExperiment, SyntheticExperimentFixedData
 from batch_size_studies.runner import run_experiment_sweep
 
-# Location to store golden data files.
-GOLDEN_DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "golden_data")
+# Location to store golden data files (sibling golden_data/ directory).
+GOLDEN_DATA_DIR = os.path.join(os.path.dirname(__file__), "golden_data")
 
 
 def compare_results(golden: dict, current: dict):

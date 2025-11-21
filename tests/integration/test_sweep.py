@@ -330,10 +330,6 @@ def assert_allclose_trees(a, b, rtol=1e-5, atol=1e-8):
                 assert RunKey(bs, eta) in results
 
     def test_eta_stability_search_stops_early(self, fixed_data_config, tmp_path, monkeypatch):
-
-
-
-
         batch_sizes = [16]
         # Etas are sorted descending by the runner
         etas = [1.0, 0.5, 0.25, 0.125, 0.06]
