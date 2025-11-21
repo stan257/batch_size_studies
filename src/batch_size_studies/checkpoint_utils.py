@@ -7,6 +7,7 @@ import numpy as np
 from filelock import FileLock
 
 from .definitions import RunKey
+from .paths import EXPERIMENTS_DIR
 from .storage_utils import CustomUnpickler, save_experiment
 
 
@@ -16,12 +17,13 @@ class CheckpointManager:
     and analysis (weight snapshots).
     """
 
-    def __init__(self, experiment, directory="experiments"):
+    def __init__(self, experiment, directory=None):
         self.experiment = experiment
-        self.directory = directory
+        base_dir = EXPERIMENTS_DIR if directory is None else os.fspath(directory)
+        self.directory = os.path.abspath(base_dir)
 
         # Generate base path for this experiment
-        self.exp_dir = os.path.join(directory, experiment.experiment_type)
+        self.exp_dir = os.path.join(self.directory, experiment.experiment_type)
 
         filename_variants = experiment.get_filename_variants(prefix="", extension="pkl")
         base_variants = [os.path.splitext(name)[0] for name in filename_variants]
@@ -302,7 +304,7 @@ def load_experiment_weights(
     experiment,
     batch_size: int,
     eta: float,
-    directory: str = "experiments",
+    directory: str | os.PathLike[str] | None = None,
     step_to_load: int | None = None,
 ):
     """
@@ -332,7 +334,10 @@ def load_experiment_weights(
         return manager.load_full_weight_history(run_key)
 
 
-def load_final_weights_for_experiment(experiment, directory: str = "experiments") -> dict[RunKey, any]:
+def load_final_weights_for_experiment(
+    experiment,
+    directory: str | os.PathLike[str] | None = None,
+) -> dict[RunKey, any]:
     """
     Loads the final parameters for every completed run of the given experiment.
     """
