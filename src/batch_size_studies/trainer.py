@@ -5,8 +5,8 @@ from unittest.mock import Mock
 
 import jax
 import jax.numpy as jnp
-import optax
 import numpy as np
+import optax
 
 from .data_iterators import DataIterator, EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 
 
 class DivergenceError(Exception):
-    """Custom exception for when a trial's loss diverges."""
+    """Custom exception for when a trial's loss diverges."""  # noqa: D200
 
 
 class TrialRunner(ABC):
@@ -163,7 +163,9 @@ class TrialRunner(ABC):
         # while the iterator itself handles skipping to the right data.
         for current_step, (x_batch, y_batch) in enumerate(data_iterator, start=start_step):
             if current_step >= num_steps:
-                break
+                break  # noqa: E501
+
+            # noqa: E501
 
             update_result = self.jitted_update_step(params, opt_state, x_batch, y_batch, self.lr)
             params, opt_state, loss, aux = update_result
@@ -177,7 +179,7 @@ class TrialRunner(ABC):
             if self._should_save_checkpoint(current_step):
                 self._save_checkpoint(current_step, params, opt_state, results)
 
-            if self.pbar:
+            if self.pbar:  # noqa: E501
                 self.pbar.update(1)
                 self.pbar.set_postfix(loss=f"{loss.item():.4f}")
 
@@ -203,7 +205,9 @@ class TrialRunner(ABC):
         raise NotImplementedError
 
     def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
-        """Optional hook for actions after each training step. Returns updated results."""
+        """
+        Optional hook for actions after each training step. Returns updated results.
+        """
         return results
 
     def _capture_iterator_state(self, data_iterator: "DataIterator", results: dict) -> dict:
@@ -211,7 +215,9 @@ class TrialRunner(ABC):
         return results
 
     def _post_training_hook(self, params, results: dict) -> dict:
-        """Optional hook for actions after the entire training loop. Returns final results."""
+        """
+        Optional hook for actions after the entire training loop. Returns final results.
+        """
         return results
 
     def _should_save_checkpoint(self, step: int) -> bool:
@@ -378,7 +384,7 @@ class MNISTTrialRunner(TrialRunner):
             epoch = self._step_to_completed_epoch(step)
             if self.pbar:
                 self.pbar.set_description(
-                    f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | Epoch {epoch + 2}/{self.num_epochs}"
+                    f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | Epoch {epoch + 2}/{self.num_epochs}"  # noqa: E501
                 )
             results = self._post_epoch_hook(epoch, params, results)
         return results

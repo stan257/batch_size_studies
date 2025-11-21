@@ -16,7 +16,6 @@ from batch_size_studies.experiments import SyntheticExperimentFixedTime
 
 
 def assert_pytree_allclose(a, b):
-
     a_flat, a_tree = jax.tree_util.tree_flatten(a)
     b_flat, b_tree = jax.tree_util.tree_flatten(b)
     assert a_tree == b_tree, "PyTree structures do not match"
@@ -261,7 +260,9 @@ class TestCheckpointManager:
         run_key2 = RunKey(32, 0.05)
 
         checkpoint_manager.save_analysis_snapshot(run_key1, step=100, params=params, initial_params=initial_params)
-        checkpoint_manager.save_analysis_snapshot(run_key1, step=200, params=params_step200, initial_params=initial_params)
+        checkpoint_manager.save_analysis_snapshot(
+            run_key1, step=200, params=params_step200, initial_params=initial_params
+        )
         checkpoint_manager.save_analysis_snapshot(run_key2, step=50, params=params_other, initial_params=initial_params)
 
         final_params = checkpoint_manager.load_final_params_for_all_runs()
@@ -276,12 +277,6 @@ class TestCheckpointManager:
         assert history == {}
 
     def test_initial_weights_consistency(self, checkpoint_manager, mock_data):
-
-
-
-
-
-
         run_key = RunKey(batch_size=16, eta=0.1)
         initial_params, _ = mock_data
 
@@ -302,10 +297,6 @@ class TestCheckpointManager:
         assert_pytree_allclose(loaded_initial, history_at_0)
 
     def test_initial_weights_are_shared_across_runs(self, checkpoint_manager, mock_data):
-
-
-
-
         initial_params, _ = mock_data
 
         # Save a snapshot for a first run
@@ -320,8 +311,6 @@ class TestCheckpointManager:
 
 
 class TestLoadExperimentWeights:
-
-
     @pytest.fixture
     def setup_weights_file(self, checkpoint_manager, mock_data):
         run_key = RunKey(batch_size=16, eta=0.1)
@@ -374,7 +363,9 @@ class TestLoadExperimentWeights:
         run_key2 = RunKey(32, 0.05)
 
         checkpoint_manager.save_analysis_snapshot(run_key1, step=100, params=params, initial_params=initial_params)
-        checkpoint_manager.save_analysis_snapshot(run_key1, step=200, params=params_step200, initial_params=initial_params)
+        checkpoint_manager.save_analysis_snapshot(
+            run_key1, step=200, params=params_step200, initial_params=initial_params
+        )
         checkpoint_manager.save_analysis_snapshot(run_key2, step=50, params=params_other, initial_params=initial_params)
 
         final_params = load_final_weights_for_experiment(experiment_instance, directory=str(tmp_path))

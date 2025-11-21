@@ -15,7 +15,6 @@ from batch_size_studies.runner import (
 
 
 class Test_validate_and_store_partial_result:
-
     @pytest.fixture
     def setup(self):
         mock_exp = Mock(spec=ExperimentBase)
@@ -79,7 +78,6 @@ class Test_validate_and_store_partial_result:
 @patch("batch_size_studies.runner.get_trial_runner")
 @patch("batch_size_studies.runner.RunStatus")
 class TestSingleTrialExecution:
-
     @pytest.fixture
     def mock_context(self):
         context = MagicMock(spec=TrialContext)
@@ -199,9 +197,7 @@ class TestPreFlightHelpers:
 @patch("batch_size_studies.runner._execute_sweep_loops")
 @patch("batch_size_studies.runner._setup_sweep_state")
 @patch("batch_size_studies.runner._all_runs_accounted_for")
-def test_run_experiment_sweep_skips_when_preflight_satisfied(
-    mock_all_accounted, mock_setup_state, mock_execute
-):
+def test_run_experiment_sweep_skips_when_preflight_satisfied(mock_all_accounted, mock_setup_state, mock_execute):
     mock_all_accounted.return_value = True
     checkpoint_manager = Mock()
     checkpoint_manager.directory = "/tmp"

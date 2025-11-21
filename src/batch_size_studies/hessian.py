@@ -56,7 +56,7 @@ def tree_random_like(key, target_tree, rademacher=False):
     else:
         # Generate standard normal random variables
         keys = jax.random.split(key, len(leaves))
-        new_leaves = [jax.random.normal(k, shape=l.shape, dtype=l.dtype) for k, l in zip(keys, leaves)]
+        new_leaves = [jax.random.normal(k, shape=l.shape, dtype=l.dtype) for k, l in zip(keys, leaves)]  # noqa: E741
     return tree_unflatten(target_struct, new_leaves)
 
 
@@ -99,8 +99,11 @@ class JaxHessian:
     @partial(jit, static_argnums=(0,))
     def _hvp_single_batch(self, params, v, batch):
         """Computes the Hessian-vector product for a single batch."""
+
         # Define the loss function for the given batch
-        loss_fn_for_batch = lambda p: self._get_loss_fn_for_hessian(p, batch)
+        def loss_fn_for_batch(p):
+            return self._get_loss_fn_for_hessian(p, batch)
+
         # JAX's way to compute HVP is jvp(grad(f)).
         # It computes the gradient function, and then the Jacobian-vector product
         # of that gradient function.
@@ -108,6 +111,7 @@ class JaxHessian:
 
     def _hvp_full_dataset(self, params: list[Array], v: list[Array]) -> list[Array]:
         """Computes the Hessian-vector product averaged over the full dataset."""
+
         def body(acc, batch_idx):
             inputs = self.batch_inputs[batch_idx]
             targets = self.batch_targets[batch_idx]

@@ -17,7 +17,7 @@ from dataclasses import replace
 from datetime import datetime
 
 from batch_size_studies.configs import get_main_experiment_configs, get_main_hyperparameter_grids
-from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization
 from batch_size_studies.experiments import MNIST1MExperiment
 from batch_size_studies.paths import EXPERIMENTS_DIR
 from batch_size_studies.runner import _all_runs_accounted_for, run_experiment_sweep
@@ -144,7 +144,8 @@ def main():
         "--eta-stability-depth",
         type=int,
         default=None,
-        help="Number of consecutive stable etas to find before stopping the sweep for a given batch size. If not set, all etas are run.",
+        help="Number of consecutive stable etas to find before stopping the sweep for a given batch size. If not set,"
+        " all etas are run.",
     )
     parser.add_argument(
         "--max-eval-samples",
@@ -156,7 +157,8 @@ def main():
         "--num-processes",
         type=int,
         default=1,
-        help="Number of experiments to run in parallel (useful on clusters). Default=1 for sequential runs on a single machine.",
+        help="Number of experiments to run in parallel (useful on clusters). Default=1 for sequential runs on a "
+        "single machine.",
     )
     parser.add_argument(
         "--experiment-type",

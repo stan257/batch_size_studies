@@ -132,10 +132,6 @@ class TestRunnerIntegration:
 
     @patch("batch_size_studies.runner.run_single_trial")
     def test_eta_stability_search_stops_early(self, mock_run_single_trial, tmp_path):
-
-
-
-
         # 1. Setup
         # This mock will always report success to trigger the stability tracker.
         mock_run_single_trial.return_value = True
@@ -213,7 +209,10 @@ class TestRunExperimentSweepNoSaveIntegration:
         assert run_key in results
         run_result = results[run_key]
         assert "loss_history" in run_result
-        assert len(run_result["loss_history"]) == experiment.compute_num_steps(2, experiment.prepare_datasets(0)[0], None)[0]
+        assert (
+            len(run_result["loss_history"])
+            == experiment.compute_num_steps(2, experiment.prepare_datasets(0)[0], None)[0]
+        )
         assert run_key not in failed
 
     def test_skips_completed_run(self, tmp_path, monkeypatch):

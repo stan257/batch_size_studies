@@ -66,7 +66,6 @@ def test_save_overwrites_existing_file(sample_params, tmp_path):
 @patch("batch_size_studies.storage_utils.os.replace")
 @patch("batch_size_studies.storage_utils.pickle.dump")
 def test_atomic_write_sequence(mock_pickle_dump, mock_os_replace, sample_params, tmp_path):
-
     data_to_save = {"test": "data"}
     directory = str(tmp_path)
     filename = generate_experiment_filename(sample_params, "results", "pkl")
@@ -81,7 +80,6 @@ def test_atomic_write_sequence(mock_pickle_dump, mock_os_replace, sample_params,
 
 @patch("batch_size_studies.storage_utils.pickle.dump", side_effect=IOError("Disk full"))
 def test_atomic_write_cleans_up_on_failure(mock_pickle_dump, sample_params, tmp_path):
-
     data_to_save = {"test": "data"}
     directory = str(tmp_path)
     filename = generate_experiment_filename(sample_params, "results", "pkl")

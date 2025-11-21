@@ -16,7 +16,6 @@ GOLDEN_DATA_DIR = os.path.join(os.path.dirname(__file__), "golden_data")
 
 
 def compare_results(golden: dict, current: dict):
-
     assert golden["failed"] == current["failed"], "Set of failed runs does not match."
 
     golden_results = golden["results"]
@@ -176,17 +175,14 @@ def test_synthetic_reproducibility(tmp_path):
 
 
 def test_mnist_reproducibility(tmp_path, fake_mnist1m_data_dir):
-
     loader = partial(load_mnist1m_dataset, data_dir=fake_mnist1m_data_dir)
     _run_reproducibility_test(get_mnist_config, "mnist_golden.pkl", tmp_path, dataset_loader=loader)
 
 
 def test_synthetic_adam_reproducibility(tmp_path):
-
     _run_reproducibility_test(get_synthetic_adam_config, "synthetic_adam_golden.pkl", tmp_path)
 
 
 def test_mnist_xent_adam_reproducibility(tmp_path, fake_mnist1m_data_dir):
-
     loader = partial(load_mnist1m_dataset, data_dir=fake_mnist1m_data_dir)
     _run_reproducibility_test(get_mnist_xent_adam_config, "mnist_xent_adam_golden.pkl", tmp_path, dataset_loader=loader)

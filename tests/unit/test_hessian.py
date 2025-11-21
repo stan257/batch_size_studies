@@ -56,10 +56,6 @@ def quadratic_problem():
 
 
 def test_hvp(quadratic_problem):
-
-
-
-
     hessian_calc = JaxHessian(
         model=quadratic_problem["model"],
         loss_fn=quadratic_problem["loss_fn"],
@@ -82,9 +78,6 @@ def test_hvp(quadratic_problem):
 
 
 def test_eigenvalues(quadratic_problem):
-
-
-
     hessian_calc = JaxHessian(
         model=quadratic_problem["model"],
         loss_fn=quadratic_problem["loss_fn"],
@@ -107,9 +100,6 @@ def test_eigenvalues(quadratic_problem):
 
 
 def test_trace(quadratic_problem):
-
-
-
     hessian_calc = JaxHessian(
         model=quadratic_problem["model"],
         loss_fn=quadratic_problem["loss_fn"],
@@ -126,9 +116,6 @@ def test_trace(quadratic_problem):
 
 
 def test_density(quadratic_problem):
-
-
-
     hessian_calc = JaxHessian(
         model=quadratic_problem["model"],
         loss_fn=quadratic_problem["loss_fn"],

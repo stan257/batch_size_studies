@@ -11,8 +11,8 @@ from typing import TYPE_CHECKING, Type
 
 import jax.numpy as jnp
 import jax.random as jr
-from jax.flatten_util import ravel_pytree
 import numpy as np
+from jax.flatten_util import ravel_pytree
 
 from .data_loading import load_datasets, load_mnist1m_dataset
 from .definitions import LossType, OptimizerType, Parameterization
@@ -452,6 +452,7 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
         data_key = jr.key(self.seed)
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None
+
 
 # TODO: Make separate MLP fixed-data class for experiments, when needed
 @dataclass(frozen=True)

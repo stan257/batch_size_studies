@@ -46,7 +46,6 @@ class MinimalCheckpointManager:
 
 @pytest.fixture(autouse=True)
 def clear_jit_cache():
-
     TrialRunner.clear_cache()
 
 
@@ -135,6 +134,7 @@ class TestSyntheticFixedTimeEvalDataset:
         context.kwargs = {}
         runner = SyntheticFixedTimeTrialRunner(context)
         assert runner.eval_ds is None
+
 
 class TestSyntheticFixedTimeTrialRunnerUnit:
     """Unit tests for the SyntheticFixedTimeTrialRunner class."""

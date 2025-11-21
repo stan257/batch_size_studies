@@ -93,7 +93,7 @@ def linear_teacher_config():
         num_epochs=5,
         optimizer=OptimizerType.SGD,
         loss_type=LossType.MSE,
-)
+    )
 
 
 @pytest.fixture
@@ -160,8 +160,6 @@ def mnist1m_sampled_config():
 
 
 class TestExperimentBehavior:
-
-
     @pytest.mark.parametrize(
         "config_fixture",
         [
@@ -172,7 +170,6 @@ class TestExperimentBehavior:
         ],
     )
     def test_teacher_weights_are_deterministic(self, config_fixture, request):
-
         config = request.getfixturevalue(config_fixture)
         weights1 = config.generate_teacher_weights()
         weights2 = config.generate_teacher_weights()
@@ -291,11 +288,6 @@ class TestExperimentBehavior:
 
 
 class TestFilenameUniqueness:
-
-
-
-
-
     # Define base configurations for each experiment type
     base_synthetic_ft = {
         "D": 16,
@@ -402,10 +394,6 @@ class TestFilenameUniqueness:
 
     @pytest.mark.parametrize("exp_class, base_config, param, new_value", test_cases)
     def test_filename_is_unique_per_parameter(self, exp_class, base_config, param, new_value):
-
-
-
-
         # Create the base experiment instance
         base_exp = exp_class(**base_config)
 
