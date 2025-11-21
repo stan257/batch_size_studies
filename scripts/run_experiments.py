@@ -20,62 +20,12 @@ from batch_size_studies.configs import get_main_experiment_configs, get_main_hyp
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import MNIST1MExperiment
 from batch_size_studies.paths import EXPERIMENTS_DIR
-from batch_size_studies.runner import run_experiment_sweep
-
-
-def _is_run_complete(result: dict) -> bool:
-    """
-    Checks if a single result dictionary represents a completed run.
-    A run is complete if its actual progress meets or exceeds the expected
-    duration stored within it.
-    """
-    if not isinstance(result, dict):
-        return False
-
-    if "expected_steps" in result:
-        # For step-based experiments (e.g., synthetic fixed-time)
-        expected_steps = result.get("expected_steps")
-        if expected_steps is not None:
-            return len(result.get("loss_history", [])) >= expected_steps
-    elif "expected_epochs" in result:
-        # For epoch-based experiments (e.g., MNIST)
-        expected_epochs = result.get("expected_epochs")
-        if expected_epochs is not None:
-            return len(result.get("epoch_test_accuracies", [])) >= expected_epochs
-
-    # Legacy fallback: older pickles do not store the expected_* fields.
-    epoch_accuracies = result.get("epoch_test_accuracies")
-    if isinstance(epoch_accuracies, list) and len(epoch_accuracies) > 0:
-        return True
-
-    loss_history = result.get("loss_history")
-    if isinstance(loss_history, list) and len(loss_history) > 0:
-        return True
-
-    # If no progress signals are found, treat as incomplete.
-    return False
+from batch_size_studies.runner import _all_runs_accounted_for, run_experiment_sweep
 
 
 def are_all_runs_accounted_for(config, losses: dict, failed: set, batch_sizes: list[int], etas: list[float]) -> bool:
-    """
-    Performs a pre-flight check to see if a sweep can be skipped.
-    """
-    for b in batch_sizes:
-        # We can only check skip conditions that don't require the dataset.
-        if config.should_skip_batch_size(b, train_ds=None):
-            continue
-
-        for eta in etas:
-            run_key = RunKey(batch_size=b, eta=eta)
-
-            if run_key in failed:
-                continue  # A failed run is accounted for.
-
-            result = losses.get(run_key)
-            if result is None or not _is_run_complete(result):
-                # If a run is missing or incomplete, the sweep needs to run.
-                return False
-    return True
+    """Wrapper around the core runner pre-flight check for CLI use."""
+    return _all_runs_accounted_for(config, batch_sizes, etas, losses, failed)
 
 
 def setup_logging(log_dir="logs"):
