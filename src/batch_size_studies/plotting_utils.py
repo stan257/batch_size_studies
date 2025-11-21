@@ -245,14 +245,15 @@ def plot_heatmap_with_theory_curve(
     has_theory_curve = False
 
     if crit_batch is not None:
+        crit_label = f"B_crit = {crit_batch:.3f}"
         if use_ratio_axis:
             # For ratio axis, B=const is a sloped line: log2(eta) = log2(eta/B) + log2(B)
             y_line = np.log2(np.array(etas))
             x_line = y_line - np.log2(crit_batch)
-            ax.plot(x_line, y_line, color="m", linestyle="--", label=f"B_crit = {crit_batch}", zorder=2)
+            ax.plot(x_line, y_line, color="m", linestyle="--", label=crit_label, zorder=2)
         else:
             # For B axis, B=const is a vertical line
-            ax.axvline(np.log2(crit_batch), color="m", linestyle="--", label=f"B_crit = {crit_batch}", zorder=2)
+            ax.axvline(np.log2(crit_batch), color="m", linestyle="--", label=crit_label, zorder=2)
         has_theory_curve = True
 
     def _plot_theory_line(points: list[tuple[int, float]], color: str, label: str):
