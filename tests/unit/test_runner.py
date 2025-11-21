@@ -6,7 +6,10 @@ from batch_size_studies.definitions import RunKey
 from batch_size_studies.experiments import ExperimentBase
 from batch_size_studies.runner import (
     TrialContext,
+    _all_runs_accounted_for,
+    _is_run_result_complete,
     _validate_and_store_partial_result,
+    run_experiment_sweep,
     run_single_trial,
 )
 
@@ -160,3 +163,56 @@ class TestSingleTrialExecution:
             mock_context.checkpoint_manager.directory,
         )
         mock_context.checkpoint_manager.cleanup_live_checkpoint.assert_not_called()
+
+
+class TestPreFlightHelpers:
+    def test_is_run_result_complete_expected_steps(self):
+        assert _is_run_result_complete({"expected_steps": 2, "loss_history": [1, 2]})
+        assert not _is_run_result_complete({"expected_steps": 2, "loss_history": [1]})
+
+    def test_is_run_result_complete_epoch_fallback(self):
+        assert _is_run_result_complete({"epoch_test_accuracies": [0.5]})
+        assert not _is_run_result_complete(None)
+
+    def test_all_runs_accounted_for_true(self):
+        experiment = Mock()
+        experiment.should_skip_batch_size.return_value = False
+        results = {RunKey(1, 0.1): {"expected_steps": 1, "loss_history": [0.5]}}
+
+        assert _all_runs_accounted_for(experiment, [1], [0.1], results, set()) is True
+        experiment.should_skip_batch_size.assert_called_once_with(1, train_ds=None)
+
+    def test_all_runs_accounted_for_false_when_missing(self):
+        experiment = Mock()
+        experiment.should_skip_batch_size.return_value = False
+        results = {}
+        assert _all_runs_accounted_for(experiment, [1], [0.1], results, set()) is False
+
+    def test_all_runs_accounted_for_skips_failed_entries(self):
+        experiment = Mock()
+        experiment.should_skip_batch_size.return_value = False
+        results = {}
+        failed = {RunKey(1, 0.1)}
+        assert _all_runs_accounted_for(experiment, [1], [0.1], results, failed) is True
+
+
+@patch("batch_size_studies.runner._execute_sweep_loops")
+@patch("batch_size_studies.runner._setup_sweep_state")
+@patch("batch_size_studies.runner._all_runs_accounted_for")
+def test_run_experiment_sweep_skips_when_preflight_satisfied(
+    mock_all_accounted, mock_setup_state, mock_execute
+):
+    mock_all_accounted.return_value = True
+    checkpoint_manager = Mock()
+    checkpoint_manager.directory = "/tmp"
+    mock_setup_state.return_value = ({}, set(), checkpoint_manager, object(), object())
+
+    experiment = Mock()
+    experiment.prepare_datasets = Mock()
+
+    results, failed = run_experiment_sweep(experiment, batch_sizes=[1], etas=[0.1])
+
+    assert results == {}
+    assert failed == set()
+    experiment.prepare_datasets.assert_not_called()
+    mock_execute.assert_not_called()

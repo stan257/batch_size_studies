@@ -118,6 +118,44 @@ class EtaStabilityTracker:
         self.count = 0
 
 
+def _is_run_result_complete(result: dict | None) -> bool:
+    if not isinstance(result, dict):
+        return False
+
+    if "expected_steps" in result:
+        expected_steps = result.get("expected_steps")
+        if expected_steps is not None:
+            return len(result.get("loss_history", [])) >= expected_steps
+    elif "expected_epochs" in result:
+        expected_epochs = result.get("expected_epochs")
+        if expected_epochs is not None:
+            return len(result.get("epoch_test_accuracies", [])) >= expected_epochs
+
+    epoch_accs = result.get("epoch_test_accuracies")
+    if isinstance(epoch_accs, list) and len(epoch_accs) > 0:
+        return True
+
+    loss_history = result.get("loss_history")
+    if isinstance(loss_history, list) and len(loss_history) > 0:
+        return True
+
+    return False
+
+
+def _all_runs_accounted_for(experiment, batch_sizes, etas, results_dict, failed_runs) -> bool:
+    """Fast pre-flight check to determine if the sweep already has complete results."""
+    for batch_size in batch_sizes:
+        if experiment.should_skip_batch_size(batch_size, train_ds=None):
+            continue
+        for eta in etas:
+            run_key = RunKey(batch_size=batch_size, eta=eta)
+            if run_key in failed_runs:
+                continue
+            if not _is_run_result_complete(results_dict.get(run_key)):
+                return False
+    return True
+
+
 # ============================================================================
 # INITIALIZATION HELPERS
 # ============================================================================
@@ -333,6 +371,10 @@ def run_experiment_sweep(
     results_dict, failed_runs, checkpoint_manager, params0, model_for_runner = _setup_sweep_state(
         experiment, directory, no_save, init_key
     )
+
+    if not no_save and _all_runs_accounted_for(experiment, batch_sizes, etas, results_dict, failed_runs):
+        logging.info("All requested (B, η) combinations already complete. Skipping sweep.")
+        return results_dict.copy(), failed_runs.copy()
 
     # 2. Load Data
     train_ds, test_ds = experiment.prepare_datasets(init_key, **kwargs)
