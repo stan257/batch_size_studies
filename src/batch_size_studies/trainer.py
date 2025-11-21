@@ -469,7 +469,8 @@ class SyntheticTrialRunner(TrialRunner):
         if self.eval_ds is not None:
             X_eval, y_eval = self.eval_ds
             preds = self.model_instance(params, X_eval)
-            eval_loss = jnp.mean((y_eval - preds) ** 2)
+            diff = y_eval - preds
+            eval_loss = 0.5 * jnp.mean(diff**2)
             results["final_eval_loss"] = float(eval_loss)
         return results
 

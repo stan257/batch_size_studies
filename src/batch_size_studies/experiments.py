@@ -665,7 +665,7 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
             weights = flat_params.reshape(self.D, -1)
             preds = X_eval @ weights
             diff = y_eval - preds
-            return jnp.mean(diff**2)
+            return 0.5 * jnp.mean(diff**2)
 
         return empirical_error
 
