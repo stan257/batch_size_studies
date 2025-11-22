@@ -195,7 +195,7 @@ class HessianEvaluator:
         total = 0
         seed = 0
         while total < num_samples:
-            data_key = jr.key(self.init_key + seed)
+            data_key = jr.PRNGKey(self.init_key + seed)
             inputs, targets = self.experiment.generate_data(data_key)
             inputs = jnp.asarray(inputs)
             targets = jnp.asarray(targets)

@@ -348,7 +348,7 @@ class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, Synthet
             raise ValueError(f"num_steps must be positive, got {self.num_steps}")
 
     def generate_teacher_weights(self):
-        key = jr.key(0)
+        key = jr.PRNGKey(0)
         return jr.normal(key, (self.D, 1)) / np.sqrt(self.D)
 
     def generate_data(self, data_key):
@@ -364,7 +364,10 @@ class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, Synthet
         return f"{line1}\n{line2}"
 
     def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
-        # Fixed-time experiments do not depend on dataset size.
+        # Even though data is regenerated online, batches larger than P yield no data.
+        if batch_size <= 0 or batch_size > self.P:
+            logging.warning(f"Skipping batch size {batch_size} > synthetic block size P ({self.P}).")
+            return True
         return False
 
     def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
@@ -410,7 +413,7 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
             raise ValueError(f"num_epochs must be positive, got {self.num_epochs}")
 
     def generate_teacher_weights(self):
-        key = jr.key(0)
+        key = jr.PRNGKey(0)
         return jr.normal(key, (self.D, 1)) / np.sqrt(self.D)
 
     def generate_data(self, data_key):
@@ -449,7 +452,7 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
 
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Generates the synthetic dataset for this experiment."""
-        data_key = jr.key(self.seed)
+        data_key = jr.PRNGKey(self.seed)
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None
 
@@ -622,7 +625,7 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
         """Generates the synthetic dataset for this experiment."""
-        data_key = jr.key(self.seed)
+        data_key = jr.PRNGKey(self.seed)
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None
 

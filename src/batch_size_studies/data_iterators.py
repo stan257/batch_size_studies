@@ -36,6 +36,7 @@ class EpochBasedDataIterator(DataIterator):
 
         self.steps_per_epoch = self.original_num_train // self.batch_size
         num_usable_samples = self.steps_per_epoch * self.batch_size
+        # Drop the remainder so every run sees the same number of steps; leftover samples are never used.
 
         # Create a fixed subset of indices for the entire trial
         subset_key = jr.PRNGKey(self.init_key)
@@ -89,7 +90,7 @@ class OnlineDataIterator(DataIterator):
         step_in_block = self.start_step % steps_per_batch_key
 
         # Initial data generation before the loop starts
-        X_data, y_data = self.experiment.generate_data(jr.key(batch_key_seed))
+        X_data, y_data = self.experiment.generate_data(jr.PRNGKey(batch_key_seed))
         self.current_batch_key_seed = batch_key_seed
 
         while True:  # The training loop in TrialRunner will stop this
@@ -97,7 +98,7 @@ class OnlineDataIterator(DataIterator):
             if (step_in_block + 1) * self.batch_size > self.experiment.P:
                 batch_key_seed += 1
                 step_in_block = 0
-                X_data, y_data = self.experiment.generate_data(jr.key(batch_key_seed))
+                X_data, y_data = self.experiment.generate_data(jr.PRNGKey(batch_key_seed))
                 self.current_batch_key_seed = batch_key_seed
 
             # Yield a batch from the current data block

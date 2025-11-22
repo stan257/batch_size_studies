@@ -171,6 +171,7 @@ class TrialRunner(ABC):
             params, opt_state, loss, aux = update_result
 
             self._check_divergence(loss)
+            # Record the *post-update* loss: there is no step-0 (pre-update) entry.
             results["loss_history"].append(loss.item())
 
             results = self._post_step_hook(current_step, params, results, aux)

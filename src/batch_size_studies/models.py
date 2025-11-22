@@ -45,7 +45,7 @@ class MLP:
 
     def init_params(self, init_key: int, widths: List[int], sigma_w: float = 1.0) -> List[jnp.ndarray]:
         depth = len(widths) - 1
-        keys = jr.split(jr.key(init_key), depth)
+        keys = jr.split(jr.PRNGKey(init_key), depth)
 
         params = []
         for i in range(len(widths) - 1):

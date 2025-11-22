@@ -1,3 +1,4 @@
+import logging
 from collections import defaultdict
 from typing import Any, Callable, Generator, Literal
 
@@ -217,6 +218,12 @@ def plot_heatmap_with_theory_curve(
             metric_val = metric_extractor(result_obj)
             if metric_val is not None and metric_val > 0:
                 Z[j, i] = np.log10(metric_val)
+            elif metric_val is not None:
+                logging.warning(
+                    "Heatmap metric for run %s is non-positive (%s); cannot plot on log scale.",
+                    run_key,
+                    metric_val,
+                )
 
     # --- 2. Plotting logic for heatmap (same as plot_loss_heatmap) ---
     X, Y = np.meshgrid(batch_sizes, etas)
@@ -290,8 +297,8 @@ def plot_heatmap_with_theory_curve(
                     eta = lower_bound(b)
                     if eta > 0:
                         points.append((b, eta))
-                except Exception:
-                    pass  # Callable might not be defined for all batch sizes
+                except Exception as exc:
+                    logging.warning("lower_bound callable failed for B=%s: %s", b, exc)
         _plot_theory_line(points, color="green", label="lower bound")
 
     if upper_bound:
@@ -302,8 +309,8 @@ def plot_heatmap_with_theory_curve(
                     eta = upper_bound(b)
                     if eta > 0:
                         points.append((b, eta))
-                except Exception:
-                    pass  # Callable might not be defined for all batch sizes
+                except Exception as exc:
+                    logging.warning("upper_bound callable failed for B=%s: %s", b, exc)
         _plot_theory_line(points, color="blue", label="upper bound")
 
     if has_theory_curve:
