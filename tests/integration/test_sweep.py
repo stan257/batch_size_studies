@@ -90,6 +90,7 @@ def mock_mnist_loader():
 # --- Test Classes ---
 
 
+@pytest.mark.slow
 class TestSweepRunnerIntegration:
     def test_handles_unknown_experiment_type(self, tmp_path, caplog):
         @dataclass(frozen=True)

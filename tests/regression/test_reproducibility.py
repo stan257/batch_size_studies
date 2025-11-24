@@ -170,19 +170,23 @@ def _run_reproducibility_test(config_fn, golden_filename, tmp_path, **kwargs):
     compare_results(golden_data, current_data)
 
 
+@pytest.mark.slow
 def test_synthetic_reproducibility(tmp_path):
     _run_reproducibility_test(get_synthetic_config, "synthetic_golden.pkl", tmp_path)
 
 
+@pytest.mark.slow
 def test_mnist_reproducibility(tmp_path, fake_mnist1m_data_dir):
     loader = partial(load_mnist1m_dataset, data_dir=fake_mnist1m_data_dir)
     _run_reproducibility_test(get_mnist_config, "mnist_golden.pkl", tmp_path, dataset_loader=loader)
 
 
+@pytest.mark.slow
 def test_synthetic_adam_reproducibility(tmp_path):
     _run_reproducibility_test(get_synthetic_adam_config, "synthetic_adam_golden.pkl", tmp_path)
 
 
+@pytest.mark.slow
 def test_mnist_xent_adam_reproducibility(tmp_path, fake_mnist1m_data_dir):
     loader = partial(load_mnist1m_dataset, data_dir=fake_mnist1m_data_dir)
     _run_reproducibility_test(get_mnist_xent_adam_config, "mnist_xent_adam_golden.pkl", tmp_path, dataset_loader=loader)

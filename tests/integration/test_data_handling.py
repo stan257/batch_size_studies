@@ -257,6 +257,7 @@ class TestDataHandlingIntegration:
         else:
             np.testing.assert_allclose(empirical_ratio, expected_ratio, rtol=5e-3)
 
+    @pytest.mark.slow
     def test_hessian_evaluator_reads_checkpoint_and_matches_eigenvalue(self, tmp_path):
         config = SyntheticExperimentLinearTeacher(
             D=16,
