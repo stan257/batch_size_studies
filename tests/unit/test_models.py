@@ -40,7 +40,7 @@ def test_sp_and_mup_forward_pass_are_different():
     mlp_mup = MLP(parameterization=Parameterization.MUP, gamma=1.0)
 
     params = mlp_sp.init_params(init_key=42, widths=widths)
-    x = jr.normal(jr.key(1), (1, 10))
+    x = jr.normal(jr.PRNGKey(1), (1, 10))
 
     output_sp = mlp_sp(params, x)
     output_mup = mlp_mup(params, x)

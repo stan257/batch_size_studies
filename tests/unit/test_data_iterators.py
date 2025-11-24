@@ -117,11 +117,11 @@ class TestOnlineDataIterator:
             # The correct way to check for key equality is to compare their data arrays.
             key_data = jr.key_data(key)
 
-            if np.array_equal(key_data, jr.key_data(jr.key(0))):
+            if np.array_equal(key_data, jr.key_data(jr.PRNGKey(0))):
                 start_val = 0
-            elif np.array_equal(key_data, jr.key_data(jr.key(1))):
+            elif np.array_equal(key_data, jr.key_data(jr.PRNGKey(1))):
                 start_val = 1000
-            elif np.array_equal(key_data, jr.key_data(jr.key(2))):
+            elif np.array_equal(key_data, jr.key_data(jr.PRNGKey(2))):
                 start_val = 2000
             else:
                 start_val = -1  # Default for any other keys
@@ -147,9 +147,9 @@ class TestOnlineDataIterator:
         assert mock_experiment.generate_data.call_count == 3
         # Compare the underlying data of the JAX keys
         call_keys_data = [jr.key_data(call.args[0]) for call in mock_experiment.generate_data.call_args_list]
-        np.testing.assert_array_equal(call_keys_data[0], jr.key_data(jr.key(0)))
-        np.testing.assert_array_equal(call_keys_data[1], jr.key_data(jr.key(1)))
-        np.testing.assert_array_equal(call_keys_data[2], jr.key_data(jr.key(2)))
+        np.testing.assert_array_equal(call_keys_data[0], jr.key_data(jr.PRNGKey(0)))
+        np.testing.assert_array_equal(call_keys_data[1], jr.key_data(jr.PRNGKey(1)))
+        np.testing.assert_array_equal(call_keys_data[2], jr.key_data(jr.PRNGKey(2)))
 
     def test_resumption_logic(self, mock_experiment):
         batch_size = 30
@@ -168,7 +168,7 @@ class TestOnlineDataIterator:
         mock_experiment.generate_data.assert_called_once()
         # Compare the underlying data of the JAX keys
         first_call_key_data = jr.key_data(mock_experiment.generate_data.call_args.args[0])
-        np.testing.assert_array_equal(first_call_key_data, jr.key_data(jr.key(1)))
+        np.testing.assert_array_equal(first_call_key_data, jr.key_data(jr.PRNGKey(1)))
 
         # 2. Verify it yielded the correct slice of data.
         # step_for_curr_data = start_step % steps_per_key = 5 % 3 = 2.

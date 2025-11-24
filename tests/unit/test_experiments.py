@@ -187,14 +187,14 @@ class TestExperimentBehavior:
     )
     def test_data_generation_is_deterministic(self, config_fixture, request):
         config = request.getfixturevalue(config_fixture)
-        key = jr.key(42)
+        key = jr.PRNGKey(42)
         X1, y1 = config.generate_data(key)
         X2, y2 = config.generate_data(key)
         np.testing.assert_array_equal(X1, X2)
         np.testing.assert_array_equal(y1, y2)
 
     def test_linear_teacher_outputs_unit_variance(self, linear_teacher_config):
-        key = jr.key(0)
+        key = jr.PRNGKey(0)
         _, y = linear_teacher_config.generate_data(key)
         y = np.array(y).reshape(-1)
         np.testing.assert_allclose(np.std(y), 1.0, rtol=5e-2)
@@ -221,7 +221,7 @@ class TestExperimentBehavior:
             loss_type=LossType.MSE,
             rho=rho,
         )
-        key = jr.key(123)
+        key = jr.PRNGKey(123)
         _, y = config.generate_data(key)
         y = np.array(y).reshape(-1)
         np.testing.assert_allclose(np.std(y), 1.0, rtol=5e-2)
@@ -251,7 +251,7 @@ class TestExperimentBehavior:
             loss_type=LossType.MSE,
             rho=1.0,
         )
-        key = jr.key(999)
+        key = jr.PRNGKey(999)
         _, y = config.generate_data(key)
         y = np.array(y).reshape(-1)
         np.testing.assert_allclose(np.mean(y), 0.0, atol=5e-2)
@@ -559,7 +559,7 @@ class TestExperimentUtilities:
     def test_synthetic_experiment_behaviors(self, fixed_time_config, fixed_data_config):
         assert fixed_time_config.is_online_experiment()
         assert not fixed_time_config.should_skip_batch_size(16)
-        X_online, y_online = fixed_time_config.generate_data(jr.key(0))
+        X_online, y_online = fixed_time_config.generate_data(jr.PRNGKey(0))
         assert X_online.shape[0] == fixed_time_config.P
         assert y_online.shape[0] == fixed_time_config.P
 

@@ -171,7 +171,7 @@ class TestDataHandlingIntegration:
             seed=123,
             rho=0.0,
         )
-        key = jr.key(321)
+        key = jr.PRNGKey(321)
         X_base, y_base = base.generate_data(key)
         X_noisy, y_noisy = noisy.generate_data(key)
         np.testing.assert_allclose(X_noisy, X_base)
@@ -205,7 +205,7 @@ class TestDataHandlingIntegration:
             manager = CheckpointManager(config, directory=directory)
             run_key = RunKey(batch_size=batch_sizes[0], eta=etas[0])
             weights = manager.load_full_weight_history(run_key)
-            data_key = jr.key(1234)
+            data_key = jr.PRNGKey(1234)
             data = config.generate_data(data_key)
             return results, fails, weights, data
 
@@ -242,7 +242,7 @@ class TestDataHandlingIntegration:
             rho=rho,
         )
 
-        key = jr.key(777)
+        key = jr.PRNGKey(777)
         X, y = config.generate_data(key)
         w = config.generate_teacher_weights()
         raw_signal = X @ w
