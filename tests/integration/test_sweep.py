@@ -170,13 +170,13 @@ class TestSweepRunnerIntegration:
 
     def test_mnist_eval_subsampling(self, mnist_config, mock_mnist_loader, tmp_path, monkeypatch):
         recorded_sizes = []
-        original_hook = MNISTTrialRunner._post_epoch_hook
+        base_epoch_end = MNISTTrialRunner._on_epoch_end
 
-        def patched_post_epoch_hook(self, epoch, params, results):
+        def patched_epoch_end(self, epoch, params, results, aux):
             recorded_sizes.append(self.test_ds["image"].shape[0])
-            return original_hook(self, epoch, params, results)
+            return base_epoch_end(self, epoch, params, results, aux)
 
-        monkeypatch.setattr(MNISTTrialRunner, "_post_epoch_hook", patched_post_epoch_hook)
+        monkeypatch.setattr(MNISTTrialRunner, "_on_epoch_end", patched_epoch_end)
 
         run_experiment_sweep(
             experiment=mnist_config,

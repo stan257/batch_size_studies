@@ -89,12 +89,12 @@ class TestMNISTTrialRunnerUnit:
         assert mnist_runner._should_save_checkpoint(step=18) is False
         assert mnist_runner._should_save_checkpoint(step=0) is False
 
-    def test_post_epoch_hook(self, mnist_runner):
+    def test_on_epoch_end(self, mnist_runner):
         params = "dummy_params"
         results = {"epoch_test_accuracies": []}
 
         # EVAL_BATCH_SIZE is 512. test_ds has 100 samples. So one loop.
-        updated_results = mnist_runner._post_epoch_hook(epoch=0, params=params, results=results)
+        updated_results = mnist_runner._on_epoch_end(epoch=0, params=params, results=results, aux=None)
 
         # Check that eval_step was called once
         assert mnist_runner.eval_step.call_count == 1

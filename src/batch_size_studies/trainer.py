@@ -266,22 +266,66 @@ class TrialRunner(ABC):
         raise NotImplementedError
 
 
-class MNISTTrialRunner(TrialRunner):
+class EpochBasedTrialRunner(TrialRunner):
+    """Shared helper for fixed-data runners that iterate by epochs."""
+
+    def __init__(self, context):
+        super().__init__(context)
+        self.num_epochs = context.num_epochs
+        self.train_ds = context.train_ds
+        self.init_key = context.init_key
+        self.steps_per_epoch = self._compute_steps_per_epoch()
+        if self.steps_per_epoch <= 0:
+            raise ValueError("steps_per_epoch must be positive for epoch-based runners.")
+
+    def _compute_steps_per_epoch(self) -> int:
+        train_size = self._get_dataset_size(self.train_ds)
+        return train_size // self.run_key.batch_size
+
+    def _get_dataset_size(self, train_ds) -> int:
+        if isinstance(train_ds, dict):
+            return train_ds["image"].shape[0]
+        return train_ds[0].shape[0]
+
+    def _get_iterator_init_key(self) -> int:
+        """Allow subclasses to override how the iterator seed is chosen."""
+        return self.init_key
+
+    def _create_data_iterator(self, start_step: int, results: dict) -> EpochBasedDataIterator:
+        return EpochBasedDataIterator(
+            train_ds=self.train_ds,
+            batch_size=self.run_key.batch_size,
+            num_epochs=self.num_epochs,
+            init_key=self._get_iterator_init_key(),
+            start_step=start_step,
+        )
+
+    def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
+        if self.steps_per_epoch <= 0:
+            return results
+        if (step + 1) % self.steps_per_epoch == 0:
+            epoch = self._step_to_completed_epoch(step)
+            return self._on_epoch_end(epoch, params, results, aux)
+        return results
+
+    def _step_to_completed_epoch(self, step: int) -> int:
+        """Converts a training step (0-indexed) to a completed epoch number (0-indexed)."""
+        return (step + 1) // self.steps_per_epoch - 1
+
+    @abstractmethod
+    def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
+        """Hook invoked whenever an epoch boundary is reached."""
+        raise NotImplementedError
+
+
+class MNISTTrialRunner(EpochBasedTrialRunner):
     """Trial runner for MNIST-based experiments."""
 
     EVAL_BATCH_SIZE = 512
 
     def __init__(self, context):
         super().__init__(context)
-        self.num_epochs = context.num_epochs
-
-        original_num_train = context.train_ds["image"].shape[0]
-        self.steps_per_epoch = original_num_train // self.run_key.batch_size
-
-        # Store context-specific data needed later
         self.test_ds = context.test_ds
-        self.train_ds = context.train_ds
-        self.init_key = context.init_key
         save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", False)
         self.snapshot_steps = self._compute_snapshot_steps(self.num_steps, save_dense_snapshots)
         self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
@@ -358,7 +402,12 @@ class MNISTTrialRunner(TrialRunner):
             start_step=start_step,
         )
 
-    def _post_epoch_hook(self, epoch: int, params, results: dict) -> dict:
+    def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
+        if self.pbar:
+            self.pbar.set_description(
+                f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | "
+                f"Epoch {epoch + 2}/{self.num_epochs}"
+            )
         test_accuracies = []
         num_test_samples = self.test_ds["image"].shape[0]
         for i in range((num_test_samples + self.EVAL_BATCH_SIZE - 1) // self.EVAL_BATCH_SIZE):
@@ -373,21 +422,6 @@ class MNISTTrialRunner(TrialRunner):
         if self.pbar:
             self.pbar.set_postfix(accuracy=f"{epoch_accuracy:.4f}")
 
-        return results
-
-    def _step_to_completed_epoch(self, step: int) -> int:
-        """Converts a training step (0-indexed) to a completed epoch number (0-indexed)."""
-        return (step + 1) // self.steps_per_epoch - 1
-
-    def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
-        if (step + 1) % self.steps_per_epoch == 0:
-            # Calculate epoch once and use it for both description and hook
-            epoch = self._step_to_completed_epoch(step)
-            if self.pbar:
-                self.pbar.set_description(
-                    f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | Epoch {epoch + 2}/{self.num_epochs}"  # noqa: E501
-                )
-            results = self._post_epoch_hook(epoch, params, results)
         return results
 
     def _should_save_checkpoint(self, step: int) -> bool:
@@ -509,17 +543,11 @@ class SyntheticFixedTimeTrialRunner(SyntheticTrialRunner):
         return results
 
 
-class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
+class SyntheticFixedDataTrialRunner(EpochBasedTrialRunner, SyntheticTrialRunner):
     """Trial runner for fixed-data synthetic experiments."""
 
     def __init__(self, context):
         super().__init__(context)
-        self.num_epochs = context.num_epochs
-
-        original_num_train = context.train_ds[0].shape[0]
-        self.steps_per_epoch = original_num_train // self.run_key.batch_size
-
-        self.train_ds = context.train_ds
         save_epoch_snapshots = context.kwargs.get("save_epoch_snapshots", True)
         if save_epoch_snapshots:
             self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
@@ -527,23 +555,9 @@ class SyntheticFixedDataTrialRunner(SyntheticTrialRunner):
     def _init_results(self) -> dict:
         return {"loss_history": [], "epoch": 0, "expected_steps": self.num_steps}
 
-    def _create_data_iterator(self, start_step: int, results: dict) -> EpochBasedDataIterator:
-        return EpochBasedDataIterator(
-            train_ds=self.train_ds,
-            batch_size=self.run_key.batch_size,
-            num_epochs=self.num_epochs,
-            init_key=self.experiment.seed,
-            start_step=start_step,
-        )
+    def _get_iterator_init_key(self) -> int:
+        return self.experiment.seed
 
-    def _step_to_completed_epoch(self, step: int) -> int:
-        """Converts a training step (0-indexed) to a completed epoch number (0-indexed)."""
-        return (step + 1) // self.steps_per_epoch - 1
-
-    def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
-        """Saves the current epoch number to the results for checkpointing."""
-        if (step + 1) % self.steps_per_epoch == 0:
-            # Called at the end of an epoch, so step+1 has completed an epoch.
-            epoch = self._step_to_completed_epoch(step)
-            results["epoch"] = epoch
+    def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
+        results["epoch"] = epoch
         return results
