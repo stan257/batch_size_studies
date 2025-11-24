@@ -8,7 +8,12 @@ import pytest
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.data_loading import load_mnist1m_dataset
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
-from batch_size_studies.experiments import MNIST1MSampledExperiment, SyntheticExperimentFixedData
+from batch_size_studies.experiments import (
+    MNIST1MSampledExperiment,
+    SyntheticExperimentFixedData,
+    SyntheticExperimentLinearTeacher,
+    SyntheticExperimentNoisyLinearTeacher,
+)
 from batch_size_studies.runner import run_experiment_sweep
 
 # Location to store golden data files (sibling golden_data/ directory).
@@ -66,7 +71,14 @@ def run_and_get_all_data(config, batch_sizes, etas, tmp_path, **kwargs) -> dict:
         "directory": str(tmp_path),
     }
 
-    if isinstance(config, SyntheticExperimentFixedData):
+    if isinstance(
+        config,
+        (
+            SyntheticExperimentFixedData,
+            SyntheticExperimentLinearTeacher,
+            SyntheticExperimentNoisyLinearTeacher,
+        ),
+    ):
         run_kwargs["num_epochs"] = 2
     elif isinstance(config, MNIST1MSampledExperiment):
         run_kwargs["init_key"] = 42
@@ -143,6 +155,33 @@ def get_mnist_xent_adam_config():
     )
 
 
+def get_linear_teacher_config():
+    return SyntheticExperimentLinearTeacher(
+        D=32,
+        P=4096,
+        alpha=1.0,
+        beta=0.5,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+        num_epochs=2,
+        seed=17,
+    )
+
+
+def get_noisy_linear_teacher_config():
+    return SyntheticExperimentNoisyLinearTeacher(
+        D=32,
+        P=4096,
+        alpha=1.0,
+        beta=0.5,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+        num_epochs=2,
+        seed=23,
+        rho=0.4,
+    )
+
+
 def _run_reproducibility_test(config_fn, golden_filename, tmp_path, **kwargs):
     config = config_fn()
     batch_sizes = [32]
@@ -190,3 +229,13 @@ def test_synthetic_adam_reproducibility(tmp_path):
 def test_mnist_xent_adam_reproducibility(tmp_path, fake_mnist1m_data_dir):
     loader = partial(load_mnist1m_dataset, data_dir=fake_mnist1m_data_dir)
     _run_reproducibility_test(get_mnist_xent_adam_config, "mnist_xent_adam_golden.pkl", tmp_path, dataset_loader=loader)
+
+
+@pytest.mark.slow
+def test_linear_teacher_reproducibility(tmp_path):
+    _run_reproducibility_test(get_linear_teacher_config, "linear_teacher_golden.pkl", tmp_path)
+
+
+@pytest.mark.slow
+def test_noisy_linear_teacher_reproducibility(tmp_path):
+    _run_reproducibility_test(get_noisy_linear_teacher_config, "noisy_linear_teacher_golden.pkl", tmp_path)
