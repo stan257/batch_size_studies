@@ -28,7 +28,7 @@ def test_final_validation_error_extractor_prefers_accuracy():
 def _simple_loss_dict():
     return {
         RunKey(16, 0.1): {"loss_history": [1.0, 0.5]},
-        RunKey(16, 0.05): {"loss_history": [0.8, 0.4]},
+        RunKey(32, 0.05): {"loss_history": [0.8, 0.4]},
     }
 
 
@@ -36,7 +36,7 @@ def test_plot_heatmap_with_theory_curve_returns_fig():
     loss_dict = _simple_loss_dict()
     fig, ax = plot_heatmap_with_theory_curve(
         loss_dict=loss_dict,
-        batch_sizes=[16],
+        batch_sizes=[16, 32],
         etas=[0.1, 0.05],
         title_exp="demo",
     )
@@ -48,12 +48,12 @@ def test_plot_heatmap_with_theory_curve_returns_fig():
 def test_plot_heatmap_logs_warning_for_non_positive_metric(caplog):
     loss_dict = {
         RunKey(16, 0.1): {"loss_history": [1.0]},
-        RunKey(16, 0.05): {"loss_history": [0.0]},  # non positive
+        RunKey(32, 0.05): {"loss_history": [0.0]},  # non positive
     }
     with caplog.at_level("WARNING"):
         fig, ax = plot_heatmap_with_theory_curve(
             loss_dict=loss_dict,
-            batch_sizes=[16],
+            batch_sizes=[16, 32],
             etas=[0.1, 0.05],
             title_exp="warn",
         )
@@ -71,7 +71,7 @@ def test_plot_heatmap_logs_when_lower_bound_fails(caplog):
     with caplog.at_level("WARNING"):
         fig, ax = plot_heatmap_with_theory_curve(
             loss_dict=loss_dict,
-            batch_sizes=[16],
+            batch_sizes=[16, 32],
             etas=[0.1, 0.05],
             title_exp="bounds",
             lower_bound=flaky_lower_bound,
