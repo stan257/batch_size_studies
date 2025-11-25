@@ -58,3 +58,5 @@ notebooks/              # analysis notebooks accompanying the paper
 5. Use the notebooks in `notebooks/` (together with `src/batch_size_studies/plotting_utils.py`) to regenerate figures and bespoke summaries for each experiment family.
 
 The test suite (`pytest`) focuses on regression coverage for checkpoints, runner orchestration, and iterator behaviour to ensure the code reproduces the results described in the accompanying manuscript.
+
+This project is licensed under the MIT License - see the LICENSE file for details.
