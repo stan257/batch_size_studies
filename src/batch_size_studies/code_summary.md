@@ -25,7 +25,8 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 
 ## Trainer (`trainer.py`)
 * Shared protocol for a single run: resume (if checkpoint exists), create data iterator, train, log metrics, snapshot weights.
-* MNIST and synthetic subclasses define task-specific losses/metrics; everything uses the `½ ∥·∥²` MSE normalization.
+* `EpochBasedTrialRunner` centralizes fixed-dataset bookkeeping (steps per epoch, iterator wiring, epoch hooks) so MNIST and other offline experiments only define their per-epoch logic.
+* MNIST and synthetic subclasses still define task-specific losses/metrics; everything uses the `½ ∥·∥²` MSE normalization.
 * Caches JIT-compiled update/eval functions per model instance to avoid recompilation across sweeps.
 * `loss_history` stores post-update minibatch losses only (no step-0 entry), so trajectories line up across runs with the same init/data order.
 
