@@ -398,6 +398,11 @@ def run_experiment_sweep(
 
     # 3. Run Sweep
     kwargs.setdefault("save_interstitial_snapshots", save_interstitial_snapshots)
+    if not kwargs.get("save_interstitial_snapshots", False):
+        logging.warning(
+            "*** WARNING: save_interstitial_snapshots is OFF; only initial weights will remain in _weights.pkl. "
+            "Enable --save-interstitial-snapshots if you need intermediate models for analysis. ***"
+        )
     if save_epoch_snapshots is not None:
         kwargs.setdefault("save_epoch_snapshots", save_epoch_snapshots)
 
