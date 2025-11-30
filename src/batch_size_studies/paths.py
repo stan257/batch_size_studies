@@ -20,6 +20,10 @@ EXPERIMENTS_DIR = os.path.join(PROJECT_ROOT, "experiments")
 # Default directory for storing datasets, relative to the project root.
 DATA_DIR = os.path.join(PROJECT_ROOT, "data")
 
+# Directory for Hessian spectra and related artifacts.
+SPECTRAL_DATA_DIR = os.path.join(PROJECT_ROOT, "spectral_data")
+
 # Ensure the directories exist so that scripts can write to them.
 os.makedirs(EXPERIMENTS_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
+os.makedirs(SPECTRAL_DATA_DIR, exist_ok=True)

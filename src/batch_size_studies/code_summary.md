@@ -62,6 +62,10 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 * `hessian.py` implements HVP-based power iteration, Hutchinson trace estimates, and spectral density routines.
 * `hessian_evaluator.py` reloads saved weights + metadata, rebuilds the exact iterator order, and feeds batches into the Hessian routines for any stored run.
 
+## Spectral Data CLI (`scripts/gather_hessian_spectra.py`)
+* Command-line tool that lists available snapshot steps and runs `HessianEvaluator` on selected `(B, η, step)` combinations.
+* Stores eigenvalues/trace in `spectral_data/<experiment_type>/<experiment>_spectra.pkl`, mirroring the experiment serialization layout.
+
 ## Integration & Tests
 * Coverage for checkpoints/metadata, iterator behavior, sweep orchestration, Hessian evaluation, and linear/noisy teacher configs.
 * Registry tests ensure spec builders stay valid and names remain unique.
