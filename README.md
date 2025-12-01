@@ -38,24 +38,33 @@ notebooks/              # analysis notebooks accompanying the paper
    * MNIST downloads automatically through `tensorflow_datasets`.
    * MNIST‑1M requires `python scripts/process_mnist1m.py` to convert the diffusion-generated set into `data/mnist1m/mnist1m.npz`.
 
-3. Launch a sweep from the registered catalog:
+3. List available sweeps:
+   To see all experiments registered in the framework, use the `list` command.
    ```bash
-   python scripts/run_experiments.py --name mnist1m_mup_SGD_gamma1p0
+   python scripts/run_experiments.py list
    ```
-   Optional flags:
+   You can also filter this list, e.g., `python scripts/run_experiments.py list --optimizer Adam`.
+
+4. Launch a sweep:
+   Use the `run` command to execute an experiment from the catalog.
+   ```bash
+   python scripts/run_experiments.py run --name mnist1m_mup_SGD_gamma1p0
+   ```
+   Optional flags for the `run` command:
    * `--no-save` to dry-run in place (useful while inspecting behaviour).
+   * `--override <KEY>=<VALUE>` to dynamically change a parameter (e.g., `num_epochs=10`).
    * `--max-eval-samples N` to limit validation cost.
    * `--eta-stability-depth K` to stop exploring learning rates once K consecutive stable learning rates are observed per batch size.
    * `--num-processes M` to run up to M sweeps in parallel (useful on clusters; defaults to sequential execution).
-   * `--save-interstitial-snapshots` / `--no-save-interstitial-snapshots` to toggle dense weight snapshots between checkpoints (useful when trading analysis granularity for speed).
+   * `--save-interstitial-snapshots` / `--no-save-interstitial-snapshots` to toggle dense weight snapshots between checkpoints.
    * `--save-epoch-snapshots` / `--no-save-epoch-snapshots` to control whether fixed-data synthetic runs store weights at every epoch boundary.
 
-4. Results land in `experiments/<experiment_type>/`:
+5. Results land in `experiments/<experiment_type>/`:
    * `results_*.pkl` store loss histories and failure logs.
    * `_weights.pkl` capture initial parameters, deltas, and sweep metadata.
    * `_checkpoints/` contain live resume files, cleaned automatically when runs finish successfully.
 
-5. Use the notebooks in `notebooks/` (together with `src/batch_size_studies/plotting_utils.py`) to regenerate figures and bespoke summaries for each experiment family.
+6. Use the notebooks in `notebooks/` (together with `src/batch_size_studies/plotting_utils.py`) to regenerate figures and bespoke summaries for each experiment family.
 
 The test suite (`pytest`) focuses on regression coverage for checkpoints, runner orchestration, and iterator behaviour to ensure the code reproduces the results described in the accompanying manuscript.
 

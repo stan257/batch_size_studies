@@ -21,7 +21,12 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 ## Runner (`runner.py`)
 * Drives the `(B, η)` grid: loads prior results, checks if a run is complete, and dispatches work through `TrialRunner`.
 * Persists losses/failures/metadata so long sweeps can resume cleanly.
-* Implements ETA-stability early stopping and provides the CLI entry point filters (by experiment family, optimizer, loss).
+* Implements ETA-stability early stopping.
+
+## Main Experiment Runner (`scripts/run_experiments.py`)
+* The primary command-line tool for managing experiment sweeps.
+* Uses a subcommand structure: `list` to discover available experiments and `run` to execute them.
+* Supports filtering by name, type, optimizer, and loss, as well as parallel execution and dynamic parameter overrides.
 
 ## Trainer (`trainer.py`)
 * Shared protocol for a single run: resume (if checkpoint exists), create data iterator, train, log metrics, snapshot weights.
@@ -72,4 +77,4 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 
 ---
 
-In practice: define the experiment dataclass, register it, and launch `run_experiment_sweep`. Data loading, checkpoints, stability tracking, and plotting work out of the box across studies.
+In practice: define the experiment dataclass, register it, and use `scripts/run_experiments.py run` to launch a sweep. Use `scripts/run_experiments.py list` to see all registered experiments.
