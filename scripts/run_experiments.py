@@ -130,6 +130,11 @@ def main():
         "If not provided, all defined experiments will be run.",
     )
     parser.add_argument(
+        "--list",
+        action="store_true",
+        help="List all available experiments based on the provided filters and exit.",
+    )
+    parser.add_argument(
         "-o",
         "--override",
         action="append",  # Allows specifying multiple overrides
@@ -207,8 +212,6 @@ def main():
 
     setup_logging()
 
-    directory = EXPERIMENTS_DIR
-    batch_sizes, etas = get_main_hyperparameter_grids()
     optimizer_filter = _coerce_enum(parser, OptimizerType, args.optimizer, "--optimizer")
     loss_filter = _coerce_enum(parser, LossType, args.loss, "--loss")
     config_kwargs = {}
@@ -219,16 +222,51 @@ def main():
     if loss_filter is not None:
         config_kwargs["loss_type"] = loss_filter
     experiments_to_run = get_main_experiment_configs(**config_kwargs)
-    if not experiments_to_run:
-        logging.error("No experiments match the provided filters. Nothing to run.")
-        return
 
-    # Filter experiments by name if provided
-    if args.name:
+    # Filter experiments by name if provided (and not listing)
+    if args.name and not args.list:
         experiments_to_run = {name: config for name, config in experiments_to_run.items() if name in args.name}
         if not experiments_to_run:
             logging.error(f"No experiments found with name(s): {args.name}. Aborting.")
             return
+
+    if args.list:
+        logging.info("--- Available Experiments ---")
+        headers = ["NAME", "TYPE", "OPTIMIZER", "LOSS"]
+        rows = [
+            [name, config.experiment_type, config.optimizer.name, config.loss_type.name]
+            for name, config in experiments_to_run.items()
+        ]
+
+        if not rows:
+            logging.info("No experiments match the provided filters.")
+            return
+
+        col_widths = [len(h) for h in headers]
+        for row in rows:
+            for i, cell in enumerate(row):
+                col_widths[i] = max(col_widths[i], len(cell))
+
+        header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
+        separator = "=" * len(header_line)
+        print(f"\n{separator}")
+        print(f"Available Experiments ({len(rows)} total)")
+        print(f"{separator}")
+        print(header_line)
+        print("-" * len(header_line))
+
+        for row in sorted(rows):
+            row_line = "  ".join(c.ljust(w) for c, w in zip(row, col_widths))
+            print(row_line)
+
+        print(f"{separator}\n")
+        return
+
+    directory = EXPERIMENTS_DIR
+    batch_sizes, etas = get_main_hyperparameter_grids()
+    if not experiments_to_run:
+        logging.error("No experiments match the provided filters. Nothing to run.")
+        return
 
     # Apply parameter overrides if provided
     if args.override:
@@ -337,6 +375,7 @@ def main():
                     logging.error(f"Experiment '{name}' generated an exception: {exc}")
 
     logging.info("\n--- All experiments complete. ---")
+
 
 
 if __name__ == "__main__":
