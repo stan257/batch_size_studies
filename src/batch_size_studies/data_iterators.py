@@ -22,12 +22,13 @@ class EpochBasedDataIterator(DataIterator):
     from a specific step.
     """
 
-    def __init__(self, train_ds, batch_size, num_epochs, init_key, start_step=0):
+    def __init__(self, train_ds, batch_size, num_epochs, init_key, start_step=0, resume_state: dict | None = None):
         self.train_ds = train_ds
         self.batch_size = batch_size
         self.num_epochs = num_epochs
         self.init_key = init_key
         self.start_step = start_step
+        self.resume_state = resume_state or {}
 
         if isinstance(train_ds, dict):  # MNIST-like
             self.original_num_train = self.train_ds["image"].shape[0]
@@ -48,9 +49,18 @@ class EpochBasedDataIterator(DataIterator):
 
         start_epoch = self.start_step // self.steps_per_epoch
         step_in_epoch = self.start_step % self.steps_per_epoch
+        stored_step_in_epoch = self.resume_state.get("step_in_epoch")
+        if stored_step_in_epoch is not None:
+            step_in_epoch = int(stored_step_in_epoch)
 
+        resume_epoch = self.resume_state.get("epoch")
+        resume_seed = self.resume_state.get("epoch_seed")
         for epoch in range(start_epoch, self.num_epochs):
-            epoch_shuffle_key = jr.PRNGKey(self.init_key + epoch + 1)
+            if resume_seed is not None and resume_epoch == epoch:
+                epoch_shuffle_key = jr.PRNGKey(int(resume_seed))
+                resume_seed = None  # Use override only once
+            else:
+                epoch_shuffle_key = jr.PRNGKey(self.init_key + epoch + 1)
             perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
             epoch_perms = perms.reshape((self.steps_per_epoch, self.batch_size))
 

@@ -213,14 +213,29 @@ class TestSyntheticFixedDataTrialRunnerUnit:
         # Not end of epoch
         updated_results = sfd_runner._post_step_hook(step=8, params="dummy", results=results, aux=None)
         assert updated_results["epoch"] == -1  # Unchanged
+        iterator_state = updated_results["iterator_state"]
+        assert iterator_state["global_step"] == 9
+        assert iterator_state["epoch_seed"] == sfd_runner._get_epoch_seed(iterator_state["epoch"])
 
         # End of first epoch (step 9 is 10th step)
         updated_results = sfd_runner._post_step_hook(step=9, params="dummy", results=results, aux=None)
         assert updated_results["epoch"] == 0
+        assert updated_results["iterator_state"]["step_in_epoch"] == 0
+        assert "step_in_epoch" in updated_results["iterator_state"]
 
         # End of second epoch (step 19 is 20th step)
         updated_results = sfd_runner._post_step_hook(step=19, params="dummy", results=results, aux=None)
         assert updated_results["epoch"] == 1
+
+    def test_adjust_start_step_reads_iterator_state(self, sfd_runner):
+        results = {"iterator_state": {"global_step": 7}}
+        adjusted = sfd_runner._adjust_start_step(start_step=0, results=results)
+        assert adjusted == 7
+
+    def test_post_training_hook_removes_iterator_state(self, sfd_runner):
+        results = {"iterator_state": {"global_step": 5}, "epoch_test_accuracies": []}
+        cleaned = sfd_runner._post_training_hook(params="dummy", results=results)
+        assert "iterator_state" not in cleaned
 
 
 class MinimalTrialRunner(TrialRunner):

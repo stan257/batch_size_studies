@@ -105,6 +105,10 @@ def _run_single_experiment(
     # Selectively apply a default number of epochs only if the experiment
     # configuration does not already specify one.
     if not hasattr(experiment_config, "num_epochs"):
+        # Some online experiments (fixed-time synthetic sweeps, etc.) train for a fixed step budget
+        # instead of epochs. Those dataclasses omit `num_epochs`, so we fall back to 1 epoch for
+        # compatibility. If you add a new offline experiment, declare num_epochs explicitly so this
+        # branch never fires by accident.
         logging.info(f"  Applying default num_epochs=1 for {type(experiment_config).__name__} experiment.")
         run_options["num_epochs"] = 1
 

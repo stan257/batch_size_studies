@@ -142,6 +142,7 @@ class TrialRunner(ABC):
             results = self._init_results()
             start_step = 0  # Ensure start_step is 0 if no checkpoint
 
+        start_step = self._adjust_start_step(start_step, results)
         # Create the data iterator, passing the correct start_step and loaded results
         data_iterator = self._create_data_iterator(start_step, results)
 
@@ -205,6 +206,10 @@ class TrialRunner(ABC):
         """Creates the data iterator, configured to start at the correct step."""
         raise NotImplementedError
 
+    def _adjust_start_step(self, start_step: int, results: dict) -> int:
+        """Allows subclasses to override how resume steps are resolved."""
+        return start_step
+
     def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
         """
         Optional hook for actions after each training step. Returns updated results.
@@ -228,11 +233,13 @@ class TrialRunner(ABC):
     @staticmethod
     def _log_spaced_steps(max_steps: int) -> set[int]:
         steps: set[int] = set()
-        for magnitude in [1, 10, 100, 1000, 10000, 100000, 1000000]:
-            for base in [1, 2, 5]:
+        magnitude = 1
+        while magnitude < max_steps:
+            for base in (1, 2, 5):
                 step = base * magnitude
                 if 0 < step < max_steps:
                     steps.add(step)
+            magnitude *= 10
         return steps
 
     def _compute_snapshot_steps(self, max_steps: int, dense: bool) -> list[int]:
@@ -298,19 +305,40 @@ class EpochBasedTrialRunner(TrialRunner):
             num_epochs=self.num_epochs,
             init_key=self._get_iterator_init_key(),
             start_step=start_step,
+            resume_state=results.get("iterator_state"),
         )
 
     def _post_step_hook(self, step: int, params, results: dict, aux: Any) -> dict:
-        if self.steps_per_epoch <= 0:
-            return results
-        if (step + 1) % self.steps_per_epoch == 0:
-            epoch = self._step_to_completed_epoch(step)
-            return self._on_epoch_end(epoch, params, results, aux)
+        next_step = step + 1
+        if self.steps_per_epoch > 0:
+            epoch_index = next_step // self.steps_per_epoch
+            results["iterator_state"] = {
+                "global_step": next_step,
+                "epoch": epoch_index,
+                "step_in_epoch": next_step % self.steps_per_epoch,
+                "epoch_seed": self._get_epoch_seed(epoch_index),
+            }
+            if next_step % self.steps_per_epoch == 0:
+                epoch = self._step_to_completed_epoch(step)
+                return self._on_epoch_end(epoch, params, results, aux)
         return results
 
     def _step_to_completed_epoch(self, step: int) -> int:
         """Converts a training step (0-indexed) to a completed epoch number (0-indexed)."""
         return (step + 1) // self.steps_per_epoch - 1
+
+    def _post_training_hook(self, params, results: dict) -> dict:
+        results.pop("iterator_state", None)
+        return super()._post_training_hook(params, results)
+
+    def _adjust_start_step(self, start_step: int, results: dict) -> int:
+        resume_state = results.get("iterator_state")
+        if isinstance(resume_state, dict):
+            return int(resume_state.get("global_step", start_step))
+        return start_step
+
+    def _get_epoch_seed(self, epoch_index: int) -> int:
+        return int(self._get_iterator_init_key() + epoch_index + 1)
 
     @abstractmethod
     def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
@@ -429,6 +457,7 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
 
     def _post_training_hook(self, params, results: dict) -> dict:
         """Sets the final accuracy metric after the training loop completes."""
+        results = super()._post_training_hook(params, results)
         if results.get("epoch_test_accuracies"):
             results["final_test_accuracy"] = results["epoch_test_accuracies"][-1]
         return results

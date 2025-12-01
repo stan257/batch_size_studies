@@ -71,6 +71,29 @@ class TestEpochBasedDataIterator:
         total_steps = 2 * steps_per_epoch  # 6
         assert len(resumed_sequence) == total_steps - start_step  # 6 - 4 = 2
 
+    def test_resumption_uses_saved_epoch_seed(self, sample_data):
+        batch_size = 16
+        steps_per_epoch = 105 // 16
+        epoch = 1
+        step_in_epoch = 2
+        start_step = epoch * steps_per_epoch + step_in_epoch
+        custom_seed = 777
+
+        iterator = EpochBasedDataIterator(
+            train_ds=(sample_data, sample_data),
+            batch_size=batch_size,
+            num_epochs=3,
+            init_key=42,
+            start_step=start_step,
+            resume_state={"epoch": epoch, "step_in_epoch": step_in_epoch, "epoch_seed": custom_seed},
+        )
+
+        first_batch, _ = next(iter(iterator))
+        subset = iterator.subset_indices
+        perms = jr.permutation(jr.PRNGKey(custom_seed), subset).reshape((steps_per_epoch, batch_size))
+        expected_indices = np.array(perms[step_in_epoch])
+        np.testing.assert_array_equal(first_batch, sample_data[expected_indices])
+
     def test_dict_dataset_batches_are_flattened(self):
         num_samples = 64
         batch_size = 16
