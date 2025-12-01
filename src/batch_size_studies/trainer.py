@@ -354,6 +354,7 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
     def __init__(self, context):
         super().__init__(context)
         self.test_ds = context.test_ds
+        self.max_eval_samples = context.kwargs.get("max_eval_samples", 16_384)  # = 2^14
         save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", False)
         self.snapshot_steps = self._compute_snapshot_steps(self.num_steps, save_dense_snapshots)
         self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
@@ -428,21 +429,34 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
             num_epochs=self.num_epochs,
             init_key=self.init_key,
             start_step=start_step,
+            resume_state=results.get("iterator_state"),
         )
 
     def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
+        if self.test_ds is None:
+            return results
         if self.pbar:
             self.pbar.set_description(
-                f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | "
-                f"Epoch {epoch + 2}/{self.num_epochs}"
+                f"Sweep (B={self.run_key.batch_size}, eta={self.run_key.eta:.3g}) | Epoch {epoch + 2}/{self.num_epochs}"
             )
         test_accuracies = []
-        num_test_samples = self.test_ds["image"].shape[0]
+        images = self.test_ds["image"]
+        labels = self.test_ds["label"]
+        num_test_samples = images.shape[0]
+        eval_samples = min(num_test_samples, self.max_eval_samples or num_test_samples)
+        if eval_samples < num_test_samples:
+            eval_key = jax.random.PRNGKey(self.init_key + epoch + 17)
+            indices = np.array(jax.random.permutation(eval_key, num_test_samples)[:eval_samples])
+            images = images[indices]
+            labels = labels[indices]
+            num_test_samples = eval_samples
+        if images.ndim > 2:
+            images = images.reshape(num_test_samples, -1)
         for i in range((num_test_samples + self.EVAL_BATCH_SIZE - 1) // self.EVAL_BATCH_SIZE):
             start_idx = i * self.EVAL_BATCH_SIZE
             end_idx = (i + 1) * self.EVAL_BATCH_SIZE
-            batch_images = self.test_ds["image"][start_idx:end_idx].reshape(-1, self.experiment.D)
-            batch_labels = self.test_ds["label"][start_idx:end_idx]
+            batch_images = images[start_idx:end_idx]
+            batch_labels = labels[start_idx:end_idx]
             test_accuracies.append(self.eval_step(params, batch_images, batch_labels))
 
         epoch_accuracy = float(jnp.mean(jnp.array(test_accuracies)))
@@ -476,7 +490,8 @@ class SyntheticTrialRunner(TrialRunner):
         super().__init__(context)
         save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", False)
         self.snapshot_steps = self._compute_snapshot_steps(context.num_steps, save_dense_snapshots)
-        self.eval_ds = self._create_eval_dataset(context.init_key)
+        disable_eval_ds = context.kwargs.get("disable_eval_dataset", False)
+        self.eval_ds = None if disable_eval_ds else self._create_eval_dataset(context.init_key)
 
     def _create_loss_fn(self) -> Callable:
         def loss_fn(params, x_batch, y_batch):

@@ -65,7 +65,8 @@ class TestMNISTTrialRunnerUnit:
         context.experiment.D = 784
         context.experiment.optimizer = OptimizerType.SGD
         context.experiment.loss_type = LossType.XENT
-        context.kwargs = {}
+        context.kwargs = {"max_eval_samples": 10}
+        context.init_key = 0
 
         # Mock methods that would be called
         runner = MNISTTrialRunner(context)
@@ -96,7 +97,7 @@ class TestMNISTTrialRunnerUnit:
         # EVAL_BATCH_SIZE is 512. test_ds has 100 samples. So one loop.
         updated_results = mnist_runner._on_epoch_end(epoch=0, params=params, results=results, aux=None)
 
-        # Check that eval_step was called once
+        # Check that eval_step was called once (subset < batch_size so still one call)
         assert mnist_runner.eval_step.call_count == 1
         # Check that the accuracy was appended
         assert len(updated_results["epoch_test_accuracies"]) == 1

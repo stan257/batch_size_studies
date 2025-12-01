@@ -67,7 +67,9 @@ class EpochBasedDataIterator(DataIterator):
             for i, perm in enumerate(np.array(epoch_perms)):
                 if i >= step_in_epoch:
                     if isinstance(self.train_ds, dict):  # MNIST-like
-                        batch_images = self.train_ds["image"][perm, ...].reshape(self.batch_size, -1)
+                        batch_images = self.train_ds["image"][perm, ...]
+                        if batch_images.ndim > 2:
+                            batch_images = batch_images.reshape(self.batch_size, -1)
                         batch_labels = self.train_ds["label"][perm, ...]
                         yield batch_images, batch_labels
                     else:  # Synthetic-like
