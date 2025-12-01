@@ -7,8 +7,13 @@ looping over hyperparameters, managing checkpoints, and saving results, while
 dispatching to type-specific trial runners.
 """
 
+import argparse
 import logging
-from dataclasses import dataclass, field
+import os
+from collections import defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass, field, replace
+from datetime import datetime
 from typing import Any
 
 import jax
@@ -16,8 +21,272 @@ import numpy as np
 from tqdm.auto import tqdm
 
 from .checkpoint_utils import CheckpointManager
-from .definitions import ModelProtocol, RunKey
+from .configs import get_main_experiment_configs, get_main_hyperparameter_grids
+from .definitions import LossType, ModelProtocol, OptimizerType, Parameterization, RunKey
+from .experiments import MNIST1MExperiment
 from .paths import EXPERIMENTS_DIR
+
+# --- CLI Argument Helpers (moved from script) ---
+
+
+def _coerce_enum(parser, enum_cls, raw_value, flag_name):
+    if raw_value is None:
+        return None
+    candidate = raw_value.strip().lower()
+    for member in enum_cls:
+        if member.name.lower() == candidate or str(member.value).lower() == candidate:
+            return member
+    valid = ", ".join([f"{m.name} ({m.value})" for m in enum_cls])
+    parser.error(f"Invalid value '{raw_value}' for {flag_name}. Valid choices: {valid}.")
+
+
+def add_filter_args(parser: argparse.ArgumentParser):
+    """Adds shared experiment filtering arguments to a parser."""
+    parser.add_argument(
+        "-n",
+        "--name",
+        nargs="*",
+        help="Filter by the specific experiment name(s).",
+    )
+    parser.add_argument(
+        "--experiment-type",
+        action="append",
+        dest="experiment_types",
+        help="Filter experiments by their experiment_type string. Repeat the flag to include multiple types.",
+    )
+    parser.add_argument(
+        "--optimizer",
+        "--opt",
+        dest="optimizer",
+        help="Filter experiments by optimizer (e.g., SGD, Adam). Case-insensitive.",
+    )
+    parser.add_argument(
+        "--loss",
+        dest="loss",
+        help="Filter experiments by loss function (e.g., MSE, XENT). Case-insensitive.",
+    )
+
+
+# --- Core Runner Logic (from script) ---
+
+
+def _run_single_experiment(
+    name,
+    experiment_config,
+    batch_sizes,
+    etas,
+    directory=EXPERIMENTS_DIR,
+    no_save: bool = False,
+    eta_stability_search_depth: int | None = None,
+    max_eval_samples: int | None = None,
+    save_interstitial_snapshots: bool | None = None,
+    save_epoch_snapshots: bool | None = None,
+):
+    """
+    A wrapper function to run a single experiment trial. This is designed
+    to be called by the ProcessPoolExecutor.
+    """
+    logging.info(f"--- Starting Experiment: {name} ---")
+    if no_save:
+        logging.warning(f"Running in no-save mode for {name}. Results will NOT be saved.")
+    logging.info(f"Parameters: {experiment_config}")
+
+    run_options = {
+        "directory": directory,
+        "no_save": no_save,
+        "eta_stability_search_depth": eta_stability_search_depth,
+        "max_eval_samples": max_eval_samples,
+    }
+    if save_interstitial_snapshots is not None:
+        run_options["save_interstitial_snapshots"] = save_interstitial_snapshots
+    if save_epoch_snapshots is not None:
+        run_options["save_epoch_snapshots"] = save_epoch_snapshots
+
+    # Selectively apply a default number of epochs only if the experiment
+    # configuration does not already specify one.
+    if not hasattr(experiment_config, "num_epochs"):
+        logging.info(f"  Applying default num_epochs=1 for {type(experiment_config).__name__} experiment.")
+        run_options["num_epochs"] = 1
+
+    if isinstance(experiment_config, MNIST1MExperiment):
+        from batch_size_studies.data_loading import load_mnist1m_dataset
+
+        run_options["dataset_loader"] = load_mnist1m_dataset
+
+    run_experiment_sweep(experiment=experiment_config, batch_sizes=batch_sizes, etas=etas, **run_options)
+
+    logging.info(f"--- Finished Experiment: {name} ---")
+    return name
+
+
+def run_from_cli_args(args: argparse.Namespace):
+    """
+    Main orchestration logic driven by parsed command-line arguments.
+    """
+    # --- Build experiment list based on filters ---
+    optimizer_filter = _coerce_enum(argparse.ArgumentParser(), OptimizerType, args.optimizer, "--optimizer")
+    loss_filter = _coerce_enum(argparse.ArgumentParser(), LossType, args.loss, "--loss")
+    config_kwargs = {}
+    if hasattr(args, "experiment_types") and args.experiment_types:
+        config_kwargs["experiment_types"] = args.experiment_types
+    if optimizer_filter is not None:
+        config_kwargs["optimizer"] = optimizer_filter
+    if loss_filter is not None:
+        config_kwargs["loss_type"] = loss_filter
+    experiments_to_run = get_main_experiment_configs(**config_kwargs)
+
+    if args.name:
+        experiments_to_run = {name: config for name, config in experiments_to_run.items() if name in args.name}
+        if not experiments_to_run:
+            logging.error(f"No experiments found with name(s): {args.name}. Aborting.")
+            return
+
+    # --- Command Dispatch ---
+    if args.command == "list":
+        logging.info("--- Available Experiments ---")
+        headers = ["NAME", "TYPE", "OPTIMIZER", "LOSS"]
+        rows = [
+            [name, config.experiment_type, config.optimizer.name, config.loss_type.name]
+            for name, config in experiments_to_run.items()
+        ]
+
+        if not rows:
+            logging.info("No experiments match the provided filters.")
+            return
+
+        col_widths = [len(h) for h in headers]
+        for row in rows:
+            for i, cell in enumerate(row):
+                col_widths[i] = max(col_widths[i], len(cell))
+
+        header_line = "  ".join(h.ljust(w) for h, w in zip(headers, col_widths))
+        separator = "=" * len(header_line)
+        print(f"\n{separator}")
+        print(f"Available Experiments ({len(rows)} total)")
+        print(f"{separator}")
+        print(header_line)
+        print("-" * len(header_line))
+
+        for row in sorted(rows):
+            row_line = "  ".join(c.ljust(w) for c, w in zip(row, col_widths))
+            print(row_line)
+
+        print(f"{separator}\n")
+        return
+
+    elif args.command == "run":
+        directory = EXPERIMENTS_DIR
+        batch_sizes, etas = get_main_hyperparameter_grids()
+        if not experiments_to_run:
+            logging.error("No experiments match the provided filters. Nothing to run.")
+            return
+
+        # Apply parameter overrides if provided
+        if args.override:
+            overrides = {}
+            for override_str in args.override:
+                key, value_str = override_str.split("=", 1)
+                # Intelligently cast the value
+                try:
+                    value = int(value_str)
+                except ValueError:
+                    try:
+                        value = float(value_str)
+                    except ValueError:
+                        if key == "parameterization":
+                            value = Parameterization[value_str.upper()]
+                        else:
+                            value = value_str
+                overrides[key] = value
+
+            logging.info(f"Applying overrides: {overrides}")
+            # Use dataclasses.replace to create new, modified experiment objects
+            experiments_to_run = {name: replace(config, **overrides) for name, config in experiments_to_run.items()}
+
+        filepaths = defaultdict(list)
+        experiments_that_need_running = {}
+        logging.info("--- Pre-flight check: Verifying experiments ---")
+
+        for name, config in experiments_to_run.items():
+            filepath = config.get_filepath(directory=directory)
+            filepaths[filepath].append(name)
+
+            if args.no_save:
+                experiments_that_need_running[name] = config
+            else:
+                losses, failed = config.load_results(directory=directory, silent=True)
+                if _all_runs_accounted_for(config, batch_sizes, etas, losses, failed):
+                    logging.info(
+                        f"  Skipping '{name}': Already complete. (Found file: {os.path.basename(filepath)})"
+                    )
+                else:
+                    logging.info(f"  Incomplete: '{name}'. Will run. (Checking file: {os.path.basename(filepath)})")
+                    experiments_that_need_running[name] = config
+
+        has_collision = False
+        for filepath, names in filepaths.items():
+            if len(names) > 1:
+                logging.error(f"Collision detected! Experiments {names} will write to the same file: {filepath}")
+                has_collision = True
+
+        if has_collision:
+            logging.error("\nAborting due to filename collisions.")
+            return
+
+        if args.no_save:
+            logging.info("\n--- --no-save enabled: All selected experiments will be run without saving. ---")
+
+        if not experiments_that_need_running:
+            logging.info("\n--- All experiments are already complete. Nothing to do. ---")
+            return
+
+        logging.info(f"\n--- Starting Pipeline for {len(experiments_that_need_running)} Incomplete Experiments ---")
+        if args.num_processes <= 1:
+            logging.info("Running experiments sequentially.")
+            for name, config in experiments_that_need_running.items():
+                try:
+                    _run_single_experiment(
+                        name,
+                        config,
+                        batch_sizes,
+                        etas,
+                        directory,
+                        args.no_save,
+                        args.eta_stability_depth,
+                        args.max_eval_samples,
+                        args.save_interstitial_snapshots,
+                        args.save_epoch_snapshots,
+                    )
+                except Exception as exc:
+                    logging.error(f"Experiment '{name}' generated an exception: {exc}")
+        else:
+            logging.info(f"Running experiments with up to {args.num_processes} parallel workers.")
+            with ProcessPoolExecutor(max_workers=args.num_processes) as executor:
+                future_to_name = {
+                    executor.submit(
+                        _run_single_experiment,
+                        name,
+                        config,
+                        batch_sizes,
+                        etas,
+                        directory,
+                        args.no_save,
+                        args.eta_stability_depth,
+                        args.max_eval_samples,
+                        args.save_interstitial_snapshots,
+                        args.save_epoch_snapshots,
+                    ): name
+                    for name, config in experiments_that_need_running.items()
+                }
+
+                for future in as_completed(future_to_name):
+                    name = future_to_name[future]
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        logging.error(f"Experiment '{name}' generated an exception: {exc}")
+
+        logging.info("\n--- All experiments complete. ---")
 
 
 @dataclass

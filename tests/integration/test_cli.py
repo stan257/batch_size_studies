@@ -1,71 +1,38 @@
 import importlib.util
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
-from batch_size_studies.definitions import LossType, OptimizerType, Parameterization
-from batch_size_studies.experiments import SyntheticExperimentFixedTime
-
+# --- Load the script as a module to test its main() function ---
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 RUN_EXPERIMENTS_PATH = SCRIPTS_DIR / "run_experiments.py"
 
 spec = importlib.util.spec_from_file_location("run_experiments", RUN_EXPERIMENTS_PATH)
-run_experiments = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(run_experiments)
+run_experiments_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(run_experiments_module)
 
 
-def test_run_experiments_cli_smoke(monkeypatch, tmp_path):
-    batch_sizes = [4]
-    etas = [0.1]
+def test_run_experiments_cli_smoke(monkeypatch):
+    """
+    Tests that the CLI script correctly parses arguments and calls the
+    core orchestration function in the runner module.
+    """
+    # 1. Patch the dependencies of the script module
+    mock_run_from_args = MagicMock()
+    # Patch the name 'run_from_cli_args' where it is looked up (in the script's module)
+    monkeypatch.setattr(run_experiments_module, "run_from_cli_args", mock_run_from_args)
+    monkeypatch.setattr(run_experiments_module, "setup_logging", lambda: None)
 
-    toy_experiment = SyntheticExperimentFixedTime(
-        D=2,
-        P=8,
-        N=4,
-        K=2,
-        num_steps=3,
-        gamma=1.0,
-        L=2,
-        parameterization=Parameterization.SP,
-        optimizer=OptimizerType.SGD,
-        loss_type=LossType.MSE,
-    )
+    # 2. Simulate command-line arguments
+    sys.argv = ["run_experiments.py", "run", "--no-save", "--name", "toy_experiment"]
 
-    monkeypatch.setattr(run_experiments, "get_main_experiment_configs", lambda: {"toy": toy_experiment})
-    monkeypatch.setattr(run_experiments, "get_main_hyperparameter_grids", lambda: (batch_sizes, etas))
-    monkeypatch.setattr(run_experiments, "setup_logging", lambda: None)
+    # 3. Run the script's main function
+    run_experiments_module.main()
 
-    recorded_calls = []
+    # 4. Assert that the core logic function was called correctly
+    mock_run_from_args.assert_called_once()
+    called_args = mock_run_from_args.call_args[0][0]
 
-    def fake_run_single(*args, **kwargs):
-        no_save_arg = kwargs.get("no_save")
-        if no_save_arg is None and len(args) >= 6:
-            no_save_arg = args[5]
-        recorded_calls.append((args[0], no_save_arg))
-        return args[0]
-
-    monkeypatch.setattr(run_experiments, "run_single_experiment", fake_run_single)
-
-    class DummyFuture:
-        def __init__(self, result):
-            self._result = result
-
-        def result(self):
-            return self._result
-
-    class DummyExecutor:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def submit(self, func, *args, **kwargs):
-            return DummyFuture(func(*args, **kwargs))
-
-    monkeypatch.setattr(run_experiments, "ProcessPoolExecutor", lambda: DummyExecutor())
-    monkeypatch.setattr(run_experiments, "as_completed", lambda futures: futures)
-
-    monkeypatch.setattr(sys, "argv", ["run_experiments.py", "--no-save", "--name", "toy"])
-    run_experiments.main()
-
-    assert recorded_calls == [("toy", True)]
+    assert called_args.command == "run"
+    assert called_args.name == ["toy_experiment"]
+    assert called_args.no_save is True

@@ -1,9 +1,10 @@
 from unittest.mock import MagicMock, Mock, patch
+import argparse
 
 import pytest
 
-from batch_size_studies.definitions import RunKey
-from batch_size_studies.experiments import ExperimentBase
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
+from batch_size_studies.experiments import ExperimentBase, SyntheticExperimentFixedTime
 from batch_size_studies.runner import (
     TrialContext,
     _all_runs_accounted_for,
@@ -11,8 +12,74 @@ from batch_size_studies.runner import (
     _validate_and_store_partial_result,
     run_experiment_sweep,
     run_single_trial,
+    run_from_cli_args,
 )
 
+
+def test_run_from_args_orchestration(monkeypatch):
+    """
+    Tests that run_from_cli_args correctly parses args, filters experiments,
+    and dispatches to the runner logic. This test is moved from the old
+    test_cli.py to directly test the core logic instead of the CLI layer.
+    """
+    # 1. Setup Mocks and Fakes
+    batch_sizes = [4]
+    etas = [0.1]
+    toy_experiment = SyntheticExperimentFixedTime(
+        D=2, P=8, N=4, K=2, num_steps=3, gamma=1.0, L=2,
+        parameterization=Parameterization.SP, optimizer=OptimizerType.SGD, loss_type=LossType.MSE,
+    )
+
+    monkeypatch.setattr("batch_size_studies.runner.get_main_experiment_configs", lambda **kwargs: {"toy": toy_experiment})
+    monkeypatch.setattr("batch_size_studies.runner.get_main_hyperparameter_grids", lambda: (batch_sizes, etas))
+
+    recorded_calls = []
+    def fake_run_single(*args, **kwargs):
+        # Corresponds to _run_single_experiment in runner.py
+        # def _run_single_experiment(name, experiment_config, batch_sizes, etas, directory, no_save, ...)
+        no_save_arg = args[5]
+        recorded_calls.append((args[0], no_save_arg))
+        return args[0]
+
+    monkeypatch.setattr("batch_size_studies.runner._run_single_experiment", fake_run_single)
+
+    class DummyFuture:
+        def __init__(self, result):
+            self._result = result
+        def result(self):
+            return self._result
+
+    class DummyExecutor:
+        def __enter__(self):
+            return self
+        def __exit__(self, exc_type, exc, tb):
+            return False
+        def submit(self, func, *args, **kwargs):
+            return DummyFuture(func(*args, **kwargs))
+
+    monkeypatch.setattr("batch_size_studies.runner.ProcessPoolExecutor", lambda max_workers: DummyExecutor())
+    monkeypatch.setattr("batch_size_studies.runner.as_completed", lambda futures: futures)
+
+    # 2. Setup Arguments
+    args = argparse.Namespace(
+        command="run",
+        name=["toy"],
+        no_save=True,
+        # Set defaults for other args
+        optimizer=None,
+        loss=None,
+        experiment_types=None,
+        override=None,
+        eta_stability_depth=None,
+        max_eval_samples=None,
+        num_processes=1,
+        save_interstitial_snapshots=None,
+        save_epoch_snapshots=None,
+    )
+
+    # 3. Run and Assert
+    run_from_cli_args(args)
+    assert recorded_calls == [("toy", True)]
 
 class Test_validate_and_store_partial_result:
     @pytest.fixture
