@@ -27,6 +27,7 @@ Thumbs.db
 
 # Project-specific output directories
 /experiments/
+/spectral_data/
 /reports/
 /logs/
 /plots/
