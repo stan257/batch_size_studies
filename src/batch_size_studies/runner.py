@@ -66,6 +66,26 @@ def add_filter_args(parser: argparse.ArgumentParser):
         dest="loss",
         help="Filter experiments by loss function (e.g., MSE, XENT). Case-insensitive.",
     )
+    parser.add_argument(
+        "--list-overrides",
+        action="store_true",
+        help="Show supported override keys (for -o KEY=VALUE) and exit.",
+    )
+
+
+def describe_supported_overrides() -> str:
+    return "\n".join(
+        [
+            "Supported override keys:",
+            "  - num_epochs=<int>: force a fixed number of epochs for fixed-data experiments.",
+            "  - max_eval_samples=<int>: cap evaluation set size per epoch.",
+            "  - save_interstitial_snapshots=<bool>: enable/disable dense weight snapshots.",
+            "  - save_epoch_snapshots=<bool>: toggle per-epoch snapshots for fixed-data synthetic runs.",
+            "  - disable_eval_dataset=<bool>: skip deterministic synthetic eval dataset (saves memory).",
+            "  - dataset_loader=<callable>: alternate loader for MNIST-style datasets.",
+            "  - forced_subsample_seed=<int>: deterministic seed for subsampled datasets.",
+        ]
+    )
 
 
 # --- Core Runner Logic (from script) ---
@@ -148,6 +168,9 @@ def run_from_cli_args(args: argparse.Namespace):
 
     # --- Command Dispatch ---
     if args.command == "list":
+        if getattr(args, "list_overrides", False):
+            print(describe_supported_overrides())
+            return
         logging.info("--- Available Experiments ---")
         headers = ["NAME", "TYPE", "OPTIMIZER", "LOSS"]
         rows = [

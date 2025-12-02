@@ -46,7 +46,7 @@ notebooks/              # analysis notebooks accompanying the paper
    ```bash
    python scripts/run_experiments.py list
    ```
-   You can also filter this list, e.g., `python scripts/run_experiments.py list --optimizer Adam`.
+   You can also filter this list, e.g., `python scripts/run_experiments.py list --optimizer Adam`. Add `--list-overrides` to print the supported `--override key=value` options.
 
 4. Launch a sweep:
    Use the `run` command to execute an experiment from the catalog.
@@ -55,7 +55,7 @@ notebooks/              # analysis notebooks accompanying the paper
    ```
    Optional flags for the `run` command:
    * `--no-save` to dry-run in place (useful while inspecting behaviour).
-   * `--override <KEY>=<VALUE>` to dynamically change a parameter (e.g., `num_epochs=10`).
+   * `--override <KEY>=<VALUE>` to dynamically change a parameter (e.g., `num_epochs=10`). Run `python scripts/run_experiments.py list --list-overrides` to see the available keys.
    * `--max-eval-samples N` to limit validation cost.
    * `--eta-stability-depth K` to stop exploring learning rates once K consecutive stable learning rates are observed per batch size.
    * `--num-processes M` to run up to M sweeps in parallel (useful on clusters; defaults to sequential execution).
