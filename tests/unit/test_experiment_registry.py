@@ -7,9 +7,7 @@ def test_registry_matches_filter_conditions():
     specs = list_registered_specs()
     assert specs, "Registry should not be empty."
 
-    target = next(
-        spec for spec in specs if spec.optimizer == OptimizerType.SGD and spec.loss_type == LossType.MSE
-    )
+    target = next(spec for spec in specs if spec.optimizer == OptimizerType.SGD and spec.loss_type == LossType.MSE)
     filtered = [
         spec
         for spec in specs

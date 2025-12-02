@@ -1,20 +1,17 @@
-import logging
-from abc import ABC, abstractmethod
+from abc import abstractmethod
 from typing import TYPE_CHECKING, Any, Callable
-from unittest.mock import Mock
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import optax
 
-from .data_iterators import DataIterator, EpochBasedDataIterator, OnlineDataIterator
+from .data_iterators import EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
-from .protocols import DivergenceError, TrialRunner
-from .training_utils import create_base_optimizer_transform
+from .protocols import TrialRunner
 
 if TYPE_CHECKING:
-    from .runner import TrialContext
+    pass
 
 
 class EpochBasedTrialRunner(TrialRunner):

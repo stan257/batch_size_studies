@@ -156,7 +156,6 @@ class TestOnlineDataIterator:
 
     def test_on_the_fly_generation_and_seed_increment(self, mock_experiment):
         batch_size = 30
-        steps_per_key = 100 // 30  # 3
         iterable = OnlineDataIterator(
             experiment=mock_experiment, batch_size=batch_size, start_step=0, initial_batch_key_seed=0
         )
@@ -176,7 +175,6 @@ class TestOnlineDataIterator:
 
     def test_resumption_logic(self, mock_experiment):
         batch_size = 30
-        steps_per_key = 100 // 30  # 3
         start_step = 5  # This is the 3rd step (index 2) using data from key=1
 
         iterable = OnlineDataIterator(
@@ -194,7 +192,7 @@ class TestOnlineDataIterator:
         np.testing.assert_array_equal(first_call_key_data, jr.key_data(jr.PRNGKey(1)))
 
         # 2. Verify it yielded the correct slice of data.
-        # step_for_curr_data = start_step % steps_per_key = 5 % 3 = 2.
+        # step_for_curr_data = start_step % (mock_experiment.P // batch_size) = 5 % 3 = 2.
         # The slice starts at index 2 * 30 = 60.
         # So the first value should be 1000 + 60 = 1060.
         assert first_batch[0, 0] == 1060

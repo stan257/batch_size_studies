@@ -66,9 +66,9 @@ def test_sweep_resumption_is_correct(tmp_path):
     assert uninterrupted_failures == resumed_failures
     assert uninterrupted_results.keys() == resumed_results.keys()
     for key in uninterrupted_results:
-        assert (
-            len(uninterrupted_results[key]["loss_history"]) == len(resumed_results[key]["loss_history"])
-        ), f"Resumed run {key} produced a different number of steps."
+        assert len(uninterrupted_results[key]["loss_history"]) == len(resumed_results[key]["loss_history"]), (
+            f"Resumed run {key} produced a different number of steps."
+        )
         np.testing.assert_allclose(
             uninterrupted_results[key]["loss_history"],
             resumed_results[key]["loss_history"],

@@ -1,5 +1,5 @@
-from unittest.mock import MagicMock, Mock, patch
 import argparse
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
@@ -11,8 +11,8 @@ from batch_size_studies.runner import (
     _is_run_result_complete,
     _validate_and_store_partial_result,
     run_experiment_sweep,
-    run_single_trial,
     run_from_cli_args,
+    run_single_trial,
 )
 
 
@@ -26,14 +26,25 @@ def test_run_from_args_orchestration(monkeypatch):
     batch_sizes = [4]
     etas = [0.1]
     toy_experiment = SyntheticExperimentFixedTime(
-        D=2, P=8, N=4, K=2, num_steps=3, gamma=1.0, L=2,
-        parameterization=Parameterization.SP, optimizer=OptimizerType.SGD, loss_type=LossType.MSE,
+        D=2,
+        P=8,
+        N=4,
+        K=2,
+        num_steps=3,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
     )
 
-    monkeypatch.setattr("batch_size_studies.runner.get_main_experiment_configs", lambda **kwargs: {"toy": toy_experiment})
+    monkeypatch.setattr(
+        "batch_size_studies.runner.get_main_experiment_configs", lambda **kwargs: {"toy": toy_experiment}
+    )
     monkeypatch.setattr("batch_size_studies.runner.get_main_hyperparameter_grids", lambda: (batch_sizes, etas))
 
     recorded_calls = []
+
     def fake_run_single(*args, **kwargs):
         # Corresponds to _run_single_experiment in runner.py
         # def _run_single_experiment(name, experiment_config, batch_sizes, etas, directory, no_save, ...)
@@ -46,14 +57,17 @@ def test_run_from_args_orchestration(monkeypatch):
     class DummyFuture:
         def __init__(self, result):
             self._result = result
+
         def result(self):
             return self._result
 
     class DummyExecutor:
         def __enter__(self):
             return self
+
         def __exit__(self, exc_type, exc, tb):
             return False
+
         def submit(self, func, *args, **kwargs):
             return DummyFuture(func(*args, **kwargs))
 
@@ -80,6 +94,7 @@ def test_run_from_args_orchestration(monkeypatch):
     # 3. Run and Assert
     run_from_cli_args(args)
     assert recorded_calls == [("toy", True)]
+
 
 class Test_validate_and_store_partial_result:
     @pytest.fixture

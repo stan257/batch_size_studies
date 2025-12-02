@@ -3,6 +3,7 @@ This module defines the core abstract base classes (protocols) that decouple
 different parts of the framework, such as the experiment definitions from the
 concrete trial runner implementations.
 """
+
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, Callable

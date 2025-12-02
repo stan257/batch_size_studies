@@ -13,7 +13,6 @@ import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
-from datetime import datetime
 from typing import Any
 
 import jax
@@ -220,9 +219,7 @@ def run_from_cli_args(args: argparse.Namespace):
             else:
                 losses, failed = config.load_results(directory=directory, silent=True)
                 if _all_runs_accounted_for(config, batch_sizes, etas, losses, failed):
-                    logging.info(
-                        f"  Skipping '{name}': Already complete. (Found file: {os.path.basename(filepath)})"
-                    )
+                    logging.info(f"  Skipping '{name}': Already complete. (Found file: {os.path.basename(filepath)})")
                 else:
                     logging.info(f"  Incomplete: '{name}'. Will run. (Checking file: {os.path.basename(filepath)})")
                     experiments_that_need_running[name] = config

@@ -121,7 +121,6 @@ def test_compute_spectrum_errors_when_snapshots_missing(experiment_setup, caplog
     spectra_cli.compute_spectrum(args)
 
     assert any("No snapshots found" in record.message for record in caplog.records)
-    manager = CheckpointManager(experiment_setup.experiment, directory=experiment_setup.experiments_dir)
     spectra_path = spectral_utils_module.get_spectral_filepath(
         experiment_setup.experiment,
         directory=experiment_setup.experiments_dir,
@@ -131,13 +130,6 @@ def test_compute_spectrum_errors_when_snapshots_missing(experiment_setup, caplog
 
 
 def test_list_only_reports_steps_without_creating_output(experiment_setup, caplog):
-    snapshots = {10: {"layer": np.array([0.1])}, 30: {"layer": np.array([0.2])}}
-    manager = _write_weights_file(
-        experiment_setup.experiment,
-        experiment_setup.experiments_dir,
-        experiment_setup.run_key,
-        snapshots=snapshots,
-    )
     caplog.set_level("INFO")
     args = _make_args(experiment_setup.experiments_dir, list_only=True)
     spectra_cli.compute_spectrum(args)
@@ -152,13 +144,6 @@ def test_list_only_reports_steps_without_creating_output(experiment_setup, caplo
 
 
 def test_cache_is_reused_and_force_recompute_updates(experiment_setup, monkeypatch):
-    snapshots = {100: {"layer": np.array([0.3])}}
-    manager = _write_weights_file(
-        experiment_setup.experiment,
-        experiment_setup.experiments_dir,
-        experiment_setup.run_key,
-        snapshots=snapshots,
-    )
     spectra_path = spectral_utils_module.get_spectral_filepath(
         experiment_setup.experiment,
         directory=experiment_setup.experiments_dir,
@@ -190,13 +175,6 @@ def test_cache_is_reused_and_force_recompute_updates(experiment_setup, monkeypat
 
 
 def test_multi_step_serialization_records_each_step(experiment_setup, monkeypatch):
-    snapshots = {5: {"layer": np.array([0.1])}, 10: {"layer": np.array([0.2])}}
-    manager = _write_weights_file(
-        experiment_setup.experiment,
-        experiment_setup.experiments_dir,
-        experiment_setup.run_key,
-        snapshots=snapshots,
-    )
     _patch_hessian_evaluator(
         monkeypatch,
         {
@@ -222,14 +200,6 @@ def test_multi_step_serialization_records_each_step(experiment_setup, monkeypatc
 
 
 def test_compute_spectrum_errors_when_requesting_missing_step(experiment_setup):
-    snapshots = {10: {"layer": np.array([0.1])}}
-    manager = _write_weights_file(
-        experiment_setup.experiment,
-        experiment_setup.experiments_dir,
-        experiment_setup.run_key,
-        snapshots=snapshots,
-    )
-
     args = _make_args(experiment_setup.experiments_dir, steps=[10, 40])
     with pytest.raises(ValueError, match="Requested steps"):
         spectra_cli.compute_spectrum(args)
@@ -270,13 +240,6 @@ def test_cache_skip_logs_message(experiment_setup, caplog):
 
 
 def test_partial_step_selection_does_not_touch_other_steps(experiment_setup, monkeypatch):
-    snapshots = {5: {"layer": np.array([0.1])}, 10: {"layer": np.array([0.2])}}
-    manager = _write_weights_file(
-        experiment_setup.experiment,
-        experiment_setup.experiments_dir,
-        experiment_setup.run_key,
-        snapshots=snapshots,
-    )
     spectra_path = spectral_utils_module.get_spectral_filepath(
         experiment_setup.experiment,
         directory=experiment_setup.experiments_dir,

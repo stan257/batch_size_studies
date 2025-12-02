@@ -5,7 +5,6 @@ import argparse
 import logging
 import os
 import pickle
-from pathlib import Path
 
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.configs import get_main_experiment_configs
@@ -20,7 +19,7 @@ def _load_experiment(name: str):
     configs = get_main_experiment_configs()
     config = configs.get(name)
     if config is None:
-        raise KeyError(f"Experiment '{name}' not found. Did you run scripts/run_experiments.py?" )
+        raise KeyError(f"Experiment '{name}' not found. Did you run scripts/run_experiments.py?")
     return config
 
 
@@ -115,9 +114,7 @@ def compute_spectrum(args) -> None:
         )
         new_vals = [float(ev) for ev in eigenvalues]
         if stored_vals is not None:
-            logging.info(
-                "Overwriting existing spectra at step %s (had %s eigenvalues).", step, len(stored_vals)
-            )
+            logging.info("Overwriting existing spectra at step %s (had %s eigenvalues).", step, len(stored_vals))
 
         run_dict[step] = {
             "eigenvalues": new_vals,
