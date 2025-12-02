@@ -6,19 +6,20 @@ import jax.numpy as jnp
 import numpy as np
 import optax
 
+from .constants import (
+    MNIST_DEFAULT_MAX_EVAL_SAMPLES,
+    MNIST_EVAL_BATCH_SIZE,
+    MNIST_EVAL_SEED_OFFSET,
+    SYNTH_EVAL_DATA_SEED_OFFSET,
+    SYNTH_EVAL_MAX_SAMPLES,
+    SYNTH_EVAL_SUBSET_SEED_OFFSET,
+)
 from .data_iterators import EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
 from .protocols import TrialRunner
 
 if TYPE_CHECKING:
     pass
-
-MNIST_EVAL_BATCH_SIZE = 512
-MNIST_DEFAULT_MAX_EVAL_SAMPLES = 16_384  # 2^14 for reproducible subsampling on MNIST-1M
-MNIST_EVAL_SEED_OFFSET = 17
-SYNTH_EVAL_MAX_SAMPLES = 10_000
-SYNTH_EVAL_DATA_SEED_OFFSET = 257
-SYNTH_EVAL_SUBSET_SEED_OFFSET = 259
 
 
 class EpochBasedTrialRunner(TrialRunner):

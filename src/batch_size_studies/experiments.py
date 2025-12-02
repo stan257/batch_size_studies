@@ -14,6 +14,7 @@ import jax.random as jr
 import numpy as np
 from jax.flatten_util import ravel_pytree
 
+from .constants import SYNTH_EVAL_DATA_SEED_OFFSET, SYNTH_EVAL_MAX_SAMPLES, SYNTH_EVAL_SUBSET_SEED_OFFSET
 from .data_loading import load_datasets, load_mnist1m_dataset
 from .definitions import LossType, OptimizerType, Parameterization
 from .models import MLP, LinearModel
@@ -21,10 +22,6 @@ from .storage_utils import generate_experiment_filename, load_experiment, save_e
 
 if TYPE_CHECKING:
     from .protocols import TrialRunner
-
-SYNTH_EVAL_DATA_SEED_OFFSET = 257
-SYNTH_EVAL_SUBSET_SEED_OFFSET = 259
-SYNTH_EVAL_MAX_SAMPLES = 10_000
 
 
 def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
