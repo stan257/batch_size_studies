@@ -61,6 +61,7 @@ notebooks/              # analysis notebooks accompanying the paper
    * `--num-processes M` to run up to M sweeps in parallel (useful on clusters; defaults to sequential execution).
    * `--save-interstitial-snapshots` / `--no-save-interstitial-snapshots` to toggle dense weight snapshots between checkpoints.
    * `--save-epoch-snapshots` / `--no-save-epoch-snapshots` to control whether fixed-data synthetic runs store weights at every epoch boundary.
+   * `--dry-run` (with optional `--dry-run-steps`) to execute a single `(B, η)` for a few steps without saving results—ideal for debugging shapes/log output before launching long sweeps.
 
 5. Results land in `experiments/<experiment_type>/`:
    * `results_*.pkl` store loss histories and failure logs.

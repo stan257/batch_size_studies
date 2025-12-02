@@ -211,6 +211,9 @@ def run_from_cli_args(args: argparse.Namespace):
             return
 
         # Apply parameter overrides if provided
+        dry_run = getattr(args, "dry_run", False)
+        dry_run_steps = getattr(args, "dry_run_steps", 5)
+
         if args.override:
             overrides = {}
             for override_str in args.override:
@@ -231,6 +234,30 @@ def run_from_cli_args(args: argparse.Namespace):
             logging.info(f"Applying overrides: {overrides}")
             # Use dataclasses.replace to create new, modified experiment objects
             experiments_to_run = {name: replace(config, **overrides) for name, config in experiments_to_run.items()}
+
+        if dry_run:
+            logging.info("Dry-run mode: selecting the first experiment and a single (B, η) pair.")
+            first_item = next(iter(experiments_to_run.items()), None)
+            if first_item is None:
+                logging.error("No experiments available for dry-run.")
+                return
+            first_name, first_config = first_item
+            dry_batch = min(batch_sizes) if batch_sizes else 1
+            mid_eta = etas[len(etas) // 2] if etas else 0.1
+            logging.info("Dry-run for '%s' @ (B=%s, η=%s) for %s steps.", first_name, dry_batch, mid_eta, dry_run_steps)
+            run_experiment_sweep(
+                experiment=first_config,
+                batch_sizes=[dry_batch],
+                etas=[mid_eta],
+                init_key=0,
+                directory=directory,
+                dry_run=True,
+                dry_run_steps=dry_run_steps,
+                no_save=True,
+                eta_stability_search_depth=None,
+                max_eval_samples=args.max_eval_samples,
+            )
+            return
 
         filepaths = defaultdict(list)
         experiments_that_need_running = {}
@@ -654,7 +681,8 @@ def _execute_sweep_loops(
                 continue
 
             # Create and manage the lifecycle of the progress bar for active trials
-            with tqdm(total=num_steps, desc=f"η={eta:.3g}", leave=False) as pbar:
+            steps_to_run = kwargs.get("dry_run_steps") if kwargs.get("dry_run") else num_steps
+            with tqdm(total=steps_to_run, desc=f"η={eta:.3g}", leave=False) as pbar:
                 context = TrialContext(
                     experiment=experiment,
                     run_key=run_key,
@@ -666,7 +694,7 @@ def _execute_sweep_loops(
                     pbar=pbar,
                     no_save=no_save,
                     init_key=init_key,
-                    num_steps=num_steps,
+                    num_steps=steps_to_run,
                     num_epochs=num_epochs_for_run,
                     options=training_options,
                     kwargs=kwargs,

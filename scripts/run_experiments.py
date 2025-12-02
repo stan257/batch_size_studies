@@ -106,6 +106,17 @@ def main():
         help="Skip per-epoch snapshots for fixed-data synthetic runs to speed up long sweeps.",
     )
     run_parser.set_defaults(save_epoch_snapshots=None)
+    run_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Run a single (B, η) combo for a handful of steps without saving results (for debugging).",
+    )
+    run_parser.add_argument(
+        "--dry-run-steps",
+        type=int,
+        default=5,
+        help="Number of steps to run in dry-run mode (default: 5).",
+    )
 
     args = parser.parse_args()
 

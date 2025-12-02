@@ -20,8 +20,8 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 
 ## Runner (`runner.py`)
 * Drives the `(B, η)` grid: loads prior results, checks if a run is complete, and dispatches work through `TrialRunner`.
-* Persists losses/failures/metadata so long sweeps can resume cleanly.
-* Implements ETA-stability early stopping.
+* Persists losses/failures/metadata (including the git commit) so long sweeps can resume cleanly.
+* Implements ETA-stability early stopping and a CLI `--dry-run` mode for quick debugging of a single `(B, η)` combo.
 
 ## Main Experiment Runner (`scripts/run_experiments.py`)
 * The primary command-line tool for managing experiment sweeps.
