@@ -77,7 +77,7 @@ class TrialRunner(ABC):
 
         self.pbar = context.pbar
         self.kwargs = context.kwargs
-        provided_options = getattr(context, "options", None)
+        provided_options = context.options if hasattr(context, "options") else None
         if isinstance(provided_options, TrainingOptions):
             self.options = provided_options
         else:
