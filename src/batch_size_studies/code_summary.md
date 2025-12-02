@@ -8,15 +8,11 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 * Dataclasses that hold experiment configuration (model, dataset construction, sampling regime, etc.).
 * Handle dataset prep (MNIST downloads, MNIST‑1M subsampling, synthetic teacher generation) and record sweep metadata for later analysis.
 * Provide hooks such as `should_skip_batch_size`, `compute_num_steps`, and `is_classification()` so the runner and plotting code behave correctly.
+* `ExperimentBase.get_trial_runner_class` now returns a `Type[TrialRunner]` from `protocols.py`, cleanly decoupling experiments from specific runner implementations.
 
-## Definitions & Paths (`definitions.py`, `paths.py`)
-* Shared enums (`LossType`, `OptimizerType`, `Parameterization`) and the `RunKey` dataclass live in `definitions.py`.
-* `paths.py` resolves `PROJECT_ROOT`, `EXPERIMENTS_DIR`, and `DATA_DIR`, creating those directories so sweep artefacts always land in predictable locations.
-
-## Experiment Registry (`experiment_registry.py`, `registered_experiments.py`, `configs.py`)
-* Experiment specs are declared once (optimizer, loss, experiment family, kwargs) and registered via builders.
-* `experiment_registry.py` stores the list and enforces unique names; `configs.py` materializes them and exposes the canonical `(batch_size, η)` grids.
-* Adding a study = implement the dataclass + add a builder; CLI and notebooks will pick it up automatically.
+## Protocols (`protocols.py`)
+* Defines abstract base classes, most notably `TrialRunner`, to formalize interfaces.
+* Breaks dependency cycles by allowing modules like `experiments.py` and `trainer.py` to depend on abstract protocols rather than each other's concrete implementations.
 
 ## Runner (`runner.py`)
 * Drives the `(B, η)` grid: loads prior results, checks if a run is complete, and dispatches work through `TrialRunner`.
@@ -29,7 +25,8 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 * Supports filtering by name, type, optimizer, and loss, as well as parallel execution and dynamic parameter overrides.
 
 ## Trainer (`trainer.py`)
-* Shared protocol for a single run: resume (if checkpoint exists), create data iterator, train, log metrics, snapshot weights.
+* Provides concrete implementations of `TrialRunner` (e.g., `EpochBasedTrialRunner`, `MNISTTrialRunner`).
+* Handles the shared protocol for a single run: resume (if checkpoint exists), create data iterator, train, log metrics, snapshot weights.
 * `EpochBasedTrialRunner` centralizes fixed-dataset bookkeeping (steps per epoch, iterator wiring, epoch hooks) so MNIST and other offline experiments only define their per-epoch logic.
 * MNIST and synthetic subclasses still define task-specific losses/metrics; everything uses the `½ ∥·∥²` MSE normalization.
 * Caches JIT-compiled update/eval functions per model instance to avoid recompilation across sweeps.

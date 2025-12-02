@@ -7,11 +7,11 @@ import numpy as np
 import pytest
 
 from batch_size_studies.definitions import LossType, OptimizerType, RunKey
+from batch_size_studies.protocols import TrialRunner
 from batch_size_studies.trainer import (
     MNISTTrialRunner,
     SyntheticFixedDataTrialRunner,
     SyntheticFixedTimeTrialRunner,
-    TrialRunner,
 )
 
 

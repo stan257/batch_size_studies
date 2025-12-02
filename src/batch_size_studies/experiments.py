@@ -20,7 +20,7 @@ from .models import MLP, LinearModel
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
 
 if TYPE_CHECKING:
-    from .trainer import TrialRunner
+    from .protocols import TrialRunner
 
 
 def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
@@ -80,7 +80,6 @@ class MLPStudentExperiment:
 
     def get_model_wrapper(self, model_instance, params0):
         """Wraps the MLP model instance with CenteredModel."""
-        # Local import to break circular dependency with runner.py
         from .models import CenteredModel
 
         return CenteredModel(model_instance, params0)
