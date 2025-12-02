@@ -6,6 +6,7 @@ This repository captures the code used to generate our batch size and learning r
 
 ```
 src/batch_size_studies/
+├── constants.py        # shared configuration, seeds, and eval defaults
 ├── experiments.py      # experiment configurations and dataset preparation
 ├── runner.py           # sweep orchestration, resumability, stability checks
 ├── trainer.py          # TrialRunner implementations (MNIST vs. synthetic)
@@ -15,6 +16,8 @@ src/batch_size_studies/
 ├── storage_utils.py    # atomic pickle helpers
 ├── configs.py          # surfaces registered experiments + grids
 ├── registered_experiments.py  # declarative sweep specs
+├── definitions.py      # enums and run key types shared across modules
+├── protocols.py        # shared interfaces (TrialRunner, DataIterator, ModelProtocol)
 └── plotting_utils.py   # plotting helpers used in notebooks
 scripts/                # CLI entry points for sweeps & post-processing
 notebooks/              # analysis notebooks accompanying the paper
