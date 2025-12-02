@@ -531,17 +531,17 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
 
 @dataclass(frozen=True)
 class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, SyntheticExperiment):
-    r"""
+    """
     Defines parameters for a synthetic data experiment where the teacher is linear.
-    This is a *fixed-data* experiment, with data generation process:
+    This is a fixed-data setup with the following components:
 
-    -   Teacher: $y = w^{*T} x$
-    -   Data features: $x \sim \mathcal{N}(0, \Sigma)$, where $\Sigma = \text{diag}(i^{-\alpha})_{i=1}^D$
-    -   Teacher weights: $w_i^* = i^{-\theta}$, where $\theta = \frac{1}{2} + \frac{\alpha}{2}(\beta - 1)$
+    - Teacher: y = w*^T x
+    - Features: x ~ N(0, Sigma) with Sigma = diag(i^-alpha) for i = 1..D
+    - Teacher weights: w*_i = i^-theta, where theta = 0.5 + 0.5 * alpha * (beta - 1)
 
-    Here $\alpha$ and $\beta$ are the capacity and source exponents as defined in
-    https://abatanasov.com/Files/Scaling_Laws_Note.pdf, i.e., the decay rate of the
-    data-covariance and of the tail of Var(y), respectively.
+    The exponents alpha (capacity) and beta (source) follow the notation from
+    https://abatanasov.com/Files/Scaling_Laws_Note.pdf and control the decay of the
+    data covariance and the target signal, respectively.
     """
 
     # Student and task parameters
@@ -564,10 +564,10 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
             raise ValueError(f"num_epochs must be positive, got {self.num_epochs}")
 
     def generate_teacher_weights(self):
-        r"""
-        Generates the teacher weights $w^*$ according to the formula:
-        $w_i^* = i^{-\theta}$, where $\theta = \frac{1}{2} + \frac{\alpha}{2}(\beta - 1)$.
-        The weights are normalized such that $\text{Var}(y) = 1$ when $y = w^{*T}x$.
+        """
+        Generates the teacher weights w* with entries w*_i = i^-theta, where
+        theta = 0.5 + 0.5 * alpha * (beta - 1). The weights are normalized so
+        that Var(y) = 1 for y = w*^T x.
         """
         indices = np.arange(1, self.D + 1, dtype=np.float64)
         theta = 1 / 2 + 1 / 2 * self.alpha * (self.beta - 1)
@@ -681,10 +681,10 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
 @dataclass(frozen=True)
 class SyntheticExperimentNoisyLinearTeacher(SyntheticExperimentLinearTeacher):
-    r"""
+    """
     Linear teacher with additive Gaussian noise:
-    $y = \sqrt{1 - \rho} \cdot x^T w^* + \sqrt{\rho} \cdot \varepsilon$, where $\varepsilon \sim \mathcal{N}(0, I)$.
-    The clean signal $x^T w^*$ is normalized to unit variance; $\rho \in [0, 1]$ controls noise strength.
+        y = sqrt(1 - rho) * x^T w* + sqrt(rho) * epsilon,  epsilon ~ N(0, I)
+    The clean signal x^T w* is normalized to unit variance; rho in [0, 1] controls noise strength.
     """
 
     rho: float = 0.0
