@@ -42,11 +42,11 @@ def main():
     parser = argparse.ArgumentParser(description="Run a series of ML experiments.")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 
-    # --- List Command ---
+    # List command
     list_parser = subparsers.add_parser("list", help="List all available experiments based on the provided filters.")
     add_filter_args(list_parser)
 
-    # --- Run Command ---
+    # Run command
     run_parser = subparsers.add_parser("run", help="Run a series of ML experiments.")
     add_filter_args(run_parser)
     run_parser.add_argument(

@@ -46,7 +46,7 @@ class TestDataHandlingIntegration:
         # Structure: {batch_size: {epoch: [indices]}}
         seen_data_log = {}
 
-        # --- 1. Monkeypatch the data generation and training loop ---
+        # 1: Monkeypatch the data generation and training loop
 
         # Replace the training loop to just collect batch indices
         def mock_run_training_loop(self, params, opt_state, results, start_step, data_iterator):
@@ -85,36 +85,36 @@ class TestDataHandlingIntegration:
             "batch_size_studies.trainer.SyntheticFixedDataTrialRunner._run_training_loop", mock_run_training_loop
         )
 
-        # --- 2. Run the single-epoch experiment ---
+        # 2: Run the single-epoch experiment
         single_epoch_config = replace(linear_teacher_config_integration, num_epochs=1)
         run_experiment_sweep(experiment=single_epoch_config, batch_sizes=batch_sizes, etas=etas, no_save=True)
 
         # Store the results from the single-epoch run for later comparison
         single_epoch_data = {bs: seen_data_log[bs][0] for bs in batch_sizes}
 
-        # --- 3. Verify the single-epoch run ---
+        # 3: Verify the single-epoch run
         for bs in batch_sizes:
             data = single_epoch_data[bs]
             num_usable_samples = (P // bs) * bs
 
             # Assert correct number of samples were used
-            assert data.shape[0] == num_usable_samples, (
-                f"For B={bs}, expected {num_usable_samples} samples, but got {data.shape[0]}"
-            )
+            assert (
+                data.shape[0] == num_usable_samples
+            ), f"For B={bs}, expected {num_usable_samples} samples, but got {data.shape[0]}"
 
             # Assert that all samples seen in the epoch are unique
             # For floating point arrays, we check uniqueness of rows.
             unique_data = np.unique(data, axis=0)
-            assert unique_data.shape[0] == data.shape[0], (
-                f"For B={bs}, duplicate data points were found within the single epoch."
-            )
+            assert (
+                unique_data.shape[0] == data.shape[0]
+            ), f"For B={bs}, duplicate data points were found within the single epoch."
 
-        # --- 4. Run the multi-epoch experiment ---
+        # 4: Run the multi-epoch experiment
         seen_data_log.clear()
         multi_epoch_config = replace(linear_teacher_config_integration, num_epochs=3)
         run_experiment_sweep(experiment=multi_epoch_config, batch_sizes=batch_sizes, etas=etas, no_save=True)
 
-        # --- 5. Verify the multi-epoch run ---
+        # 5: Verify the multi-epoch run
         for bs in batch_sizes:
             # The set of indices used in the single-epoch run
             base_subset_sorted = np.sort(single_epoch_data[bs], axis=0)
@@ -128,7 +128,10 @@ class TestDataHandlingIntegration:
             np.testing.assert_allclose(
                 np.sort(epoch0_data, axis=0),
                 base_subset_sorted,
-                err_msg=f"For B={bs}, the data subset in epoch 0 of the multi-epoch run differs from the single-epoch run.",
+                err_msg=(
+                    f"For B={bs}, the data subset in epoch 0 of the multi-epoch run "
+                    "differs from the single-epoch run."
+                ),
             )
             np.testing.assert_allclose(
                 np.sort(epoch1_data, axis=0),
@@ -142,12 +145,12 @@ class TestDataHandlingIntegration:
             )
 
             # Assert that the order is different between epochs (shuffling works)
-            assert not np.array_equal(epoch0_data, epoch1_data), (
-                f"For B={bs}, the data order in epoch 0 and 1 should be different."
-            )
-            assert not np.array_equal(epoch1_data, epoch2_data), (
-                f"For B={bs}, the data subset in epoch 0 of the multi-epoch run differs from the single-epoch run."
-            )
+            assert not np.array_equal(
+                epoch0_data, epoch1_data
+            ), f"For B={bs}, the data order in epoch 0 and 1 should be different."
+            assert not np.array_equal(
+                epoch1_data, epoch2_data
+            ), f"For B={bs}, the data subset in epoch 0 of the multi-epoch run differs from the single-epoch run."
 
     def test_noisy_linear_teacher_matches_clean_for_zero_noise(self):
         base = SyntheticExperimentLinearTeacher(

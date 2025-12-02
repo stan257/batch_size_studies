@@ -3,7 +3,9 @@ import sys
 from pathlib import Path
 from unittest.mock import MagicMock
 
-# --- Load the script as a module to test its main() function ---
+# =============================================================================
+# Load the script as a module to test its main() function
+# =============================================================================
 SCRIPTS_DIR = Path(__file__).resolve().parents[2] / "scripts"
 RUN_EXPERIMENTS_PATH = SCRIPTS_DIR / "run_experiments.py"
 

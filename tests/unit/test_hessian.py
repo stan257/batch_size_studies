@@ -5,7 +5,9 @@ import pytest
 
 from batch_size_studies.hessian import JaxHessian
 
-# --- Test Setup: A simple quadratic problem where the Hessian is known ---
+# =============================================================================
+# Test setup: a simple quadratic problem where the Hessian is known
+# =============================================================================
 
 
 @pytest.fixture
@@ -52,7 +54,9 @@ def quadratic_problem():
     }
 
 
-# --- Tests for JaxHessian methods ---
+# =============================================================================
+# Tests for JaxHessian methods
+# =============================================================================
 
 
 def test_hvp(quadratic_problem):

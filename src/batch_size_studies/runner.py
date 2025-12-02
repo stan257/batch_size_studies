@@ -28,7 +28,9 @@ from .experiments import MNIST1MExperiment
 from .paths import EXPERIMENTS_DIR
 from .protocols import ModelProtocol, TrainingOptions
 
-# --- CLI Argument Helpers (moved from script) ---
+# =============================================================================
+# CLI Argument Helpers (moved from script)
+# =============================================================================
 
 
 def _coerce_enum(parser, enum_cls, raw_value, flag_name):
@@ -89,7 +91,9 @@ def describe_supported_overrides() -> str:
     )
 
 
-# --- Core Runner Logic (from script) ---
+# =============================================================================
+# Core Runner Logic (from script)
+# =============================================================================
 
 
 def _run_single_experiment(
@@ -149,7 +153,7 @@ def run_from_cli_args(args: argparse.Namespace):
     """
     Main orchestration logic driven by parsed command-line arguments.
     """
-    # --- Build experiment list based on filters ---
+    # Build experiment list based on filters
     optimizer_filter = _coerce_enum(argparse.ArgumentParser(), OptimizerType, args.optimizer, "--optimizer")
     loss_filter = _coerce_enum(argparse.ArgumentParser(), LossType, args.loss, "--loss")
     config_kwargs = {}
@@ -167,7 +171,7 @@ def run_from_cli_args(args: argparse.Namespace):
             logging.error(f"No experiments found with name(s): {args.name}. Aborting.")
             return
 
-    # --- Command Dispatch ---
+    # Command dispatch
     if args.command == "list":
         if getattr(args, "list_overrides", False):
             print(describe_supported_overrides())
@@ -733,13 +737,13 @@ def run_experiment_sweep(
 
     # 2. Load Data
     train_ds, test_ds = experiment.prepare_datasets(init_key, **kwargs)
-    # --- Save sweep-level metadata (e.g., data subsampling seed) ---
+    # Save sweep-level metadata (e.g., data subsampling seed)
     sweep_metadata = {"init_key": init_key}
     sweep_metadata.update(experiment.get_sweep_metadata(init_key))
     if not no_save:
         checkpoint_manager.save_sweep_metadata(sweep_metadata)
 
-    # --- Subsample test set for faster evaluation if requested ---
+    # Subsample test set for faster evaluation if requested
     if max_eval_samples is not None and test_ds is not None:
         # Use a derived key for determinism, different from the training subsample key
         eval_subsample_key = jax.random.PRNGKey(init_key + EVAL_SUBSAMPLE_SEED_OFFSET)

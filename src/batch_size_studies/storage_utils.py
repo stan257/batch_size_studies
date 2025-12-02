@@ -2,6 +2,10 @@ import logging
 import os
 import pickle
 
+# =============================================================================
+# Pickle helpers and filename utilities
+# =============================================================================
+
 
 class CustomUnpickler(pickle.Unpickler):
     """

@@ -18,6 +18,10 @@ from .data_iterators import EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
 from .protocols import TrialRunner
 
+# =============================================================================
+# Epoch-based trial runner base class
+# =============================================================================
+
 
 class EpochBasedTrialRunner(TrialRunner):
     """Shared helper for fixed-data runners that iterate by epochs."""
@@ -87,10 +91,16 @@ class EpochBasedTrialRunner(TrialRunner):
         # Use a deterministic, unique seed for each epoch for reproducibility.
         return int(self._get_iterator_init_key() + epoch_index + 1)
 
-    @abstractmethod
-    def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
-        """Hook invoked whenever an epoch boundary is reached."""
-        raise NotImplementedError
+
+@abstractmethod
+def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
+    """Hook invoked whenever an epoch boundary is reached."""
+    raise NotImplementedError
+
+
+# =============================================================================
+# MNIST trial runner
+# =============================================================================
 
 
 class MNISTTrialRunner(EpochBasedTrialRunner):
@@ -227,6 +237,11 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
     def is_complete(self, result: dict) -> bool:
         """A run is complete if the number of test accuracies matches the expected number of epochs."""
         return len(result.get("epoch_test_accuracies", [])) >= result.get("expected_epochs", self.num_epochs)
+
+
+# =============================================================================
+# Synthetic trial runners
+# =============================================================================
 
 
 class SyntheticTrialRunner(TrialRunner):

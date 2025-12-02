@@ -154,7 +154,7 @@ def filter_experiments(
     Filters experiments based on experiment type, and optionally on loss type and/or optimizer.
     Loss type (resp. optimizers) defaults to MSE (resp None) for experiments that don't specify it.
     """
-    # --- Input Validation ---
+    # Input validation
     if loss_type is not None and not isinstance(loss_type, LossType):
         raise TypeError(f"loss_type must be of type LossType, but got {type(loss_type).__name__}.")
 

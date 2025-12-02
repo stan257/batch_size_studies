@@ -21,6 +21,10 @@ from .models import MLP, LinearModel
 from .protocols import TrialRunner
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
 
+# =============================================================================
+# MNIST dataset helpers
+# =============================================================================
+
 
 def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
     """Helper to subsample MNIST training data."""
@@ -55,7 +59,9 @@ def _load_mnist_dataset(experiment, init_key: int, dataset_loader=None, forced_s
         return None, None
 
 
-# Student Mixins
+# =============================================================================
+# Student mixins
+# =============================================================================
 @dataclass(frozen=True)
 class MLPStudentExperiment:
     """A mixin for experiments that use an MLP as the student model."""
@@ -142,7 +148,9 @@ class LinearStudentExperiment:
         return base_eta
 
 
-# Base class for all experiments
+# =============================================================================
+# Experiment base class
+# =============================================================================
 @dataclass(frozen=True)
 class ExperimentBase(ABC):
     """
@@ -312,6 +320,11 @@ class ExperimentBase(ABC):
         Defaults to False; classification experiments should override.
         """
         return False
+
+
+# =============================================================================
+# Synthetic experiment families
+# =============================================================================
 
 
 class SyntheticExperiment(ABC):
@@ -724,6 +737,11 @@ class SyntheticExperimentNoisyLinearTeacher(SyntheticExperimentLinearTeacher):
         return f"{base}\n{noise_line}"
 
 
+# =============================================================================
+# MNIST experiment families
+# =============================================================================
+
+
 @dataclass(frozen=True)
 class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
     """
@@ -826,7 +844,7 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
             f"{task_name} ({learning_type}) ("
             f"{model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
         )
-        line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, " f"Loss={self.loss_type.value}"
+        line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}"
         return f"{line1}\n{line2}"
 
     def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:

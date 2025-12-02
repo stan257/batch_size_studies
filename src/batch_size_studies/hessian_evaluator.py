@@ -13,6 +13,10 @@ from .experiments import (
     LinearStudentExperiment,
     MLPStudentExperiment,
 )
+
+# =============================================================================
+# Hessian evaluation orchestration
+# =============================================================================
 from .hessian import JaxHessian
 from .models import MLP, CenteredModel, LinearModel
 from .paths import EXPERIMENTS_DIR
@@ -56,7 +60,7 @@ class HessianEvaluator:
         self.num_hessian_samples = num_hessian_samples
         self.hessian_batch_size = hessian_batch_size
 
-        # --- 1. Load Parameters ---
+        # 1: Load parameters
         self.params0 = self._load_initial_params()
         if self.params0 is None:
             raise FileNotFoundError("Could not load initial parameters (params0). Run experiment first.")
@@ -70,7 +74,7 @@ class HessianEvaluator:
             self.params = self.params0
             logging.info("Evaluating Hessian at initialization (params0).")
 
-        # --- 2. Load Data ---
+        # 2: Load data
         cm = CheckpointManager(self.experiment, directory=self.directory)
         metadata = cm.load_sweep_metadata()
         subsample_seed = metadata.get("subsample_seed")
@@ -95,7 +99,7 @@ class HessianEvaluator:
         inputs, targets = self._collect_training_samples(train_ds, num_hessian_samples)
         self.data_loader = self._batch_samples(inputs, targets, hessian_batch_size)
 
-        # --- 3. Instantiate Model and Loss ---
+        # 3: Instantiate model and loss
         if isinstance(self.experiment, LinearStudentExperiment):
             model_instance = LinearModel()
             # For linear models, we don't center the output.
@@ -109,7 +113,7 @@ class HessianEvaluator:
 
         loss_fn_outer = self._get_outer_loss_fn()
 
-        # --- 4. Instantiate JaxHessian ---
+        # 4: Instantiate Hessian computer
         self.hessian_computer = JaxHessian(model=model_to_use, loss_fn=loss_fn_outer, data_loader=self.data_loader)
         logging.info("HessianEvaluator initialized successfully.")
 

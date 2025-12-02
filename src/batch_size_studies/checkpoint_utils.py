@@ -10,6 +10,10 @@ from .definitions import RunKey
 from .paths import EXPERIMENTS_DIR
 from .storage_utils import CustomUnpickler, save_experiment
 
+# =============================================================================
+# Checkpoint and snapshot management
+# =============================================================================
+
 
 class CheckpointManager:
     """
@@ -72,7 +76,7 @@ class CheckpointManager:
             with open(filepath, "rb") as f:
                 data = CustomUnpickler(f).load()
 
-            # --- Backward Compatibility Logic ---
+            # Backward compatibility logic
             if "results" in data:
                 # New format: 'results' dict contains loss_history, etc.
                 # 'step' is already a global step number.
@@ -298,6 +302,11 @@ class CheckpointManager:
                 os.remove(filepath)
             except OSError as e:
                 logging.error(f"Error cleaning up checkpoint for {run_key}: {e}")
+
+
+# =============================================================================
+# Convenience loader helpers
+# =============================================================================
 
 
 def load_experiment_weights(

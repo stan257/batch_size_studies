@@ -90,7 +90,7 @@ class TrialRunner(ABC):
         self.num_steps = context.num_steps
         self.lr = self.experiment.get_adjusted_eta(self.run_key.eta)
 
-        # --- JIT Function Caching ---
+        # JIT function caching
         param_shapes_pytree = jax.tree_util.tree_map(lambda x: x.shape, self.params0)
         param_shapes_tuple = tuple(
             jax.tree_util.tree_leaves(param_shapes_pytree, is_leaf=lambda x: isinstance(x, tuple))

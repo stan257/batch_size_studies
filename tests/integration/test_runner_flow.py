@@ -119,7 +119,7 @@ class TestRunnerIntegration:
         assert len(saved_data["losses"]) == 1  # one run
         assert run_key in saved_data["losses"]
 
-        # --- 2. Verify Analysis Weights and Live Checkpoint Files ---
+        # 2: Verify analysis weights and live checkpoint files
         # Use CheckpointManager to derive the expected paths, just like the runner does.
         cm = CheckpointManager(config, directory=str(tmp_path))
 

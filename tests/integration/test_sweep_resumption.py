@@ -15,7 +15,7 @@ def test_sweep_resumption_is_correct(tmp_path):
     This test validates the interaction between the runner's state management,
     the checkpoint manager, and the trial runner's ability to resume.
     """
-    # --- 1. Define a simple, deterministic experiment ---
+    # 1: Define a simple, deterministic experiment
     config = SyntheticExperimentFixedData(
         D=8,
         P=128,
@@ -33,7 +33,7 @@ def test_sweep_resumption_is_correct(tmp_path):
     etas = [0.01, 0.001]
     init_key = 0
 
-    # --- 2. Run the experiment without interruption to get the ground truth ---
+    # 2: Run the experiment without interruption to get the ground truth
     uninterrupted_results, uninterrupted_failures = run_experiment_sweep(
         experiment=config,
         batch_sizes=batch_sizes,
@@ -42,7 +42,7 @@ def test_sweep_resumption_is_correct(tmp_path):
         directory=str(tmp_path / "uninterrupted"),
     )
 
-    # --- 3. Simulate an interrupted run ---
+    # 3: Simulate an interrupted run
     # Run the sweep for only 2 epochs. This will leave live checkpoints.
     interrupted_config = replace(config, num_epochs=2)
     run_experiment_sweep(
@@ -53,7 +53,7 @@ def test_sweep_resumption_is_correct(tmp_path):
         directory=str(tmp_path / "resumed"),
     )
 
-    # --- 4. Run the full sweep again, which should resume from the checkpoints ---
+    # 4: Run the full sweep again, which should resume from the checkpoints
     resumed_results, resumed_failures = run_experiment_sweep(
         experiment=config,  # Use the original 4-epoch config
         batch_sizes=batch_sizes,
@@ -62,13 +62,13 @@ def test_sweep_resumption_is_correct(tmp_path):
         directory=str(tmp_path / "resumed"),
     )
 
-    # --- 5. Assert that the final results are identical ---
+    # 5: Assert that the final results are identical
     assert uninterrupted_failures == resumed_failures
     assert uninterrupted_results.keys() == resumed_results.keys()
     for key in uninterrupted_results:
-        assert len(uninterrupted_results[key]["loss_history"]) == len(resumed_results[key]["loss_history"]), (
-            f"Resumed run {key} produced a different number of steps."
-        )
+        assert len(uninterrupted_results[key]["loss_history"]) == len(
+            resumed_results[key]["loss_history"]
+        ), f"Resumed run {key} produced a different number of steps."
         np.testing.assert_allclose(
             uninterrupted_results[key]["loss_history"],
             resumed_results[key]["loss_history"],

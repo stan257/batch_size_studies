@@ -84,7 +84,7 @@ def _prepare_grouped_curves(
         if group_value is None:
             continue
 
-        # --- Data Preparation ---
+        # Data preparation
         y_values = loss_values
         if not len(y_values):
             continue
@@ -205,7 +205,7 @@ def plot_heatmap_with_theory_curve(
     else:
         fig = ax.get_figure()
 
-    # --- 1. Prepare data grid (same as plot_loss_heatmap) ---
+    # 1: Prepare data grid (same as plot_loss_heatmap)
     Z = np.full((len(etas), len(batch_sizes)), np.nan, dtype=float)
     b_to_i = {b: i for i, b in enumerate(batch_sizes)}
     eta_to_j = {e: j for j, e in enumerate(etas)}
@@ -225,7 +225,7 @@ def plot_heatmap_with_theory_curve(
                     metric_val,
                 )
 
-    # --- 2. Plotting logic for heatmap (same as plot_loss_heatmap) ---
+    # 2: Plotting logic for heatmap (same as plot_loss_heatmap)
     X, Y = np.meshgrid(batch_sizes, etas)
     Y_coords = np.log2(Y)
 
@@ -248,7 +248,7 @@ def plot_heatmap_with_theory_curve(
         pcm.set_clim(clim)
     ax.set_ylim(min(np.log2(etas)), max(np.log2(etas)))
 
-    # --- 3. Plot theoretical curves if provided ---
+    # 3: Plot theoretical curves if provided
     has_theory_curve = False
 
     if crit_batch is not None:
@@ -316,7 +316,7 @@ def plot_heatmap_with_theory_curve(
     if has_theory_curve:
         ax.legend()
 
-    # --- 4. Formatting (same as plot_loss_heatmap) ---
+    # 4: Formatting (same as plot_loss_heatmap)
     def log2_tick_formatter(val, pos=None):
         return f"$2^{{{round(val)}}}$"
 
@@ -394,7 +394,7 @@ def plot_loss_curves(
     """
     assert not (use_eff_steps and use_samples_seen), "Only one of use_eff_steps or use_samples_seen can be True."
 
-    # --- 1. Prepare and group data using the new helper ---
+    # 1: Prepare and group data using the helper
     grouped_curves = _prepare_grouped_curves(
         loss_dict,
         group_by=group_by,
@@ -402,7 +402,7 @@ def plot_loss_curves(
         use_samples_seen=use_samples_seen,
     )
 
-    # --- Helper to plot a pre-grouped set of curves ---
+    # Helper to plot a pre-grouped set of curves
     def _plot_group(ax: plt.Axes, value_to_fix: Any, curves_in_group: list[dict], linestyle: str = "-") -> bool:
         if not curves_in_group:
             return False  # Indicate no plots were made
@@ -457,7 +457,7 @@ def plot_loss_curves(
         ax.grid(True, which="both", linestyle="--", alpha=0.6)
         return True  # Indicate plots were made
 
-    # --- Main function logic ---
+    # Main function logic
 
     # 2. Determine the list of group values to iterate over
     if group_values is None:
@@ -483,7 +483,7 @@ def plot_loss_curves(
 
     # 3. Execute plotting based on the mode
     if plot_on_single_ax:
-        # --- Single-axis mode ---
+        # Single-axis mode
         if not isinstance(values_to_plot, list) or len(values_to_plot) < 1:
             raise ValueError("`plot_on_single_ax=True` requires `group_values` to be a list of one or more values.")
 
@@ -521,7 +521,7 @@ def plot_loss_curves(
         return fig, ax
 
     else:
-        # --- Multi-plot generator mode ---
+        # Multi-plot generator mode
         def plot_generator() -> Generator[tuple[plt.Figure, plt.Axes], None, None]:
             if display_now:
                 try:
@@ -656,7 +656,7 @@ def plot_all_loss_curves(
     all_bs = sorted(list({c["B"] for c in curves_to_plot}))
     all_etas = sorted(list({c["eta"] for c in curves_to_plot}))
 
-    # --- Dynamically orient the legend grid for a better aspect ratio ---
+    # Dynamically orient the legend grid for a better aspect ratio
     # The parameter with more unique values will become the rows.
     transpose_legend = len(all_etas) > len(all_bs)
 
@@ -678,7 +678,7 @@ def plot_all_loss_curves(
     # 4. Prepare legend placeholders and figure sizing
     num_rows, num_cols = len(row_items), len(col_items)
 
-    # --- Dynamic figure sizing to ensure fixed plot area ---
+    # Dynamic figure sizing to ensure fixed plot area
     # Define desired fixed size for the plot axes in inches
     AXES_WIDTH_IN = 8
     AXES_HEIGHT_IN = 6

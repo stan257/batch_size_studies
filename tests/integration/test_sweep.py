@@ -22,7 +22,9 @@ from batch_size_studies.experiments import (
 from batch_size_studies.runner import run_experiment_sweep
 from batch_size_studies.trainer import MNISTTrialRunner
 
-# --- Fixtures ---
+# =============================================================================
+# Fixtures
+# =============================================================================
 
 
 @pytest.fixture
@@ -87,7 +89,9 @@ def mock_mnist_loader():
     return _loader
 
 
-# --- Test Classes ---
+# =============================================================================
+# Test classes
+# =============================================================================
 
 
 @pytest.mark.slow
@@ -370,7 +374,7 @@ def assert_allclose_trees(a, b, rtol=1e-5, atol=1e-8):
         run_key = RunKey(batch_size=64, eta=0.01)
         steps_per_epoch = 128 // 64  # 2
 
-        # --- Part 1: Simulate an interruption after the first epoch ---
+        # Part 1: Simulate an interruption after the first epoch
         class Interruption(Exception):
             pass
 
@@ -398,12 +402,12 @@ def assert_allclose_trees(a, b, rtol=1e-5, atol=1e-8):
                 num_epochs=total_epochs,  # Run with the full goal
             )
 
-        # --- Part 2: Verify that the checkpoint from the first epoch exists ---
+        # Part 2: Verify that the checkpoint from the first epoch exists
         cm = CheckpointManager(mnist_config, directory=str(tmp_path))
         resume_file = cm._get_resume_filepath(run_key)
         assert os.path.exists(resume_file)
 
-        # --- Part 3: Restore original behavior and run to completion ---
+        # Part 3: Restore original behavior and run to completion
         monkeypatch.setattr(MNISTTrialRunner, "_should_save_checkpoint", original_should_save)
         caplog.clear()
         with caplog.at_level(logging.INFO):
@@ -416,7 +420,7 @@ def assert_allclose_trees(a, b, rtol=1e-5, atol=1e-8):
                 num_epochs=total_epochs,
             )
 
-        # --- Part 4: Verify resumption and successful completion ---
+        # Part 4: Verify resumption and successful completion
         expected_resume_step = steps_per_epoch  # Should resume from step 2 (start of 2nd epoch)
         assert f"Resuming run {run_key} from step {expected_resume_step}" in caplog.text
         assert len(results[run_key]["epoch_test_accuracies"]) == total_epochs
