@@ -38,6 +38,7 @@ def setup_logging(log_dir="logs"):
 
 
 def main():
+    """Parses CLI arguments and dispatches to the core runner logic."""
     parser = argparse.ArgumentParser(description="Run a series of ML experiments.")
     subparsers = parser.add_subparsers(dest="command", required=True, help="Available commands")
 

@@ -1,4 +1,16 @@
-"""Concrete experiment specifications automatically registered on import."""
+"""
+This module contains the declarative specifications for all experiment sweeps.
+It acts as the central catalog for the framework.
+
+To add a new experiment, follow these steps:
+1. Define your experiment configuration as a dataclass in `experiments.py`
+   (or a new module if it's a new family of experiments).
+2. Create a builder function here (e.g., `_build_my_new_experiment`) that
+   returns a list of `ExperimentSpec` objects.
+3. Decorate the builder function with `@register_spec_builder`.
+
+The experiment will then be automatically available to the CLI and notebooks.
+"""
 
 from __future__ import annotations
 
