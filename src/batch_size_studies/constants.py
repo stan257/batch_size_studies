@@ -6,11 +6,17 @@ the codebase.
 """
 
 MNIST_EVAL_BATCH_SIZE = 512
-MNIST_DEFAULT_MAX_EVAL_SAMPLES = 16_384  # 2^14 for the MNIST-1M test subset.
-MNIST_EVAL_SEED_OFFSET = 17  # Offset from init_key for MNIST eval subsampling.
+MNIST_DEFAULT_MAX_EVAL_SAMPLES = 16_384  # 2^14
+# Offset between the training PRNG stream and the evaluation subsampling stream.
+# Chosen to keep the eval subset disjoint from the shuffle keys used in training.
+MNIST_EVAL_SEED_OFFSET = 17
 
 SYNTH_EVAL_MAX_SAMPLES = 10_000
-SYNTH_EVAL_DATA_SEED_OFFSET = 257  # Offset for deterministic synthetic eval data.
-SYNTH_EVAL_SUBSET_SEED_OFFSET = 259  # Offset for synthetic eval subsampling.
+# Synthetic experiments reserve two offsets: one for deterministic evaluation data,
+# and another for the optional subsampling pass. Offsets are far from zero so they
+# never collide with the seeds used for training batches.
+SYNTH_EVAL_DATA_SEED_OFFSET = 257
+SYNTH_EVAL_SUBSET_SEED_OFFSET = 259
 
-EVAL_SUBSAMPLE_SEED_OFFSET = 1  # Runner-level offset for test-set subsampling.
+# Runner-level offset for test-set subsampling (used outside MNISTTrialRunner).
+EVAL_SUBSAMPLE_SEED_OFFSET = 1
