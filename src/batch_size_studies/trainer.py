@@ -13,6 +13,13 @@ from .protocols import TrialRunner
 if TYPE_CHECKING:
     pass
 
+MNIST_EVAL_BATCH_SIZE = 512
+MNIST_DEFAULT_MAX_EVAL_SAMPLES = 16_384  # 2^14 for reproducible subsampling on MNIST-1M
+MNIST_EVAL_SEED_OFFSET = 17
+SYNTH_EVAL_MAX_SAMPLES = 10_000
+SYNTH_EVAL_DATA_SEED_OFFSET = 257
+SYNTH_EVAL_SUBSET_SEED_OFFSET = 259
+
 
 class EpochBasedTrialRunner(TrialRunner):
     """Shared helper for fixed-data runners that iterate by epochs."""
@@ -91,12 +98,12 @@ class EpochBasedTrialRunner(TrialRunner):
 class MNISTTrialRunner(EpochBasedTrialRunner):
     """Trial runner for MNIST-based experiments."""
 
-    EVAL_BATCH_SIZE = 512
+    EVAL_BATCH_SIZE = MNIST_EVAL_BATCH_SIZE
 
     def __init__(self, context):
         super().__init__(context)
         self.test_ds = context.test_ds
-        self.max_eval_samples = context.kwargs.get("max_eval_samples", 16_384)  # = 2^14
+        self.max_eval_samples = context.kwargs.get("max_eval_samples", MNIST_DEFAULT_MAX_EVAL_SAMPLES)
         save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", False)
         self.snapshot_steps = self._compute_snapshot_steps(self.num_steps, save_dense_snapshots)
         self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
@@ -187,7 +194,7 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
         num_test_samples = images.shape[0]
         eval_samples = min(num_test_samples, self.max_eval_samples or num_test_samples)
         if eval_samples < num_test_samples:
-            eval_key = jax.random.PRNGKey(self.init_key + epoch + 17)
+            eval_key = jax.random.PRNGKey(self.init_key + epoch + MNIST_EVAL_SEED_OFFSET)
             indices = np.array(jax.random.permutation(eval_key, num_test_samples)[:eval_samples])
             images = images[indices]
             labels = labels[indices]
@@ -226,7 +233,7 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
 class SyntheticTrialRunner(TrialRunner):
     """Base trial runner for synthetic data experiments."""
 
-    EVAL_MAX_SAMPLES = 10_000
+    EVAL_MAX_SAMPLES = SYNTH_EVAL_MAX_SAMPLES
 
     def __init__(self, context):
         super().__init__(context)
@@ -268,14 +275,14 @@ class SyntheticTrialRunner(TrialRunner):
         if not isinstance(init_key, (int, np.integer)):
             return None
 
-        eval_key = jax.random.PRNGKey(init_key + 257)
+        eval_key = jax.random.PRNGKey(init_key + SYNTH_EVAL_DATA_SEED_OFFSET)
         try:
             X_eval, y_eval = self.experiment.generate_data(eval_key)
         except TypeError:
             return None
 
         if X_eval.shape[0] > self.EVAL_MAX_SAMPLES:
-            subset_key = jax.random.PRNGKey(init_key + 259)
+            subset_key = jax.random.PRNGKey(init_key + SYNTH_EVAL_SUBSET_SEED_OFFSET)
             indices = jax.random.permutation(subset_key, X_eval.shape[0])[: self.EVAL_MAX_SAMPLES]
             X_eval = X_eval[indices]
             y_eval = y_eval[indices]

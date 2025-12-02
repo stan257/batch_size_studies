@@ -26,6 +26,8 @@ from .protocols import ModelProtocol
 from .experiments import MNIST1MExperiment
 from .paths import EXPERIMENTS_DIR
 
+EVAL_SUBSAMPLE_SEED_OFFSET = 1
+
 # --- CLI Argument Helpers (moved from script) ---
 
 
@@ -665,7 +667,7 @@ def run_experiment_sweep(
     # --- Subsample test set for faster evaluation if requested ---
     if max_eval_samples is not None and test_ds is not None:
         # Use a derived key for determinism, different from the training subsample key
-        eval_subsample_key = jax.random.PRNGKey(init_key + 1)
+        eval_subsample_key = jax.random.PRNGKey(init_key + EVAL_SUBSAMPLE_SEED_OFFSET)
         test_ds = _subsample_dataset(test_ds, max_eval_samples, eval_subsample_key)
 
     # Data loading failure is a fatal error for offline experiments, so abort the sweep.

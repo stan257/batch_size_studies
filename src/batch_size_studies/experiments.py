@@ -22,6 +22,10 @@ from .storage_utils import generate_experiment_filename, load_experiment, save_e
 if TYPE_CHECKING:
     from .protocols import TrialRunner
 
+SYNTH_EVAL_DATA_SEED_OFFSET = 257
+SYNTH_EVAL_SUBSET_SEED_OFFSET = 259
+SYNTH_EVAL_MAX_SAMPLES = 10_000
+
 
 def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
     """Helper to subsample MNIST training data."""
@@ -651,13 +655,13 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
             return population_error
 
-        eval_key = jr.PRNGKey(init_key + 257)
+        eval_key = jr.PRNGKey(init_key + SYNTH_EVAL_DATA_SEED_OFFSET)
         X_eval, y_eval = self.generate_data(eval_key)
         X_eval = jnp.asarray(X_eval)
         y_eval = jnp.asarray(y_eval)
-        max_samples = 10_000
+        max_samples = SYNTH_EVAL_MAX_SAMPLES
         if X_eval.shape[0] > max_samples:
-            subset_key = jr.PRNGKey(init_key + 259)
+            subset_key = jr.PRNGKey(init_key + SYNTH_EVAL_SUBSET_SEED_OFFSET)
             indices = jr.permutation(subset_key, X_eval.shape[0])[:max_samples]
             X_eval = X_eval[indices]
             y_eval = y_eval[indices]
