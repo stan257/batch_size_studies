@@ -10,6 +10,7 @@ dispatching to type-specific trial runners.
 import argparse
 import logging
 import os
+import subprocess
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, field, replace
@@ -592,6 +593,14 @@ def _setup_sweep_state(experiment, directory, no_save, init_key):
     return results_dict, failed_runs, checkpoint_manager, params0, model_for_runner
 
 
+def _get_git_revision() -> str:
+    """Return the current git commit hash (or 'UNKNOWN' if not available)."""
+    try:
+        return subprocess.check_output(["git", "rev-parse", "HEAD"], stderr=subprocess.DEVNULL).decode("utf-8").strip()
+    except Exception:
+        return "UNKNOWN"
+
+
 def _build_training_options_from_kwargs(options_kwargs: dict) -> TrainingOptions:
     max_eval_samples = options_kwargs.get("max_eval_samples")
     save_interstitial = options_kwargs.get("save_interstitial_snapshots", False)
@@ -745,6 +754,11 @@ def run_experiment_sweep(
     )
 
     # Return copies to prevent external mutation of internal state
+    if not no_save:
+        # Record the exact source revision so every sweep is traceable to a commit.
+        git_hash = _get_git_revision()
+        metadata = {"git_commit": git_hash}
+        checkpoint_manager.save_sweep_metadata(metadata)
     return results_dict.copy(), failed_runs.copy()
 
 
