@@ -104,8 +104,9 @@ class MNISTTrialRunner(EpochBasedTrialRunner):
     def __init__(self, context):
         super().__init__(context)
         self.test_ds = context.test_ds
-        self.max_eval_samples = context.kwargs.get("max_eval_samples", MNIST_DEFAULT_MAX_EVAL_SAMPLES)
-        save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", False)
+        option_max = self.options.max_eval_samples
+        self.max_eval_samples = option_max if option_max is not None else MNIST_DEFAULT_MAX_EVAL_SAMPLES
+        save_dense_snapshots = self.options.save_interstitial_snapshots
         self.snapshot_steps = self._compute_snapshot_steps(self.num_steps, save_dense_snapshots)
         self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
         if self.snapshot_steps and self.snapshot_steps[0] == 0:

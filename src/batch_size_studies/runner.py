@@ -19,13 +19,13 @@ import jax
 import numpy as np
 from tqdm.auto import tqdm
 
-from .constants import EVAL_SUBSAMPLE_SEED_OFFSET
 from .checkpoint_utils import CheckpointManager
 from .configs import get_main_experiment_configs, get_main_hyperparameter_grids
+from .constants import EVAL_SUBSAMPLE_SEED_OFFSET
 from .definitions import LossType, OptimizerType, Parameterization, RunKey
-from .protocols import ModelProtocol
 from .experiments import MNIST1MExperiment
 from .paths import EXPERIMENTS_DIR
+from .protocols import ModelProtocol, TrainingOptions
 
 # --- CLI Argument Helpers (moved from script) ---
 
@@ -313,6 +313,7 @@ class TrialContext:
     init_key: int
     num_steps: int
     num_epochs: int
+    options: TrainingOptions = field(default_factory=TrainingOptions)
     kwargs: dict = field(default_factory=dict)
     # Data fields, can be None
     train_ds: Any | None = None
@@ -568,6 +569,19 @@ def _setup_sweep_state(experiment, directory, no_save, init_key):
     return results_dict, failed_runs, checkpoint_manager, params0, model_for_runner
 
 
+def _build_training_options_from_kwargs(options_kwargs: dict) -> TrainingOptions:
+    max_eval_samples = options_kwargs.get("max_eval_samples")
+    save_interstitial = options_kwargs.get("save_interstitial_snapshots", False)
+    epoch_snapshots = options_kwargs.get("save_epoch_snapshots", True)
+    disable_eval_dataset = options_kwargs.get("disable_eval_dataset", False)
+    return TrainingOptions(
+        max_eval_samples=max_eval_samples,
+        save_interstitial_snapshots=bool(save_interstitial),
+        save_epoch_snapshots=bool(epoch_snapshots),
+        disable_eval_dataset=bool(disable_eval_dataset),
+    )
+
+
 def _execute_sweep_loops(
     experiment,
     batch_sizes,
@@ -585,6 +599,7 @@ def _execute_sweep_loops(
     **kwargs,
 ):
     """Contains the main nested loops for the hyperparameter sweep."""
+    training_options = _build_training_options_from_kwargs(kwargs)
     for batch_size in tqdm(batch_sizes, desc="Batch Size Sweep"):
         if experiment.should_skip_batch_size(batch_size, train_ds):
             continue
@@ -621,6 +636,7 @@ def _execute_sweep_loops(
                     init_key=init_key,
                     num_steps=num_steps,
                     num_epochs=num_epochs_for_run,
+                    options=training_options,
                     kwargs=kwargs,
                 )
                 is_successful = run_single_trial(context=context, results_dict=results_dict, failed_runs=failed_runs)
@@ -677,6 +693,9 @@ def run_experiment_sweep(
 
     # 3. Run Sweep
     kwargs.setdefault("save_interstitial_snapshots", save_interstitial_snapshots)
+    kwargs.setdefault("save_interstitial_snapshots", save_interstitial_snapshots)
+    if max_eval_samples is not None:
+        kwargs.setdefault("max_eval_samples", max_eval_samples)
     if not kwargs.get("save_interstitial_snapshots", False):
         logging.warning(
             "*** WARNING: save_interstitial_snapshots is OFF; only initial weights will remain in _weights.pkl. "

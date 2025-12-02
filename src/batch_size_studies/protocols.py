@@ -6,6 +6,7 @@ concrete trial runner implementations.
 
 import logging
 from abc import ABC, abstractmethod
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable, Generator, List, Protocol
 from unittest.mock import Mock
 
@@ -27,6 +28,14 @@ class DataIterator(ABC):
     def __iter__(self) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
         """Yields batches of (inputs, targets)."""
         raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class TrainingOptions:
+    max_eval_samples: int | None = None
+    save_interstitial_snapshots: bool = False
+    save_epoch_snapshots: bool = True
+    disable_eval_dataset: bool = False
 
 
 class ModelProtocol(Protocol):
@@ -68,6 +77,16 @@ class TrialRunner(ABC):
 
         self.pbar = context.pbar
         self.kwargs = context.kwargs
+        provided_options = getattr(context, "options", None)
+        if isinstance(provided_options, TrainingOptions):
+            self.options = provided_options
+        else:
+            self.options = TrainingOptions(
+                max_eval_samples=self.kwargs.get("max_eval_samples"),
+                save_interstitial_snapshots=bool(self.kwargs.get("save_interstitial_snapshots", False)),
+                save_epoch_snapshots=bool(self.kwargs.get("save_epoch_snapshots", True)),
+                disable_eval_dataset=bool(self.kwargs.get("disable_eval_dataset", False)),
+            )
         self.num_steps = context.num_steps
         self.lr = self.experiment.get_adjusted_eta(self.run_key.eta)
 
