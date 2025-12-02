@@ -21,7 +21,8 @@ from tqdm.auto import tqdm
 
 from .checkpoint_utils import CheckpointManager
 from .configs import get_main_experiment_configs, get_main_hyperparameter_grids
-from .definitions import LossType, ModelProtocol, OptimizerType, Parameterization, RunKey
+from .definitions import LossType, OptimizerType, Parameterization, RunKey
+from .protocols import ModelProtocol
 from .experiments import MNIST1MExperiment
 from .paths import EXPERIMENTS_DIR
 

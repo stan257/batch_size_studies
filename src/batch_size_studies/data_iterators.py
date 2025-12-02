@@ -1,17 +1,9 @@
-from abc import ABC, abstractmethod
 from typing import Generator
 
 import jax.random as jr
 import numpy as np
 
-
-class DataIterator(ABC):
-    """Abstract base class for data iterators."""
-
-    @abstractmethod
-    def __iter__(self) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
-        """Yields batches of (inputs, targets)."""
-        raise NotImplementedError
+from .protocols import DataIterator
 
 
 class EpochBasedDataIterator(DataIterator):

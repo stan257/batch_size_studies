@@ -1,14 +1,5 @@
 from dataclasses import dataclass
 from enum import Enum
-from typing import Any, List, Protocol
-
-import jax.numpy as jnp
-
-
-class ModelProtocol(Protocol):
-    def init_params(self, init_key: int, widths: List[int]) -> Any: ...
-
-    def __call__(self, params: Any, inputs: jnp.ndarray) -> jnp.ndarray: ...
 
 
 class Parameterization(Enum):

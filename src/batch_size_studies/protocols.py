@@ -6,18 +6,33 @@ concrete trial runner implementations.
 
 import logging
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Callable, Generator, List, Protocol
 from unittest.mock import Mock
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import optax
 
 from .training_utils import create_base_optimizer_transform
 
 if TYPE_CHECKING:
-    from .data_iterators import DataIterator
     from .runner import TrialContext
+
+
+class DataIterator(ABC):
+    """Abstract base class for data iterators."""
+
+    @abstractmethod
+    def __iter__(self) -> Generator[tuple[np.ndarray, np.ndarray], None, None]:
+        """Yields batches of (inputs, targets)."""
+        raise NotImplementedError
+
+
+class ModelProtocol(Protocol):
+    def init_params(self, init_key: int, widths: List[int]) -> Any: ...
+
+    def __call__(self, params: Any, inputs: jnp.ndarray) -> jnp.ndarray: ...
 
 
 class DivergenceError(Exception):
