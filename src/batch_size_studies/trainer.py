@@ -239,10 +239,9 @@ class SyntheticTrialRunner(TrialRunner):
 
     def __init__(self, context):
         super().__init__(context)
-        save_dense_snapshots = context.kwargs.get("save_interstitial_snapshots", False)
+        save_dense_snapshots = self.options.save_interstitial_snapshots
         self.snapshot_steps = self._compute_snapshot_steps(context.num_steps, save_dense_snapshots)
-        disable_eval_ds = context.kwargs.get("disable_eval_dataset", False)
-        self.eval_ds = None if disable_eval_ds else self._create_eval_dataset(context.init_key)
+        self.eval_ds = None if self.options.disable_eval_dataset else self._create_eval_dataset(context.init_key)
 
     def _create_loss_fn(self) -> Callable:
         def loss_fn(params, x_batch, y_batch):
@@ -343,7 +342,7 @@ class SyntheticFixedDataTrialRunner(EpochBasedTrialRunner, SyntheticTrialRunner)
 
     def __init__(self, context):
         super().__init__(context)
-        save_epoch_snapshots = context.kwargs.get("save_epoch_snapshots", True)
+        save_epoch_snapshots = self.options.save_epoch_snapshots
         if save_epoch_snapshots:
             self._ensure_epoch_snapshot_steps(self.steps_per_epoch, self.num_epochs)
 
