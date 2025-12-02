@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 
 from batch_size_studies.definitions import LossType, OptimizerType, RunKey
-from batch_size_studies.protocols import TrialRunner
+from batch_size_studies.protocols import TrainingOptions, TrialRunner
 from batch_size_studies.trainer import (
     MNISTTrialRunner,
     SyntheticFixedDataTrialRunner,
@@ -65,7 +65,8 @@ class TestMNISTTrialRunnerUnit:
         context.experiment.D = 784
         context.experiment.optimizer = OptimizerType.SGD
         context.experiment.loss_type = LossType.XENT
-        context.kwargs = {"max_eval_samples": 10}
+        context.options = TrainingOptions(max_eval_samples=10)
+        context.kwargs = {}
         context.init_key = 0
 
         # Mock methods that would be called
@@ -132,7 +133,7 @@ class TestSyntheticFixedTimeEvalDataset:
         context.num_steps = 10
         context.init_key = MagicMock()
         context.experiment.optimizer = OptimizerType.SGD
-        context.kwargs = {}
+        context.options = TrainingOptions()
         runner = SyntheticFixedTimeTrialRunner(context)
         assert runner.eval_ds is None
 
@@ -145,7 +146,7 @@ class TestSyntheticFixedTimeTrialRunnerUnit:
         context = MagicMock()
         context.num_steps = 1000
         context.experiment.optimizer = OptimizerType.SGD
-        context.kwargs = {}
+        context.options = TrainingOptions()
         runner = SyntheticFixedTimeTrialRunner(context)
         return runner
 
@@ -198,7 +199,7 @@ class TestSyntheticFixedDataTrialRunnerUnit:
         context.train_ds = (np.zeros((100, 10)), np.zeros((100, 1)))  # P=100
         context.num_steps = 50  # 5 epochs * (100 samples / 10 batch_size) = 50 steps
         context.experiment.optimizer = OptimizerType.SGD
-        context.kwargs = {}
+        context.options = TrainingOptions()
         runner = SyntheticFixedDataTrialRunner(context)
         return runner
 
