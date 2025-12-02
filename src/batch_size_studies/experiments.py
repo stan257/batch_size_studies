@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import TYPE_CHECKING, Type
+from typing import Type
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -18,10 +18,8 @@ from .constants import SYNTH_EVAL_DATA_SEED_OFFSET, SYNTH_EVAL_MAX_SAMPLES, SYNT
 from .data_loading import load_datasets, load_mnist1m_dataset
 from .definitions import LossType, OptimizerType, Parameterization
 from .models import MLP, LinearModel
+from .protocols import TrialRunner
 from .storage_utils import generate_experiment_filename, load_experiment, save_experiment
-
-if TYPE_CHECKING:
-    from .protocols import TrialRunner
 
 
 def _subsample_mnist_data(train_images, train_labels, experiment, init_key):
@@ -533,20 +531,17 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
 
 @dataclass(frozen=True)
 class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, SyntheticExperiment):
-    """
+    r"""
     Defines parameters for a synthetic data experiment where the teacher is linear.
-    This is a *fixed-data* experiment.
-    y = w^T x
-    x ~ N(0, Sigma), Sigma = diag(i^-alpha for i=1..D)
-    w_i = i^(-theta), where theta = 1/2 + 1/2 * alpha * (beta - 1)
+    This is a *fixed-data* experiment, with data generation process:
 
-    Here alpha and beta are the capacity and source exponents as defined in
-    https://abatanasov.com/Files/Scaling_Laws_Note.pdf, i.e. the decay rate of the
+    -   Teacher: $y = w^{*T} x$
+    -   Data features: $x \sim \mathcal{N}(0, \Sigma)$, where $\Sigma = \text{diag}(i^{-\alpha})_{i=1}^D$
+    -   Teacher weights: $w_i^* = i^{-\theta}$, where $\theta = \frac{1}{2} + \frac{\alpha}{2}(\beta - 1)$
+
+    Here $\alpha$ and $\beta$ are the capacity and source exponents as defined in
+    https://abatanasov.com/Files/Scaling_Laws_Note.pdf, i.e., the decay rate of the
     data-covariance and of the tail of Var(y), respectively.
-
-    MRO: SyntheticExperimentLinearTeacher -> LinearStudentExperiment -> ExperimentBase -> SyntheticExperiment -> object
-    Model configuration comes from LinearStudentExperiment.
-    Infrastructure (I/O, validation) comes from ExperimentBase.
     """
 
     # Student and task parameters
@@ -569,7 +564,11 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
             raise ValueError(f"num_epochs must be positive, got {self.num_epochs}")
 
     def generate_teacher_weights(self):
-        # w_i = i^(-theta)
+        r"""
+        Generates the teacher weights $w^*$ according to the formula:
+        $w_i^* = i^{-\theta}$, where $\theta = \frac{1}{2} + \frac{\alpha}{2}(\beta - 1)$.
+        The weights are normalized such that $\text{Var}(y) = 1$ when $y = w^{*T}x$.
+        """
         indices = np.arange(1, self.D + 1, dtype=np.float64)
         theta = 1 / 2 + 1 / 2 * self.alpha * (self.beta - 1)
         w = indices ** (-theta)
@@ -601,8 +600,15 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
     def plot_title(self, task_name="linear task", model_name="Linear Model"):
         learning_type = "Online" if self.num_epochs == 1 else "Offline"
-        line1 = f"$P = {self.P}$ samples, {task_name} ({learning_type}) w/ $D={self.D}, \\alpha={self.alpha}, \\beta={self.beta}$"
-        line2 = f"Student: {model_name}, Epochs={self.num_epochs}, Optimizer: {self.optimizer.value}, Loss: {self.loss_type.value}"
+        line1 = (
+            f"$P = {self.P}$ samples, {task_name} ({learning_type}) w/ "
+            f"$D={self.D}, \\alpha={self.alpha}, \\beta={self.beta}$"
+        )
+        line2 = (
+            "Student: "
+            f"{model_name}, Epochs={self.num_epochs}, Optimizer: {self.optimizer.value}, "
+            f"Loss: {self.loss_type.value}"
+        )
         return f"{line1}\n{line2}"
 
     def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
@@ -675,10 +681,10 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
 @dataclass(frozen=True)
 class SyntheticExperimentNoisyLinearTeacher(SyntheticExperimentLinearTeacher):
-    """
+    r"""
     Linear teacher with additive Gaussian noise:
-        y = sqrt(1 - rho) * x^T w* + sqrt(rho) * ε,  ε ~ N(0, I)
-    The clean signal x^T w* is normalized to unit variance; rho ∈ [0, 1] controls noise strength.
+    $y = \sqrt{1 - \rho} \cdot x^T w^* + \sqrt{\rho} \cdot \varepsilon$, where $\varepsilon \sim \mathcal{N}(0, I)$.
+    The clean signal $x^T w^*$ is normalized to unit variance; $\rho \in [0, 1]$ controls noise strength.
     """
 
     rho: float = 0.0
@@ -747,7 +753,10 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
 
     def plot_title(self, task_name="MNIST Classification", model_name="MLP"):
         learning_type = "Online" if self.num_epochs == 1 else "Offline"
-        line1 = f"{task_name} ({learning_type}) ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
+        line1 = (
+            f"{task_name} ({learning_type}) ("
+            f"{model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
+        )
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}"
         return f"{line1}\n{line2}"
 
@@ -813,8 +822,11 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
 
     def plot_title(self, task_name="MNIST-1M Classification", model_name="MLP"):
         learning_type = "Online" if self.num_epochs == 1 else "Offline"
-        line1 = f"{task_name} ({learning_type}) ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
-        line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}"
+        line1 = (
+            f"{task_name} ({learning_type}) ("
+            f"{model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
+        )
+        line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, " f"Loss={self.loss_type.value}"
         return f"{line1}\n{line2}"
 
     def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
@@ -881,8 +893,14 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
 
     def plot_title(self, task_name="MNIST-1M Sampled", model_name="MLP"):
         learning_type = "Online" if self.num_epochs == 1 else "Offline"
-        line1 = f"{task_name} ({learning_type}) ({model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
-        line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, Loss={self.loss_type.value}, Samples={self.max_train_samples}"
+        line1 = (
+            f"{task_name} ({learning_type}) ("
+            f"{model_name} N={self.N}, L={self.L}, {self.parameterization.value}, $\\gamma={self.gamma}$)"
+        )
+        line2 = (
+            f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}, "
+            f"Loss={self.loss_type.value}, Samples={self.max_train_samples}"
+        )
         return f"{line1}\n{line2}"
 
     def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
