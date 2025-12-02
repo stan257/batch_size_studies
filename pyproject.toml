@@ -10,6 +10,7 @@ line-length = 120
 # F = Pyflakes (includes unused-import checks)
 # I = isort (import sorting)
 select = ["E", "F", "W", "I"]
+ignore = ["E731"]
 
 # Allow ruff to automatically fix all fixable issues.
 # This is what enables removing unused imports (F401).
