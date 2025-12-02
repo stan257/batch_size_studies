@@ -338,6 +338,7 @@ class EpochBasedTrialRunner(TrialRunner):
         return start_step
 
     def _get_epoch_seed(self, epoch_index: int) -> int:
+        # Use a deterministic, unique seed for each epoch for reproducibility.
         return int(self._get_iterator_init_key() + epoch_index + 1)
 
     @abstractmethod

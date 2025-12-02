@@ -295,7 +295,14 @@ def run_from_cli_args(args: argparse.Namespace):
 
 @dataclass
 class TrialContext:
-    """Encapsulates all configuration and data for a single trial."""
+    """
+    A dependency-injection container for a single experimental trial.
+
+    This object bundles all the necessary state and configuration (the experiment
+    spec, the specific hyperparameter key, model instances, data, etc.) needed
+    to execute one run. It is created by the main sweep orchestrator and passed
+    to the `TrialRunner` subclass.
+    """
 
     experiment: Any
     run_key: RunKey
