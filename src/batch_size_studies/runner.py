@@ -29,7 +29,7 @@ from .paths import EXPERIMENTS_DIR
 from .protocols import ModelProtocol, TrainingOptions
 
 # =============================================================================
-# CLI Argument Helpers (moved from script)
+# CLI Argument Helpers
 # =============================================================================
 
 
@@ -89,64 +89,6 @@ def describe_supported_overrides() -> str:
             "  - forced_subsample_seed=<int>: deterministic seed for subsampled datasets.",
         ]
     )
-
-
-# =============================================================================
-# Core Runner Logic (from script)
-# =============================================================================
-
-
-def _run_single_experiment(
-    name,
-    experiment_config,
-    batch_sizes,
-    etas,
-    directory=EXPERIMENTS_DIR,
-    no_save: bool = False,
-    eta_stability_search_depth: int | None = None,
-    max_eval_samples: int | None = None,
-    save_interstitial_snapshots: bool | None = None,
-    save_epoch_snapshots: bool | None = None,
-):
-    """
-    A wrapper function to run a single experiment trial. This is designed
-    to be called by the ProcessPoolExecutor.
-    """
-    logging.info(f"--- Starting Experiment: {name} ---")
-    if no_save:
-        logging.warning(f"Running in no-save mode for {name}. Results will NOT be saved.")
-    logging.info(f"Parameters: {experiment_config}")
-
-    run_options = {
-        "directory": directory,
-        "no_save": no_save,
-        "eta_stability_search_depth": eta_stability_search_depth,
-        "max_eval_samples": max_eval_samples,
-    }
-    if save_interstitial_snapshots is not None:
-        run_options["save_interstitial_snapshots"] = save_interstitial_snapshots
-    if save_epoch_snapshots is not None:
-        run_options["save_epoch_snapshots"] = save_epoch_snapshots
-
-    # Selectively apply a default number of epochs only if the experiment
-    # configuration does not already specify one.
-    if not hasattr(experiment_config, "num_epochs"):
-        # Some online experiments (fixed-time synthetic sweeps, etc.) train for a fixed step budget
-        # instead of epochs. Those dataclasses omit `num_epochs`, so we fall back to 1 epoch for
-        # compatibility. If you add a new offline experiment, declare num_epochs explicitly so this
-        # branch never fires by accident.
-        logging.info(f"  Applying default num_epochs=1 for {type(experiment_config).__name__} experiment.")
-        run_options["num_epochs"] = 1
-
-    if isinstance(experiment_config, MNIST1MExperiment):
-        from batch_size_studies.data_loading import load_mnist1m_dataset
-
-        run_options["dataset_loader"] = load_mnist1m_dataset
-
-    run_experiment_sweep(experiment=experiment_config, batch_sizes=batch_sizes, etas=etas, **run_options)
-
-    logging.info(f"--- Finished Experiment: {name} ---")
-    return name
 
 
 def _resolve_experiment_configs(args: argparse.Namespace) -> dict[str, any] | None:
@@ -358,12 +300,85 @@ def run_from_cli_args(args: argparse.Namespace):
     if experiments_to_run is None:
         return
 
-    if args.command == "list":
-        _handle_list_command(args, experiments_to_run)
-    elif args.command == "run":
-        _handle_run_command(args, experiments_to_run)
-    else:
-        logging.error(f"Unknown command: {args.command}")
+    match args.command:
+        case "list":
+            _handle_list_command(args, experiments_to_run)
+        case "run":
+            _handle_run_command(args, experiments_to_run)
+        case _:
+            logging.error(f"Unknown command: {args.command}")
+
+
+# =============================================================================
+# Core Runner Logic
+# =============================================================================
+
+
+def _subsample_dataset(dataset: dict, max_samples: int, key: jax.random.PRNGKey) -> dict:
+    """Helper to subsample a dictionary-based dataset."""
+    num_original_samples = len(dataset["image"])
+    if num_original_samples > max_samples:
+        indices_to_use = jax.random.permutation(key, num_original_samples)[:max_samples]
+        subsampled_dataset = {
+            "image": dataset["image"][np.array(indices_to_use)],
+            "label": dataset["label"][np.array(indices_to_use)],
+        }
+        logging.info(f"Evaluating on a fixed random subset of {len(subsampled_dataset['image'])} test samples.")
+        return subsampled_dataset
+    return dataset
+
+
+def _run_single_experiment(
+    name,
+    experiment_config,
+    batch_sizes,
+    etas,
+    directory=EXPERIMENTS_DIR,
+    no_save: bool = False,
+    eta_stability_search_depth: int | None = None,
+    max_eval_samples: int | None = None,
+    save_interstitial_snapshots: bool | None = None,
+    save_epoch_snapshots: bool | None = None,
+):
+    """
+    A wrapper function to run a single experiment trial. This is designed
+    to be called by the ProcessPoolExecutor.
+    """
+    logging.info(f"--- Starting Experiment: {name} ---")
+    if no_save:
+        logging.warning(f"Running in no-save mode for {name}. Results will NOT be saved.")
+    logging.info(f"Parameters: {experiment_config}")
+
+    run_options = {
+        "directory": directory,
+        "no_save": no_save,
+        "eta_stability_search_depth": eta_stability_search_depth,
+        "max_eval_samples": max_eval_samples,
+    }
+    if save_interstitial_snapshots is not None:
+        run_options["save_interstitial_snapshots"] = save_interstitial_snapshots
+    if save_epoch_snapshots is not None:
+        run_options["save_epoch_snapshots"] = save_epoch_snapshots
+
+    # Selectively apply a default number of epochs only if the experiment
+    # configuration does not already specify one.
+    if not hasattr(experiment_config, "num_epochs"):
+        # Some online experiments (fixed-time synthetic sweeps, etc.) train for a fixed step budget
+        # instead of epochs. Those dataclasses omit `num_epochs`, so we fall back to 1 epoch for
+        # compatibility. If you add a new offline experiment, declare num_epochs explicitly so this
+        # branch never fires by accident.
+        logging.info(f"  Applying default num_epochs=1 for {type(experiment_config).__name__} experiment.")
+        run_options["num_epochs"] = 1
+
+    if isinstance(experiment_config, MNIST1MExperiment):
+        from batch_size_studies.data_loading import load_mnist1m_dataset
+
+        run_options["dataset_loader"] = load_mnist1m_dataset
+
+    run_experiment_sweep(experiment=experiment_config, batch_sizes=batch_sizes, etas=etas, **run_options)
+
+    logging.info(f"--- Finished Experiment: {name} ---")
+    return name
 
 
 @dataclass
@@ -392,20 +407,6 @@ class TrialContext:
     # Data fields, can be None
     train_ds: Any | None = None
     test_ds: Any | None = None
-
-
-def _subsample_dataset(dataset: dict, max_samples: int, key: jax.random.PRNGKey) -> dict:
-    """Helper to subsample a dictionary-based dataset."""
-    num_original_samples = len(dataset["image"])
-    if num_original_samples > max_samples:
-        indices_to_use = jax.random.permutation(key, num_original_samples)[:max_samples]
-        subsampled_dataset = {
-            "image": dataset["image"][np.array(indices_to_use)],
-            "label": dataset["label"][np.array(indices_to_use)],
-        }
-        logging.info(f"Evaluating on a fixed random subset of {len(subsampled_dataset['image'])} test samples.")
-        return subsampled_dataset
-    return dataset
 
 
 @dataclass

@@ -1,4 +1,5 @@
 import argparse
+from types import SimpleNamespace
 from unittest.mock import MagicMock, Mock, patch
 
 import pytest
@@ -8,12 +9,84 @@ from batch_size_studies.experiments import ExperimentBase, SyntheticExperimentFi
 from batch_size_studies.runner import (
     TrialContext,
     _all_runs_accounted_for,
+    _handle_list_command,
+    _handle_run_command,
     _is_run_result_complete,
+    _resolve_experiment_configs,
     _validate_and_store_partial_result,
     run_experiment_sweep,
     run_from_cli_args,
     run_single_trial,
 )
+
+
+def test_resolve_experiment_configs_filters_by_name(monkeypatch):
+    toy_configs = {"expA": object(), "expB": object()}
+    monkeypatch.setattr("batch_size_studies.runner.get_main_experiment_configs", lambda **kwargs: toy_configs)
+    args = argparse.Namespace(
+        optimizer=None, loss=None, experiment_types=None, name=["expB"], command="list", list_overrides=False
+    )
+    resolved = _resolve_experiment_configs(args)
+    assert list(resolved.keys()) == ["expB"]
+
+
+def test_resolve_experiment_configs_returns_none_when_name_missing(monkeypatch, caplog):
+    monkeypatch.setattr("batch_size_studies.runner.get_main_experiment_configs", lambda **kwargs: {"exp": object()})
+    args = argparse.Namespace(
+        optimizer=None, loss=None, experiment_types=None, name=["missing"], command="list", list_overrides=False
+    )
+    with caplog.at_level("ERROR"):
+        resolved = _resolve_experiment_configs(args)
+    assert resolved is None
+    assert "No experiments found with name(s)" in caplog.text
+
+
+def test_handle_list_command_prints_table(capsys):
+    args = argparse.Namespace(list_overrides=False)
+    experiment = SimpleNamespace(
+        experiment_type="mnist",
+        optimizer=SimpleNamespace(name="SGD"),
+        loss_type=SimpleNamespace(name="MSE"),
+    )
+    _handle_list_command(args, {"mnist_exp": experiment})
+    out = capsys.readouterr().out
+    assert "Available Experiments" in out
+    assert "mnist_exp" in out
+
+
+def test_handle_list_command_shows_overrides(capsys):
+    args = argparse.Namespace(list_overrides=True)
+    _handle_list_command(args, {})
+    out = capsys.readouterr().out
+    assert "Supported override keys" in out
+
+
+def test_handle_run_command_dry_run(monkeypatch):
+    monkeypatch.setattr("batch_size_studies.runner.get_main_hyperparameter_grids", lambda: ([8, 16], [0.1, 0.2]))
+    sweep_calls = []
+
+    def fake_sweep(**kwargs):
+        sweep_calls.append(kwargs)
+
+    monkeypatch.setattr("batch_size_studies.runner.run_experiment_sweep", fake_sweep)
+    args = argparse.Namespace(
+        dry_run=True,
+        dry_run_steps=7,
+        max_eval_samples=123,
+        override=None,
+        no_save=True,
+        eta_stability_depth=None,
+        num_processes=1,
+        save_interstitial_snapshots=None,
+        save_epoch_snapshots=None,
+    )
+    experiments = {"demo": object()}
+    _handle_run_command(args, experiments)
+    assert len(sweep_calls) == 1
+    call_kwargs = sweep_calls[0]
+    assert call_kwargs["dry_run"] is True
+    assert call_kwargs["dry_run_steps"] == 7
+    assert call_kwargs["max_eval_samples"] == 123
 
 
 def test_run_from_args_orchestration(monkeypatch):
