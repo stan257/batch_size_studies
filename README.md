@@ -71,4 +71,17 @@ notebooks/              # analysis notebooks accompanying the paper
 
 The test suite (`pytest`) focuses on regression coverage for checkpoints, runner orchestration, and iterator behaviour to ensure the code reproduces the results described in the accompanying manuscript.
 
+## Pre-commit hooks
+
+We use [pre-commit](https://pre-commit.com/) to run Ruff (lint + format), basic hygiene checks, and a quick smoke test suite before every commit.
+
+To enable the hooks locally:
+
+```bash
+pip install pre-commit
+pre-commit install
+```
+
+The smoke suite runs `pytest -m smoke`, which exercises a tiny synthetic sweep and key CLI commands, so it stays fast while still catching obvious regressions.
+
 This project is licensed under the MIT License - see the LICENSE file for details.

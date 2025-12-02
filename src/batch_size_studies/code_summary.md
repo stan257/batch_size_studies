@@ -10,6 +10,10 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 * Provide hooks such as `should_skip_batch_size`, `compute_num_steps`, and `is_classification()` so the runner and plotting code behave correctly.
 * `ExperimentBase.get_trial_runner_class` now returns a `Type[TrialRunner]` from `protocols.py`, cleanly decoupling experiments from specific runner implementations.
 
+## Constants (`constants.py`)
+* Consolidated home for “magic numbers” that define evaluation seed offsets, batch sizes, and shared defaults consumed by trainers/experiments/runners.
+* Keeps PRNG streams disjoint and makes it easy to tweak evaluation behaviour without hunting through multiple modules.
+
 ## Protocols (`protocols.py`)
 * Defines abstract base classes, most notably `TrialRunner`, to formalize interfaces.
 * Breaks dependency cycles by allowing modules like `experiments.py` and `trainer.py` to depend on abstract protocols rather than each other's concrete implementations.
@@ -71,6 +75,7 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 ## Integration & Tests
 * Coverage for checkpoints/metadata, iterator behavior, sweep orchestration, Hessian evaluation, and linear/noisy teacher configs.
 * Registry tests ensure spec builders stay valid and names remain unique.
+* Dedicated smoke suite (`tests/smoke/`, `pytest -m smoke`) exercises the CLI and a tiny synthetic sweep; wired into pre-commit for quick regression checks.
 
 ---
 
