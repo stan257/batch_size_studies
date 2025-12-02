@@ -1,5 +1,5 @@
 from abc import abstractmethod
-from typing import TYPE_CHECKING, Any, Callable
+from typing import Any, Callable
 
 import jax
 import jax.numpy as jnp
@@ -17,9 +17,6 @@ from .constants import (
 from .data_iterators import EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType
 from .protocols import TrialRunner
-
-if TYPE_CHECKING:
-    pass
 
 
 class EpochBasedTrialRunner(TrialRunner):
