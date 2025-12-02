@@ -7,10 +7,11 @@ import jax.random as jr
 from jax.nn import relu
 
 from .definitions import Parameterization
+from .protocols import ModelProtocol
 
 
 @dataclass(frozen=True)
-class MLP:
+class MLP(ModelProtocol):
     """
     A dataclass to define and manage a Multi-Layer Perceptron (MLP).
 
@@ -73,7 +74,7 @@ class MLP:
 
 
 @dataclass(frozen=True)
-class LinearModel:
+class LinearModel(ModelProtocol):
     """
     A simple linear model: y = x @ W, no bias.
     """
