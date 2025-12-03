@@ -11,7 +11,7 @@ import logging
 import os
 from datetime import datetime
 
-from batch_size_studies.runner import add_filter_args, run_from_cli_args
+from batch_size_studies.cli import add_filter_args, run_from_cli_args
 
 
 def setup_logging(log_dir="logs"):
