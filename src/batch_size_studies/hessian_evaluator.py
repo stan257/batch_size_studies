@@ -6,6 +6,7 @@ import jax.random as jr
 import optax
 
 from .checkpoint_utils import CheckpointManager, load_experiment_weights
+from .constants import HESSIAN_DATA_SHUFFLE_SEED_OFFSET
 from .data_iterators import EpochBasedDataIterator, OnlineDataIterator
 from .definitions import LossType, RunKey
 from .experiments import (
@@ -147,7 +148,7 @@ class HessianEvaluator:
             raise ValueError("Training dataset is empty; cannot evaluate Hessian.")
 
         max_take = min(num_samples, dataset_size)
-        shuffle_key = jr.PRNGKey(self.init_key + 7)
+        shuffle_key = jr.PRNGKey(self.init_key + HESSIAN_DATA_SHUFFLE_SEED_OFFSET)
         permutation = jr.permutation(shuffle_key, dataset_size)
         selection = permutation[:max_take]
 

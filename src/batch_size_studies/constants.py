@@ -20,3 +20,8 @@ SYNTH_EVAL_SUBSET_SEED_OFFSET = 259
 
 # Runner-level offset for test-set subsampling (used outside MNISTTrialRunner).
 EVAL_SUBSAMPLE_SEED_OFFSET = 1
+
+# Reuse these offsets when deriving deterministic seeds from init_key so that
+# independent streams remain disjoint.
+EPOCH_SHUFFLE_SEED_OFFSET = 1
+HESSIAN_DATA_SHUFFLE_SEED_OFFSET = 7
