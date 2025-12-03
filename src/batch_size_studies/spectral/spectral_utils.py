@@ -1,9 +1,9 @@
 import os
 from pathlib import Path
 
-from .checkpoint_utils import CheckpointManager
-from .paths import SPECTRAL_DATA_DIR
-from .storage_utils import CustomUnpickler
+from batch_size_studies.checkpoint_utils import CheckpointManager
+from batch_size_studies.paths import SPECTRAL_DATA_DIR
+from batch_size_studies.storage_utils import CustomUnpickler
 
 
 def get_spectral_filepath(experiment, directory=None, spectral_dir: str | None = None) -> str:

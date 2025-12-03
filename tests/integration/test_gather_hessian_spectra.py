@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
-import batch_size_studies.spectral_utils as spectral_utils_module
+import batch_size_studies.spectral.spectral_utils as spectral_utils_module
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import SyntheticExperimentFixedData

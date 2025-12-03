@@ -13,7 +13,7 @@ from batch_size_studies.experiments import (
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentNoisyLinearTeacher,
 )
-from batch_size_studies.hessian_evaluator import HessianEvaluator
+from batch_size_studies.spectral.hessian_evaluator import HessianEvaluator
 
 
 @dataclass(frozen=True)

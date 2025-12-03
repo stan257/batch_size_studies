@@ -64,9 +64,9 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 * Atomic live-checkpoint saves + weight-snapshot deltas (with file locks) so interrupted sweeps resume without corrupting state.
 * Store initial params and sweep metadata alongside weight deltas for downstream notebooks.
 
-## Hessian Tooling (`hessian.py`, `hessian_evaluator.py`)
+## Hessian Tooling (`spectral/hessian.py`, `spectral/hessian_evaluator.py`)
 * `hessian.py` implements HVP-based power iteration, Hutchinson trace estimates, and spectral density routines.
-* `hessian_evaluator.py` reloads saved weights + metadata, rebuilds the exact iterator order, and feeds batches into the Hessian routines for any stored run.
+* `spectral/hessian_evaluator.py` reloads saved weights + metadata, rebuilds the exact iterator order, and feeds batches into the Hessian routines for any stored run.
 
 ## Spectral Data CLI (`scripts/gather_hessian_spectra.py`)
 * Command-line tool that lists available snapshot steps and runs `HessianEvaluator` on selected `(B, η, step)` combinations.

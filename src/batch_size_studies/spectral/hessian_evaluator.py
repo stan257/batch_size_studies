@@ -5,11 +5,11 @@ import jax.numpy as jnp
 import jax.random as jr
 import optax
 
-from .checkpoint_utils import CheckpointManager, load_experiment_weights
-from .constants import HESSIAN_DATA_SHUFFLE_SEED_OFFSET
-from .data_iterators import EpochBasedDataIterator, OnlineDataIterator
-from .definitions import LossType, RunKey
-from .experiments import (
+from batch_size_studies.checkpoint_utils import CheckpointManager, load_experiment_weights
+from batch_size_studies.constants import HESSIAN_DATA_SHUFFLE_SEED_OFFSET
+from batch_size_studies.data_iterators import EpochBasedDataIterator, OnlineDataIterator
+from batch_size_studies.definitions import LossType, RunKey
+from batch_size_studies.experiments import (
     ExperimentBase,
     LinearStudentExperiment,
     MLPStudentExperiment,
@@ -18,9 +18,10 @@ from .experiments import (
 # =============================================================================
 # Hessian evaluation orchestration
 # =============================================================================
+from batch_size_studies.models import MLP, CenteredModel, LinearModel
+from batch_size_studies.paths import EXPERIMENTS_DIR
+
 from .hessian import JaxHessian
-from .models import MLP, CenteredModel, LinearModel
-from .paths import EXPERIMENTS_DIR
 
 
 class HessianEvaluator:

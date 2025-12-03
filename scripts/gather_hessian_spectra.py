@@ -9,9 +9,12 @@ import pickle
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.configs import get_main_experiment_configs
 from batch_size_studies.definitions import RunKey
-from batch_size_studies.hessian_evaluator import HessianEvaluator
 from batch_size_studies.paths import EXPERIMENTS_DIR, SPECTRAL_DATA_DIR
-from batch_size_studies.spectral_utils import get_spectral_filepath, load_spectral_data
+from batch_size_studies.spectral.hessian_evaluator import HessianEvaluator
+from batch_size_studies.spectral.spectral_utils import (
+    get_spectral_filepath,
+    load_spectral_data,
+)
 from batch_size_studies.storage_utils import CustomUnpickler
 
 

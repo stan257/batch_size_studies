@@ -11,8 +11,8 @@ from batch_size_studies.experiments import (
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentNoisyLinearTeacher,
 )
-from batch_size_studies.hessian_evaluator import HessianEvaluator
 from batch_size_studies.runner import run_experiment_sweep
+from batch_size_studies.spectral.hessian_evaluator import HessianEvaluator
 
 
 @pytest.fixture

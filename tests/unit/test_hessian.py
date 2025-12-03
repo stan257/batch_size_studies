@@ -3,7 +3,7 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from batch_size_studies.hessian import JaxHessian
+from batch_size_studies.spectral.hessian import JaxHessian
 
 # =============================================================================
 # Test setup: a simple quadratic problem where the Hessian is known

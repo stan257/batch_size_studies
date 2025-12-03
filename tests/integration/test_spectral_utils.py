@@ -5,7 +5,7 @@ import pytest
 
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
 from batch_size_studies.experiments import SyntheticExperimentFixedData
-from batch_size_studies.spectral_utils import get_spectral_filepath, load_spectral_data
+from batch_size_studies.spectral.spectral_utils import get_spectral_filepath, load_spectral_data
 
 
 @pytest.fixture
