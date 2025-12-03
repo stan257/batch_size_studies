@@ -80,6 +80,28 @@ def compute_spectrum(args) -> None:
         spectral_dir=SPECTRAL_DATA_DIR,
     )
     run_dict = spectra_data.setdefault(run_key, {})
+    steps_needing_work = []
+    for step in steps_to_process:
+        stored_vals = run_dict.get(step, {}).get("eigenvalues")
+        has_enough = stored_vals is not None and len(stored_vals) >= args.num_eigenvalues
+        if args.force_recompute or not has_enough:
+            steps_needing_work.append(step)
+
+    if args.dry_run:
+        if steps_needing_work:
+            logging.info(
+                "Dry-run: would compute steps %s for %s %s.",
+                steps_needing_work,
+                args.experiment,
+                run_key,
+            )
+        else:
+            logging.info(
+                "Dry-run: all requested steps already cached for %s %s.",
+                args.experiment,
+                run_key,
+            )
+        return
 
     for step in steps_to_process:
         stored_vals = run_dict.get(step, {}).get("eigenvalues")
@@ -120,8 +142,10 @@ def compute_spectrum(args) -> None:
             "eigenvalues": new_vals,
             "trace": float(trace_value),
         }
+        _persist_spectra(spectra_path, spectra_data)
         logging.info("Saved spectra for step %s -> %s", step, spectra_path)
 
+    # Final write to ensure the file reflects any in-memory updates
     _persist_spectra(spectra_path, spectra_data)
 
 
@@ -149,6 +173,11 @@ def parse_args():
     parser.add_argument("--max-iter", type=int, default=100, help="Iterations for power iteration eigen solver.")
     parser.add_argument("--eig-tol", type=float, default=1e-3, help="Tolerance for eigen solver convergence.")
     parser.add_argument("--trace-samples", type=int, default=100, help="Iterations for Hutchinson trace estimator.")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Show which steps would be computed without running Hessian evaluations.",
+    )
     return parser.parse_args()
 
 

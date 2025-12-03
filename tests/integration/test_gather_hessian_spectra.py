@@ -53,6 +53,7 @@ def _make_args(experiments_dir, **overrides):
         "eta": 0.1,
         "steps": None,
         "list_only": False,
+        "dry_run": False,
         "experiments_dir": experiments_dir,
         "force_recompute": False,
         "num_eigenvalues": 3,
@@ -148,6 +149,36 @@ def test_list_only_reports_steps_without_creating_output(experiment_setup, caplo
         spectral_dir=experiment_setup.spectral_dir,
     )
     assert not os.path.exists(spectra_path)
+
+
+def test_dry_run_reports_missing_steps_without_writing(experiment_setup, caplog):
+    snapshots = {
+        5: {"layer": np.array([0.1])},
+        10: {"layer": np.array([0.2])},
+    }
+    _write_weights_file(
+        experiment_setup.experiment,
+        experiment_setup.experiments_dir,
+        experiment_setup.run_key,
+        snapshots=snapshots,
+    )
+    spectra_path = spectral_utils_module.get_spectral_filepath(
+        experiment_setup.experiment,
+        directory=experiment_setup.experiments_dir,
+        spectral_dir=experiment_setup.spectral_dir,
+    )
+    cached = {experiment_setup.run_key: {5: {"eigenvalues": [1.0, 2.0, 3.0], "trace": 6.0}}}
+    os.makedirs(os.path.dirname(spectra_path), exist_ok=True)
+    with open(spectra_path, "wb") as f:
+        pickle.dump(cached, f)
+
+    caplog.set_level("INFO")
+    args = _make_args(experiment_setup.experiments_dir, steps=[5, 10], dry_run=True)
+    spectra_cli.compute_spectrum(args)
+
+    assert any("Dry-run" in record.message for record in caplog.records)
+    with open(spectra_path, "rb") as f:
+        assert pickle.load(f) == cached
 
 
 def test_cache_is_reused_and_force_recompute_updates(experiment_setup, monkeypatch):
