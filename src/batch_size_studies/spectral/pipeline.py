@@ -7,6 +7,9 @@ import os
 import pickle
 from typing import Iterable
 
+import jax.random as jr
+from filelock import FileLock
+
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import RunKey
 from batch_size_studies.storage_utils import CustomUnpickler
@@ -62,10 +65,26 @@ def gather_spectra(
     run_dict = spectra_data.setdefault(run_key, {})
 
     def _persist():
-        tmp_path = spectra_path + ".tmp"
-        with open(tmp_path, "wb") as f:
-            pickle.dump(spectra_data, f)
-        os.replace(tmp_path, spectra_path)
+        lock_path = spectra_path + ".lock"
+        with FileLock(lock_path):
+            # Reload on write to avoid losing updates from concurrent writers.
+            if os.path.exists(spectra_path):
+                try:
+                    with open(spectra_path, "rb") as f:
+                        latest_data = CustomUnpickler(f).load()
+                except Exception as exc:
+                    logging.warning("Failed to reload spectra file; starting fresh: %s", exc)
+                    latest_data = {}
+            else:
+                latest_data = {}
+
+            latest_run_dict = latest_data.setdefault(run_key, {})
+            latest_run_dict.update(run_dict)
+
+            tmp_path = spectra_path + ".tmp"
+            with open(tmp_path, "wb") as f:
+                pickle.dump(latest_data, f)
+            os.replace(tmp_path, spectra_path)
 
     steps_needing_work = []
     for step in steps_to_process:
@@ -114,9 +133,14 @@ def gather_spectra(
                 tol=eig_tol,
             )
         else:
+            eig_key = evaluator.key
+            if eig_key is not None:
+                eig_key, subkey = jr.split(eig_key)
+                evaluator.key = eig_key
+                eig_key = subkey
             eigenvalues, _ = evaluator.hessian_computer.eigenvalues(
                 evaluator.params,
-                evaluator.key,
+                eig_key,
                 max_iter=max_iter,
                 tol=eig_tol,
                 top_n=num_eigenvalues,
@@ -125,9 +149,14 @@ def gather_spectra(
         if hasattr(evaluator, "trace"):
             trace_value = evaluator.trace(max_iter=trace_samples)
         else:
+            trace_key = evaluator.key
+            if trace_key is not None:
+                trace_key, subkey = jr.split(trace_key)
+                evaluator.key = trace_key
+                trace_key = subkey
             trace_value, _ = evaluator.hessian_computer.trace(
                 evaluator.params,
-                evaluator.key,
+                trace_key,
                 max_iter=trace_samples,
             )
 
