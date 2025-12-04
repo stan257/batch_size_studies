@@ -91,6 +91,21 @@ def compare_results(golden: dict, current: dict):
                 ) from exc
 
 
+def summarize_results(results_dict: dict) -> str:
+    """Return a concise textual summary of run completion and final metrics."""
+    lines = []
+    for run_key, result in sorted(results_dict.items(), key=lambda item: (item[0].batch_size, item[0].eta)):
+        status = "complete" if result.get("loss_history") else "empty"
+        final_loss = result.get("loss_history", [None])[-1]
+        summary = f"{run_key}: {status}"
+        if final_loss is not None:
+            summary += f", final_loss={final_loss:.4g}"
+        if "final_test_accuracy" in result:
+            summary += f", final_acc={result['final_test_accuracy']:.4g}"
+        lines.append(summary)
+    return "\n".join(lines)
+
+
 def run_and_get_all_data(config, batch_sizes, etas, tmp_path, **kwargs) -> dict:
     """A helper to run an experiment and load all its generated data."""
     run_kwargs = {
@@ -235,7 +250,15 @@ def _run_reproducibility_test(config_fn, golden_filename, tmp_path, **kwargs):
     with open(golden_filepath, "rb") as f:
         golden_data = pickle.load(f)
 
-    compare_results(golden_data, current_data)
+    try:
+        compare_results(golden_data, current_data)
+    except AssertionError as exc:
+        # Provide a concise summary to help debug pickle diffs.
+        golden_summary = summarize_results(golden_data["results"])
+        current_summary = summarize_results(current_data["results"])
+        raise AssertionError(
+            f"{exc}\n\n--- Golden summary ---\n{golden_summary}\n\n--- Current summary ---\n{current_summary}"
+        ) from exc
 
 
 @pytest.mark.slow
