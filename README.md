@@ -85,4 +85,6 @@ pre-commit install
 
 The smoke suite runs `pytest -m smoke`, which exercises a tiny synthetic sweep and key CLI commands, so it stays fast while still catching obvious regressions.
 
+The full suite ships with `pytest-xdist`, so you can run `pytest -n auto` to fan tests across all CPU cores and decrease significantly the runtime on tests.
+
 This project is licensed under the MIT License - see the LICENSE file for details.
