@@ -12,10 +12,11 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import replace
 
 from .configs import get_main_experiment_configs, get_main_hyperparameter_grids
-from .definitions import LossType, OptimizerType, Parameterization
+from .definitions import LossType, OptimizerType, Parameterization, RunKey
 from .paths import EXPERIMENTS_DIR
 from .runner import (
     _all_runs_accounted_for,
+    _is_run_result_complete,
     _run_single_experiment,
     run_experiment_sweep,
 )
@@ -276,6 +277,73 @@ def _handle_run_command(args: argparse.Namespace, experiments_to_run: dict) -> N
     logging.info("\n--- All experiments complete. ---")
 
 
+def _extract_summary_metric(result: dict) -> tuple[float | None, str]:
+    """
+    Returns a scalar metric and a label indicating whether higher is better ("acc") or lower is better ("loss").
+    """
+    if not isinstance(result, dict):
+        return None, "loss"
+    if (acc := result.get("final_test_accuracy")) is not None:
+        return float(acc), "acc"
+    if epoch_accs := result.get("epoch_test_accuracies"):
+        return float(epoch_accs[-1]), "acc"
+    if (eval_loss := result.get("final_eval_loss")) is not None:
+        return float(eval_loss), "loss"
+    if history := result.get("loss_history"):
+        return float(history[-1]), "loss"
+    return None, "loss"
+
+
+def _handle_summary_command(args: argparse.Namespace, experiments_to_run: dict) -> None:
+    directory = EXPERIMENTS_DIR
+    batch_sizes, etas = get_main_hyperparameter_grids()
+
+    for name, config in experiments_to_run.items():
+        results_dict, failed_runs = config.load_results(directory=directory, silent=True)
+        total_candidates = 0
+        complete = 0
+        failed = len(failed_runs)
+        best_loss = None
+        best_loss_key = None
+        best_acc = None
+        best_acc_key = None
+
+        for batch_size in batch_sizes:
+            if config.should_skip_batch_size(batch_size, train_ds=None):
+                continue
+            for eta in etas:
+                total_candidates += 1
+                run_key = RunKey(batch_size=batch_size, eta=eta)
+                result = results_dict.get(run_key)
+                if _is_run_result_complete(result):
+                    complete += 1
+                    metric, kind = _extract_summary_metric(result)
+                    if metric is not None:
+                        if kind == "loss":
+                            if best_loss is None or metric < best_loss:
+                                best_loss = metric
+                                best_loss_key = run_key
+                        else:
+                            if best_acc is None or metric > best_acc:
+                                best_acc = metric
+                                best_acc_key = run_key
+                elif run_key in failed_runs:
+                    continue
+
+        missing = max(total_candidates - complete - failed, 0)
+
+        logging.info("=== %s ===", name)
+        logging.info(
+            "Total grid: %s, complete: %s, failed: %s, missing: %s", total_candidates, complete, failed, missing
+        )
+        if best_loss is not None:
+            logging.info("Best loss: %.4g @ %s", best_loss, best_loss_key)
+        if best_acc is not None:
+            logging.info("Best accuracy: %.4g @ %s", best_acc, best_acc_key)
+        if best_loss is None and best_acc is None:
+            logging.info("No completed runs yet.")
+
+
 def run_from_cli_args(args: argparse.Namespace):
     experiments_to_run = _resolve_experiment_configs(args)
     if experiments_to_run is None:
@@ -286,5 +354,7 @@ def run_from_cli_args(args: argparse.Namespace):
             _handle_list_command(args, experiments_to_run)
         case "run":
             _handle_run_command(args, experiments_to_run)
+        case "summary":
+            _handle_summary_command(args, experiments_to_run)
         case _:
             logging.error(f"Unknown command: {args.command}")
