@@ -3,19 +3,11 @@
 
 import argparse
 import logging
-import os
-import pickle
 
-from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.configs import get_main_experiment_configs
 from batch_size_studies.definitions import RunKey
 from batch_size_studies.paths import EXPERIMENTS_DIR, SPECTRAL_DATA_DIR
-from batch_size_studies.spectral.hessian_evaluator import HessianEvaluator
-from batch_size_studies.spectral.spectral_utils import (
-    get_spectral_filepath,
-    load_spectral_data,
-)
-from batch_size_studies.storage_utils import CustomUnpickler
+from batch_size_studies.spectral import gather_spectra, list_snapshot_steps
 
 
 def _load_experiment(name: str):
@@ -26,34 +18,11 @@ def _load_experiment(name: str):
     return config
 
 
-def _available_snapshot_steps(manager: CheckpointManager, run_key: RunKey) -> list[int]:
-    weights_path = manager.weights_filepath
-    if not os.path.exists(weights_path):
-        logging.warning("Weights file missing for %s; run the experiment first.", weights_path)
-        return []
-    try:
-        with open(weights_path, "rb") as f:
-            data = CustomUnpickler(f).load()
-        step_map = data.get("weight_snapshots", {}).get(run_key, {})
-        return sorted(step_map.keys())
-    except Exception as exc:  # pylint: disable=broad-except
-        logging.error("Failed to inspect snapshot steps: %s", exc)
-        return []
-
-
-def _persist_spectra(filepath: str, data: dict) -> None:
-    tmp_path = filepath + ".tmp"
-    with open(tmp_path, "wb") as f:
-        pickle.dump(data, f)
-    os.replace(tmp_path, filepath)
-
-
 def compute_spectrum(args) -> None:
     experiment = _load_experiment(args.experiment)
     run_key = RunKey(batch_size=args.batch_size, eta=args.eta)
-    manager = CheckpointManager(experiment, directory=args.experiments_dir)
 
-    available_steps = _available_snapshot_steps(manager, run_key)
+    available_steps = list_snapshot_steps(experiment, run_key, args.experiments_dir)
     if not available_steps:
         logging.error(
             "No snapshots found for %s (B=%s, eta=%s). Enable save-interstitial-snapshots and rerun the experiment.",
@@ -72,84 +41,21 @@ def compute_spectrum(args) -> None:
     if missing:
         raise ValueError(f"Requested steps {sorted(missing)} are not available. Pick from {available_steps}.")
 
-    spectra_path = get_spectral_filepath(
+    gather_spectra(
         experiment,
+        run_key,
+        steps_to_process,
         directory=args.experiments_dir,
         spectral_dir=SPECTRAL_DATA_DIR,
+        num_eigenvalues=args.num_eigenvalues,
+        num_hessian_samples=args.num_hessian_samples,
+        hessian_batch_size=args.hessian_batch_size,
+        max_iter=args.max_iter,
+        eig_tol=args.eig_tol,
+        trace_samples=args.trace_samples,
+        force_recompute=args.force_recompute,
+        dry_run=args.dry_run,
     )
-    spectra_data = load_spectral_data(
-        experiment,
-        directory=args.experiments_dir,
-        spectral_dir=SPECTRAL_DATA_DIR,
-    )
-    run_dict = spectra_data.setdefault(run_key, {})
-    steps_needing_work = []
-    for step in steps_to_process:
-        stored_vals = run_dict.get(step, {}).get("eigenvalues")
-        has_enough = stored_vals is not None and len(stored_vals) >= args.num_eigenvalues
-        if args.force_recompute or not has_enough:
-            steps_needing_work.append(step)
-
-    if args.dry_run:
-        if steps_needing_work:
-            logging.info(
-                "Dry-run: would compute steps %s for %s %s.",
-                steps_needing_work,
-                args.experiment,
-                run_key,
-            )
-        else:
-            logging.info(
-                "Dry-run: all requested steps already cached for %s %s.",
-                args.experiment,
-                run_key,
-            )
-        return
-
-    for step in steps_to_process:
-        stored_vals = run_dict.get(step, {}).get("eigenvalues")
-        if stored_vals is not None and len(stored_vals) >= args.num_eigenvalues and not args.force_recompute:
-            logging.info(
-                "Existing entry already has %s eigenvalues; skipping recompute for step %s.",
-                len(stored_vals),
-                step,
-            )
-            continue
-
-        logging.info("Evaluating Hessian for step %s", step)
-        evaluator = HessianEvaluator(
-            experiment=experiment,
-            run_key=run_key,
-            step=step,
-            directory=args.experiments_dir,
-            num_hessian_samples=args.num_hessian_samples,
-            hessian_batch_size=args.hessian_batch_size,
-        )
-        eigenvalues, _ = evaluator.hessian_computer.eigenvalues(
-            evaluator.params,
-            evaluator.key,
-            max_iter=args.max_iter,
-            tol=args.eig_tol,
-            top_n=args.num_eigenvalues,
-        )
-        trace_value, _ = evaluator.hessian_computer.trace(
-            evaluator.params,
-            evaluator.key,
-            max_iter=args.trace_samples,
-        )
-        new_vals = [float(ev) for ev in eigenvalues]
-        if stored_vals is not None:
-            logging.info("Overwriting existing spectra at step %s (had %s eigenvalues).", step, len(stored_vals))
-
-        run_dict[step] = {
-            "eigenvalues": new_vals,
-            "trace": float(trace_value),
-        }
-        _persist_spectra(spectra_path, spectra_data)
-        logging.info("Saved spectra for step %s -> %s", step, spectra_path)
-
-    # Final write to ensure the file reflects any in-memory updates
-    _persist_spectra(spectra_path, spectra_data)
 
 
 def parse_args():

@@ -7,6 +7,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 
+import batch_size_studies.spectral.pipeline as spectral_service_module
 import batch_size_studies.spectral.spectral_utils as spectral_utils_module
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
@@ -95,7 +96,7 @@ def _patch_hessian_evaluator(monkeypatch, mapping):
         eigen, trace_val = mapping[step]
         return StubbedEvaluator(eigen, trace_val)
 
-    monkeypatch.setattr(spectra_cli, "HessianEvaluator", _factory)
+    monkeypatch.setattr(spectral_service_module, "HessianEvaluator", _factory)
 
 
 @pytest.fixture
