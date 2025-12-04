@@ -13,6 +13,7 @@ from batch_size_studies.experiments import (
     ExperimentBase,
     LinearStudentExperiment,
     MLPStudentExperiment,
+    SyntheticExperimentFixedData,
 )
 
 # =============================================================================
@@ -94,8 +95,11 @@ class HessianEvaluator:
                 init_key,
             )
 
+        iterator_init_key = (
+            self.experiment.seed if isinstance(self.experiment, SyntheticExperimentFixedData) else self.init_key
+        )
         train_ds, _ = self.experiment.prepare_datasets(
-            init_key=self.init_key,
+            init_key=iterator_init_key,
             forced_subsample_seed=subsample_seed,
         )
         inputs, targets = self._collect_training_samples(train_ds, num_hessian_samples)
