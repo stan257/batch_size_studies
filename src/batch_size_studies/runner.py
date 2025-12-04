@@ -491,7 +491,6 @@ def run_experiment_sweep(
 
     # 3. Run Sweep
     kwargs.setdefault("save_interstitial_snapshots", save_interstitial_snapshots)
-    kwargs.setdefault("save_interstitial_snapshots", save_interstitial_snapshots)
     if max_eval_samples is not None:
         kwargs.setdefault("max_eval_samples", max_eval_samples)
     if not kwargs.get("save_interstitial_snapshots", False):

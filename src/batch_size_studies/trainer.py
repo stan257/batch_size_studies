@@ -92,11 +92,10 @@ class EpochBasedTrialRunner(TrialRunner):
         # Use a deterministic, unique seed for each epoch for reproducibility.
         return int(self._get_iterator_init_key() + epoch_index + EPOCH_SHUFFLE_SEED_OFFSET)
 
-
-@abstractmethod
-def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
-    """Hook invoked whenever an epoch boundary is reached."""
-    raise NotImplementedError
+    @abstractmethod
+    def _on_epoch_end(self, epoch: int, params, results: dict, aux: Any) -> dict:
+        """Hook invoked whenever an epoch boundary is reached."""
+        raise NotImplementedError
 
 
 # =============================================================================

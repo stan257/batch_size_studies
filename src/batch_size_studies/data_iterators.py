@@ -3,6 +3,7 @@ from typing import Generator
 import jax.random as jr
 import numpy as np
 
+from .constants import EPOCH_SHUFFLE_SEED_OFFSET
 from .protocols import DataIterator
 
 
@@ -52,7 +53,7 @@ class EpochBasedDataIterator(DataIterator):
                 epoch_shuffle_key = jr.PRNGKey(int(resume_seed))
                 resume_seed = None  # Use override only once
             else:
-                epoch_shuffle_key = jr.PRNGKey(self.init_key + epoch + 1)
+                epoch_shuffle_key = jr.PRNGKey(self.init_key + epoch + EPOCH_SHUFFLE_SEED_OFFSET)
             perms = jr.permutation(epoch_shuffle_key, self.subset_indices)
             epoch_perms = perms.reshape((self.steps_per_epoch, self.batch_size))
 
