@@ -21,45 +21,74 @@ GOLDEN_DATA_DIR = os.path.join(os.path.dirname(__file__), "golden_data")
 
 
 def compare_results(golden: dict, current: dict):
-    assert golden["failed"] == current["failed"], "Set of failed runs does not match."
+    assert (
+        golden["failed"] == current["failed"]
+    ), f"Failed runs differ: golden={golden['failed']}, current={current['failed']}"
 
     golden_results = golden["results"]
     current_results = current["results"]
-    assert golden_results.keys() == current_results.keys(), "RunKeys in results do not match."
+    assert golden_results.keys() == current_results.keys(), (
+        f"RunKeys in results do not match.\n"
+        f"Missing in current: {set(golden_results.keys()) - set(current_results.keys())}\n"
+        f"Extra in current: {set(current_results.keys()) - set(golden_results.keys())}"
+    )
 
     for run_key in golden_results:
         golden_run = golden_results[run_key]
         current_run = current_results[run_key]
 
-        np.testing.assert_allclose(
-            golden_run["loss_history"],
-            current_run["loss_history"],
-            rtol=1e-6,
-            err_msg=f"Loss history mismatch for {run_key}",
-        )
-        if "epoch_test_accuracies" in golden_run:
+        try:
             np.testing.assert_allclose(
-                golden_run["epoch_test_accuracies"],
-                current_run["epoch_test_accuracies"],
+                golden_run["loss_history"],
+                current_run["loss_history"],
                 rtol=1e-6,
-                err_msg=f"Accuracy mismatch for {run_key}",
+                err_msg=f"Loss history mismatch for {run_key}",
             )
+        except AssertionError as exc:
+            glen, clen = len(golden_run.get("loss_history", [])), len(current_run.get("loss_history", []))
+            raise AssertionError(f"{exc}\nLengths: golden={glen}, current={clen}") from exc
+
+        if "epoch_test_accuracies" in golden_run:
+            try:
+                np.testing.assert_allclose(
+                    golden_run["epoch_test_accuracies"],
+                    current_run["epoch_test_accuracies"],
+                    rtol=1e-6,
+                    err_msg=f"Accuracy mismatch for {run_key}",
+                )
+            except AssertionError as exc:
+                glen, clen = (
+                    len(golden_run.get("epoch_test_accuracies", [])),
+                    len(current_run.get("epoch_test_accuracies", [])),
+                )
+                raise AssertionError(f"{exc}\nLengths: golden={glen}, current={clen}") from exc
 
     golden_weights = golden["weights"]
     current_weights = current["weights"]
-    assert golden_weights.keys() == current_weights.keys(), "Weight snapshot steps do not match."
+    assert golden_weights.keys() == current_weights.keys(), (
+        "Weight snapshot steps do not match.\n"
+        f"Missing in current: {set(golden_weights.keys()) - set(current_weights.keys())}\n"
+        f"Extra in current: {set(current_weights.keys()) - set(golden_weights.keys())}"
+    )
 
     for step in golden_weights:
         golden_params = golden_weights[step]
         current_params = current_weights[step]
         assert len(golden_params) == len(current_params), f"Layer count mismatch at step {step}"
         for i in range(len(golden_params)):
-            np.testing.assert_allclose(
-                golden_params[i],
-                current_params[i],
-                rtol=1e-6,
-                err_msg=f"Weight mismatch at step {step}, layer {i}",
-            )
+            try:
+                np.testing.assert_allclose(
+                    golden_params[i],
+                    current_params[i],
+                    rtol=1e-6,
+                    err_msg=f"Weight mismatch at step {step}, layer {i}",
+                )
+            except AssertionError as exc:
+                glayer_shape = np.array(golden_params[i]).shape
+                clayer_shape = np.array(current_params[i]).shape
+                raise AssertionError(
+                    f"{exc}\nShapes at step {step}, layer {i}: golden={glayer_shape}, current={clayer_shape}"
+                ) from exc
 
 
 def run_and_get_all_data(config, batch_sizes, etas, tmp_path, **kwargs) -> dict:
