@@ -106,18 +106,30 @@ def gather_spectra(
             num_hessian_samples=num_hessian_samples,
             hessian_batch_size=hessian_batch_size,
         )
-        eigenvalues, _ = evaluator.hessian_computer.eigenvalues(
-            evaluator.params,
-            evaluator.key,
-            max_iter=max_iter,
-            tol=eig_tol,
-            top_n=num_eigenvalues,
-        )
-        trace_value, _ = evaluator.hessian_computer.trace(
-            evaluator.params,
-            evaluator.key,
-            max_iter=trace_samples,
-        )
+        # Use the evaluator's public API when available so RNG state advances between calls.
+        if hasattr(evaluator, "top_eigenvalues"):
+            eigenvalues, _ = evaluator.top_eigenvalues(
+                top_n=num_eigenvalues,
+                max_iter=max_iter,
+                tol=eig_tol,
+            )
+        else:
+            eigenvalues, _ = evaluator.hessian_computer.eigenvalues(
+                evaluator.params,
+                evaluator.key,
+                max_iter=max_iter,
+                tol=eig_tol,
+                top_n=num_eigenvalues,
+            )
+
+        if hasattr(evaluator, "trace"):
+            trace_value = evaluator.trace(max_iter=trace_samples)
+        else:
+            trace_value, _ = evaluator.hessian_computer.trace(
+                evaluator.params,
+                evaluator.key,
+                max_iter=trace_samples,
+            )
 
         if stored_vals is not None:
             logging.info("Overwriting existing spectra at step %s (had %s eigenvalues).", step, len(stored_vals))
