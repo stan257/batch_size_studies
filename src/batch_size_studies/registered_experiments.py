@@ -18,9 +18,8 @@ from typing import List
 
 from .definitions import LossType, OptimizerType, Parameterization
 from .experiment_registry import ExperimentSpec, register_spec_builder
-from .experiments import (
-    MNIST1MExperiment,
-    MNIST1MSampledExperiment,
+from .experiment_types.mnist import MNIST1MExperiment, MNIST1MSampledExperiment
+from .experiment_types.synthetic import (
     SyntheticExperimentLinearTeacher,
     SyntheticExperimentNoisyLinearTeacher,
 )

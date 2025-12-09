@@ -7,6 +7,23 @@ import pickle
 # =============================================================================
 
 
+_LEGACY_EXPERIMENT_MODULE = "batch_size_studies.experiments"
+_EXPERIMENT_CLASS_REMAP = {
+    "ExperimentBase": "batch_size_studies.experiment_types.base",
+    "MLPStudentExperiment": "batch_size_studies.experiment_types.base",
+    "LinearStudentExperiment": "batch_size_studies.experiment_types.base",
+    "SyntheticExperiment": "batch_size_studies.experiment_types.synthetic",
+    "SyntheticExperimentFixedTime": "batch_size_studies.experiment_types.synthetic",
+    "SyntheticExperimentFixedData": "batch_size_studies.experiment_types.synthetic",
+    "SyntheticExperimentMLPTeacher": "batch_size_studies.experiment_types.synthetic",
+    "SyntheticExperimentLinearTeacher": "batch_size_studies.experiment_types.synthetic",
+    "SyntheticExperimentNoisyLinearTeacher": "batch_size_studies.experiment_types.synthetic",
+    "MNISTExperiment": "batch_size_studies.experiment_types.mnist",
+    "MNIST1MExperiment": "batch_size_studies.experiment_types.mnist",
+    "MNIST1MSampledExperiment": "batch_size_studies.experiment_types.mnist",
+}
+
+
 class CustomUnpickler(pickle.Unpickler):
     """
     A custom unpickler that handles module path changes for backward
@@ -17,6 +34,8 @@ class CustomUnpickler(pickle.Unpickler):
         # Remap 'definitions' to 'batch_size_studies.definitions'
         if module == "definitions":
             module = "batch_size_studies.definitions"
+        if module == _LEGACY_EXPERIMENT_MODULE and name in _EXPERIMENT_CLASS_REMAP:
+            module = _EXPERIMENT_CLASS_REMAP[name]
         return super().find_class(module, name)
 
 

@@ -406,9 +406,9 @@ class TestFilenameUniqueness:
         base_filename = base_exp.generate_filename()
         modified_filename = modified_exp.generate_filename()
 
-        assert base_filename != modified_filename, (
-            f"Changing '{param}' did not produce a unique filename for {exp_class.__name__}"
-        )
+        assert (
+            base_filename != modified_filename
+        ), f"Changing '{param}' did not produce a unique filename for {exp_class.__name__}"
 
 
 class TestLegacyStorageCompatibility:
@@ -490,7 +490,7 @@ class TestExperimentUtilities:
         def fake_loader():
             return dummy_train, dummy_test
 
-        monkeypatch.setattr("batch_size_studies.experiments.load_datasets", fake_loader)
+        monkeypatch.setattr("batch_size_studies.experiment_types.mnist.load_datasets", fake_loader)
         train_ds, test_ds = mnist_config.prepare_datasets(init_key=0)
 
         np.testing.assert_array_equal(train_ds["image"], dummy_train[0])
@@ -537,7 +537,7 @@ class TestExperimentUtilities:
             dummy = {"image": np.zeros((1, 28, 28)), "label": np.zeros(1, dtype=int)}
             return dummy, dummy
 
-        monkeypatch.setattr("batch_size_studies.experiments._load_mnist_dataset", fake_loader)
+        monkeypatch.setattr("batch_size_studies.experiment_types.mnist._load_mnist_dataset", fake_loader)
         train_ds, test_ds = mnist1m_sampled_config.prepare_datasets(init_key=123, forced_subsample_seed=999)
 
         assert captured["experiment"] is mnist1m_sampled_config

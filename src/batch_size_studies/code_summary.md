@@ -4,11 +4,11 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 
 ---
 
-## Experiments (`experiments.py`)
-* Dataclasses that hold experiment configuration (model, dataset construction, sampling regime, etc.).
-* Handle dataset prep (MNIST downloads, MNIST‑1M subsampling, synthetic teacher generation) and record sweep metadata for later analysis.
-* Provide hooks such as `should_skip_batch_size`, `compute_num_steps`, and `is_classification()` so the runner and plotting code behave correctly.
-* `ExperimentBase.get_trial_runner_class` now returns a `Type[TrialRunner]` from `protocols.py`, cleanly decoupling experiments from specific runner implementations.
+## Experiment Types (`experiment_types/`)
+* `experiment_types/base.py` defines shared mixins (`MLPStudentExperiment`, `LinearStudentExperiment`) and `ExperimentBase` with filename IO helpers.
+* `experiment_types/synthetic.py` contains all synthetic families (fixed-time, fixed-data, linear/noisy teachers, MLP teachers).
+* `experiment_types/mnist.py` houses MNIST and MNIST‑1M variants plus dataset helpers.
+* `experiments.py` remains as a thin compatibility shim that re-exports these classes for legacy imports/pickles.
 
 ## Constants (`constants.py`)
 * Consolidated home for “magic numbers” that define evaluation seed offsets, batch sizes, and shared defaults consumed by trainers/experiments/runners.
