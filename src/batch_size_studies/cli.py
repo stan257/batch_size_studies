@@ -9,7 +9,7 @@ import logging
 import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import replace
+from dataclasses import dataclass, replace
 
 from .configs import get_main_experiment_configs, get_main_hyperparameter_grids
 from .definitions import LossType, OptimizerType, Parameterization, RunKey
@@ -20,6 +20,194 @@ from .runner import (
     _run_single_experiment,
     run_experiment_sweep,
 )
+
+
+@dataclass
+class RunTask:
+    name: str
+    config: any
+
+
+@dataclass
+class RunPlan:
+    directory: str
+    batch_sizes: list[int]
+    etas: list[float]
+    tasks: list[RunTask]
+    no_save: bool
+    eta_stability_depth: int | None
+    max_eval_samples: int | None
+    save_interstitial_snapshots: bool | None
+    save_epoch_snapshots: bool | None
+    num_processes: int
+    dry_run_task: RunTask | None = None
+    dry_run_batch: int | None = None
+    dry_run_eta: float | None = None
+    dry_run_steps: int = 0
+
+
+class RunPlanner:
+    def __init__(self, args: argparse.Namespace, experiments: dict, batch_sizes, etas, directory):
+        self.args = args
+        self.experiments = experiments
+        self.batch_sizes = batch_sizes
+        self.etas = etas
+        self.directory = directory
+
+    def build(self) -> RunPlan | None:
+        experiments = self.experiments
+        if not experiments:
+            logging.error("No experiments match the provided filters. Nothing to run.")
+            return None
+
+        if getattr(self.args, "override", None):
+            experiments = _apply_overrides(experiments, self.args.override)
+
+        if getattr(self.args, "dry_run", False):
+            first_item = next(iter(experiments.items()), None)
+            if first_item is None:
+                logging.error("No experiments available for dry-run.")
+                return None
+            first_name, first_config = first_item
+            dry_batch = min(self.batch_sizes) if self.batch_sizes else 1
+            mid_eta = self.etas[len(self.etas) // 2] if self.etas else 0.1
+            dry_task = RunTask(first_name, first_config)
+            return RunPlan(
+                directory=self.directory,
+                batch_sizes=self.batch_sizes,
+                etas=self.etas,
+                tasks=[],
+                no_save=True,
+                eta_stability_depth=None,
+                max_eval_samples=self.args.max_eval_samples,
+                save_interstitial_snapshots=None,
+                save_epoch_snapshots=None,
+                num_processes=1,
+                dry_run_task=dry_task,
+                dry_run_batch=dry_batch,
+                dry_run_eta=mid_eta,
+                dry_run_steps=getattr(self.args, "dry_run_steps", 5),
+            )
+
+        filepaths = defaultdict(list)
+        experiments_that_need_running = {}
+        logging.info("--- Pre-flight check: Verifying experiments ---")
+
+        for name, config in experiments.items():
+            filepath = config.get_filepath(directory=self.directory)
+            filepaths[filepath].append(name)
+            if self.args.no_save:
+                experiments_that_need_running[name] = config
+            else:
+                losses, failed = config.load_results(directory=self.directory, silent=True)
+                if _all_runs_accounted_for(config, self.batch_sizes, self.etas, losses, failed):
+                    logging.info(f"  Skipping '{name}': Already complete. (Found file: {os.path.basename(filepath)})")
+                else:
+                    logging.info(f"  Incomplete: '{name}'. Will run. (Checking file: {os.path.basename(filepath)})")
+                    experiments_that_need_running[name] = config
+
+        has_collision = False
+        for filepath, names in filepaths.items():
+            if len(names) > 1:
+                logging.error(f"Collision detected! Experiments {names} will write to the same file: {filepath}")
+                has_collision = True
+
+        if has_collision:
+            logging.error("\nAborting due to filename collisions.")
+            return None
+
+        if self.args.no_save:
+            logging.info("\n--- --no-save enabled: All selected experiments will be run without saving. ---")
+
+        if not experiments_that_need_running:
+            logging.info("\n--- All experiments are already complete. Nothing to do. ---")
+            return None
+
+        tasks = [RunTask(name, config) for name, config in experiments_that_need_running.items()]
+        return RunPlan(
+            directory=self.directory,
+            batch_sizes=self.batch_sizes,
+            etas=self.etas,
+            tasks=tasks,
+            no_save=self.args.no_save,
+            eta_stability_depth=self.args.eta_stability_depth,
+            max_eval_samples=self.args.max_eval_samples,
+            save_interstitial_snapshots=self.args.save_interstitial_snapshots,
+            save_epoch_snapshots=self.args.save_epoch_snapshots,
+            num_processes=self.args.num_processes,
+        )
+
+
+class RunExecutor:
+    def run_dry(self, plan: RunPlan):
+        task = plan.dry_run_task
+        logging.info(
+            "Dry-run mode: selecting the first experiment and a single (B, η) pair.\n"
+            "Dry-run for '%s' @ (B=%s, η=%s) for %s steps.",
+            task.name,
+            plan.dry_run_batch,
+            plan.dry_run_eta,
+            plan.dry_run_steps,
+        )
+        run_experiment_sweep(
+            experiment=task.config,
+            batch_sizes=[plan.dry_run_batch],
+            etas=[plan.dry_run_eta],
+            init_key=0,
+            directory=plan.directory,
+            dry_run=True,
+            dry_run_steps=plan.dry_run_steps,
+            no_save=True,
+            eta_stability_search_depth=None,
+            max_eval_samples=plan.max_eval_samples,
+        )
+
+    def execute(self, plan: RunPlan):
+        logging.info(f"\n--- Starting Pipeline for {len(plan.tasks)} Incomplete Experiments ---")
+        if plan.num_processes <= 1:
+            logging.info("Running experiments sequentially.")
+            for task in plan.tasks:
+                try:
+                    _run_single_experiment(
+                        task.name,
+                        task.config,
+                        plan.batch_sizes,
+                        plan.etas,
+                        plan.directory,
+                        plan.no_save,
+                        plan.eta_stability_depth,
+                        plan.max_eval_samples,
+                        plan.save_interstitial_snapshots,
+                        plan.save_epoch_snapshots,
+                    )
+                except Exception as exc:  # pragma: no cover - logged for visibility
+                    logging.error(f"Experiment '{task.name}' generated an exception: {exc}")
+        else:
+            logging.info(f"Running experiments with up to {plan.num_processes} parallel workers.")
+            with ProcessPoolExecutor(max_workers=plan.num_processes) as executor:
+                future_to_name = {
+                    executor.submit(
+                        _run_single_experiment,
+                        task.name,
+                        task.config,
+                        plan.batch_sizes,
+                        plan.etas,
+                        plan.directory,
+                        plan.no_save,
+                        plan.eta_stability_depth,
+                        plan.max_eval_samples,
+                        plan.save_interstitial_snapshots,
+                        plan.save_epoch_snapshots,
+                    ): task.name
+                    for task in plan.tasks
+                }
+
+                for future in as_completed(future_to_name):
+                    name = future_to_name[future]
+                    try:
+                        future.result()
+                    except Exception as exc:  # pragma: no cover - logged for visibility
+                        logging.error(f"Experiment '{name}' generated an exception: {exc}")
 
 
 def _coerce_enum(parser, enum_cls, raw_value, flag_name):
@@ -159,121 +347,17 @@ def _apply_overrides(experiments_to_run: dict, overrides_list: list[str]) -> dic
 def _handle_run_command(args: argparse.Namespace, experiments_to_run: dict) -> None:
     directory = EXPERIMENTS_DIR
     batch_sizes, etas = get_main_hyperparameter_grids()
-    if not experiments_to_run:
-        logging.error("No experiments match the provided filters. Nothing to run.")
+    planner = RunPlanner(args, experiments_to_run, batch_sizes, etas, directory)
+    plan = planner.build()
+    if plan is None:
         return
 
-    dry_run = getattr(args, "dry_run", False)
-    dry_run_steps = getattr(args, "dry_run_steps", 5)
-
-    if args.override:
-        experiments_to_run = _apply_overrides(experiments_to_run, args.override)
-
-    if dry_run:
-        logging.info("Dry-run mode: selecting the first experiment and a single (B, η) pair.")
-        first_item = next(iter(experiments_to_run.items()), None)
-        if first_item is None:
-            logging.error("No experiments available for dry-run.")
-            return
-        first_name, first_config = first_item
-        dry_batch = min(batch_sizes) if batch_sizes else 1
-        mid_eta = etas[len(etas) // 2] if etas else 0.1
-        logging.info("Dry-run for '%s' @ (B=%s, η=%s) for %s steps.", first_name, dry_batch, mid_eta, dry_run_steps)
-        run_experiment_sweep(
-            experiment=first_config,
-            batch_sizes=[dry_batch],
-            etas=[mid_eta],
-            init_key=0,
-            directory=directory,
-            dry_run=True,
-            dry_run_steps=dry_run_steps,
-            no_save=True,
-            eta_stability_search_depth=None,
-            max_eval_samples=args.max_eval_samples,
-        )
+    executor = RunExecutor()
+    if plan.dry_run_task:
+        executor.run_dry(plan)
         return
 
-    filepaths = defaultdict(list)
-    experiments_that_need_running = {}
-    logging.info("--- Pre-flight check: Verifying experiments ---")
-
-    for name, config in experiments_to_run.items():
-        filepath = config.get_filepath(directory=directory)
-        filepaths[filepath].append(name)
-
-        if args.no_save:
-            experiments_that_need_running[name] = config
-        else:
-            losses, failed = config.load_results(directory=directory, silent=True)
-            if _all_runs_accounted_for(config, batch_sizes, etas, losses, failed):
-                logging.info(f"  Skipping '{name}': Already complete. (Found file: {os.path.basename(filepath)})")
-            else:
-                logging.info(f"  Incomplete: '{name}'. Will run. (Checking file: {os.path.basename(filepath)})")
-                experiments_that_need_running[name] = config
-
-    has_collision = False
-    for filepath, names in filepaths.items():
-        if len(names) > 1:
-            logging.error(f"Collision detected! Experiments {names} will write to the same file: {filepath}")
-            has_collision = True
-
-    if has_collision:
-        logging.error("\nAborting due to filename collisions.")
-        return
-
-    if args.no_save:
-        logging.info("\n--- --no-save enabled: All selected experiments will be run without saving. ---")
-
-    if not experiments_that_need_running:
-        logging.info("\n--- All experiments are already complete. Nothing to do. ---")
-        return
-
-    logging.info(f"\n--- Starting Pipeline for {len(experiments_that_need_running)} Incomplete Experiments ---")
-    if args.num_processes <= 1:
-        logging.info("Running experiments sequentially.")
-        for name, config in experiments_that_need_running.items():
-            try:
-                _run_single_experiment(
-                    name,
-                    config,
-                    batch_sizes,
-                    etas,
-                    directory,
-                    args.no_save,
-                    args.eta_stability_depth,
-                    args.max_eval_samples,
-                    args.save_interstitial_snapshots,
-                    args.save_epoch_snapshots,
-                )
-            except Exception as exc:  # pragma: no cover - logged for visibility
-                logging.error(f"Experiment '{name}' generated an exception: {exc}")
-    else:
-        logging.info(f"Running experiments with up to {args.num_processes} parallel workers.")
-        with ProcessPoolExecutor(max_workers=args.num_processes) as executor:
-            future_to_name = {
-                executor.submit(
-                    _run_single_experiment,
-                    name,
-                    config,
-                    batch_sizes,
-                    etas,
-                    directory,
-                    args.no_save,
-                    args.eta_stability_depth,
-                    args.max_eval_samples,
-                    args.save_interstitial_snapshots,
-                    args.save_epoch_snapshots,
-                ): name
-                for name, config in experiments_that_need_running.items()
-            }
-
-            for future in as_completed(future_to_name):
-                name = future_to_name[future]
-                try:
-                    future.result()
-                except Exception as exc:  # pragma: no cover - logged for visibility
-                    logging.error(f"Experiment '{name}' generated an exception: {exc}")
-
+    executor.execute(plan)
     logging.info("\n--- All experiments complete. ---")
 
 
