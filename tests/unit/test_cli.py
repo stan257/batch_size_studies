@@ -116,3 +116,13 @@ def test_run_executor_sequential(monkeypatch):
     executor.execute(plan)
 
     assert calls == ["exp_a", "exp_b"]
+
+
+def test_custom_unpickler_remaps_legacy_classes(monkeypatch):
+    from batch_size_studies.storage_utils import _EXPERIMENT_CLASS_REMAP, _LEGACY_EXPERIMENT_MODULE, CustomUnpickler
+
+    # legacy module/class should be remapped to new module path
+    for legacy_class, new_module in _EXPERIMENT_CLASS_REMAP.items():
+        assert CustomUnpickler.find_class(
+            CustomUnpickler, _LEGACY_EXPERIMENT_MODULE, legacy_class
+        ).__module__.startswith(new_module)

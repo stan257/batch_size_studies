@@ -8,6 +8,7 @@ import pickle
 
 
 _LEGACY_EXPERIMENT_MODULE = "batch_size_studies.experiments"
+# NOTE: update this map whenever experiment classes move modules to keep old pickles readable.
 _EXPERIMENT_CLASS_REMAP = {
     "ExperimentBase": "batch_size_studies.experiment_types.base",
     "MLPStudentExperiment": "batch_size_studies.experiment_types.base",
