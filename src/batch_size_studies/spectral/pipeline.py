@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import logging
 import os
-import pickle
 from typing import Iterable
 
 import jax.random as jr
-from filelock import FileLock
 
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import RunKey
 from batch_size_studies.storage_utils import CustomUnpickler
 
+from .cache import SpectralCache
 from .hessian_evaluator import HessianEvaluator
-from .spectral_utils import get_spectral_filepath, load_spectral_data
 
 
 def list_snapshot_steps(experiment, run_key: RunKey, directory: str) -> list[int]:
@@ -52,39 +50,13 @@ def gather_spectra(
     dry_run: bool = False,
 ) -> None:
     """Compute Hessian spectra for the requested steps, updating the cache incrementally."""
-    spectra_path = get_spectral_filepath(
+    cache = SpectralCache(
         experiment,
         directory=directory,
         spectral_dir=spectral_dir,
     )
-    spectra_data = load_spectral_data(
-        experiment,
-        directory=directory,
-        spectral_dir=spectral_dir,
-    )
-    run_dict = spectra_data.setdefault(run_key, {})
-
-    def _persist():
-        lock_path = spectra_path + ".lock"
-        with FileLock(lock_path):
-            # Reload on write to avoid losing updates from concurrent writers.
-            if os.path.exists(spectra_path):
-                try:
-                    with open(spectra_path, "rb") as f:
-                        latest_data = CustomUnpickler(f).load()
-                except Exception as exc:
-                    logging.warning("Failed to reload spectra file; starting fresh: %s", exc)
-                    latest_data = {}
-            else:
-                latest_data = {}
-
-            latest_run_dict = latest_data.setdefault(run_key, {})
-            latest_run_dict.update(run_dict)
-
-            tmp_path = spectra_path + ".tmp"
-            with open(tmp_path, "wb") as f:
-                pickle.dump(latest_data, f)
-            os.replace(tmp_path, spectra_path)
+    spectra_path = cache.filepath
+    run_dict = cache.get_run_dict(run_key)
 
     steps_needing_work = []
     for step in steps_to_process:
@@ -163,11 +135,5 @@ def gather_spectra(
         if stored_vals is not None:
             logging.info("Overwriting existing spectra at step %s (had %s eigenvalues).", step, len(stored_vals))
 
-        run_dict[step] = {
-            "eigenvalues": [float(ev) for ev in eigenvalues],
-            "trace": float(trace_value),
-        }
-        _persist()
+        cache.store_step(run_key, step, eigenvalues, trace_value)
         logging.info("Saved spectra for step %s -> %s", step, spectra_path)
-
-    _persist()
