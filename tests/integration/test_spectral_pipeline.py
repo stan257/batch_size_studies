@@ -41,23 +41,16 @@ def _write_weights_file(experiment, experiments_dir, run_key, snapshots):
         pickle.dump(payload, f)
 
 
-class DummyHessianComputer:
+class StubbedEvaluator:
     def __init__(self, eigenvalues, trace_value):
         self._eigs = eigenvalues
         self._trace = trace_value
 
-    def eigenvalues(self, params, key, max_iter, tol, top_n):
+    def top_eigenvalues(self, top_n, max_iter, tol):
         return self._eigs[:top_n], None
 
-    def trace(self, params, key, max_iter):
-        return self._trace, None
-
-
-class StubbedEvaluator:
-    def __init__(self, eigenvalues, trace_value):
-        self.params = None
-        self.key = None
-        self.hessian_computer = DummyHessianComputer(eigenvalues, trace_value)
+    def trace(self, max_iter):
+        return self._trace
 
 
 def _patch_hessian_evaluator(monkeypatch, mapping):

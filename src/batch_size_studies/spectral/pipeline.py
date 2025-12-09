@@ -6,8 +6,6 @@ import logging
 import os
 from typing import Iterable
 
-import jax.random as jr
-
 from batch_size_studies.checkpoint_utils import CheckpointManager
 from batch_size_studies.definitions import RunKey
 from batch_size_studies.storage_utils import CustomUnpickler
@@ -97,40 +95,12 @@ def gather_spectra(
             num_hessian_samples=num_hessian_samples,
             hessian_batch_size=hessian_batch_size,
         )
-        # Use the evaluator's public API when available so RNG state advances between calls.
-        if hasattr(evaluator, "top_eigenvalues"):
-            eigenvalues, _ = evaluator.top_eigenvalues(
-                top_n=num_eigenvalues,
-                max_iter=max_iter,
-                tol=eig_tol,
-            )
-        else:
-            eig_key = evaluator.key
-            if eig_key is not None:
-                eig_key, subkey = jr.split(eig_key)
-                evaluator.key = eig_key
-                eig_key = subkey
-            eigenvalues, _ = evaluator.hessian_computer.eigenvalues(
-                evaluator.params,
-                eig_key,
-                max_iter=max_iter,
-                tol=eig_tol,
-                top_n=num_eigenvalues,
-            )
-
-        if hasattr(evaluator, "trace"):
-            trace_value = evaluator.trace(max_iter=trace_samples)
-        else:
-            trace_key = evaluator.key
-            if trace_key is not None:
-                trace_key, subkey = jr.split(trace_key)
-                evaluator.key = trace_key
-                trace_key = subkey
-            trace_value, _ = evaluator.hessian_computer.trace(
-                evaluator.params,
-                trace_key,
-                max_iter=trace_samples,
-            )
+        eigenvalues, _ = evaluator.top_eigenvalues(
+            top_n=num_eigenvalues,
+            max_iter=max_iter,
+            tol=eig_tol,
+        )
+        trace_value = evaluator.trace(max_iter=trace_samples)
 
         if stored_vals is not None:
             logging.info("Overwriting existing spectra at step %s (had %s eigenvalues).", step, len(stored_vals))
