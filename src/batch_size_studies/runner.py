@@ -19,7 +19,6 @@ from tqdm.auto import tqdm
 from .checkpoint_utils import CheckpointManager
 from .constants import EVAL_SUBSAMPLE_SEED_OFFSET
 from .definitions import RunKey
-from .experiments import MNIST1MExperiment
 from .paths import EXPERIMENTS_DIR
 from .protocols import ModelProtocol, TrainingOptions
 
@@ -84,10 +83,9 @@ def _run_single_experiment(
         logging.info(f"  Applying default num_epochs=1 for {type(experiment_config).__name__} experiment.")
         run_options["num_epochs"] = 1
 
-    if isinstance(experiment_config, MNIST1MExperiment):
-        from batch_size_studies.data_loading import load_mnist1m_dataset
-
-        run_options["dataset_loader"] = load_mnist1m_dataset
+    default_loader = getattr(experiment_config, "get_default_dataset_loader", lambda: None)()
+    if default_loader is not None and "dataset_loader" not in run_options:
+        run_options["dataset_loader"] = default_loader
 
     run_experiment_sweep(experiment=experiment_config, batch_sizes=batch_sizes, etas=etas, **run_options)
 

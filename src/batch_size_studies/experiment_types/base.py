@@ -179,6 +179,10 @@ class ExperimentBase(ABC):
     @abstractmethod
     def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]: ...
 
+    def get_default_dataset_loader(self):
+        """Optional hook for experiments to provide a default dataset loader callable."""
+        return None
+
     @abstractmethod
     def get_model_widths(self) -> list[int]: ...
 

@@ -86,6 +86,9 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
             forced_subsample_seed=kwargs.get("forced_subsample_seed"),
         )
 
+    def get_default_dataset_loader(self):
+        return load_datasets
+
     def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
@@ -141,6 +144,9 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
             dataset_loader=kwargs.get("dataset_loader"),
             forced_subsample_seed=kwargs.get("forced_subsample_seed"),
         )
+
+    def get_default_dataset_loader(self):
+        return load_mnist1m_dataset
 
     def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
@@ -206,6 +212,9 @@ class MNIST1MSampledExperiment(MLPStudentExperiment, ExperimentBase):
             dataset_loader=kwargs.get("dataset_loader"),
             forced_subsample_seed=kwargs.get("forced_subsample_seed"),
         )
+
+    def get_default_dataset_loader(self):
+        return load_mnist1m_dataset
 
     def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
         assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."

@@ -14,6 +14,7 @@ from batch_size_studies.runner import (
     RunStatus,
     _all_runs_accounted_for,
     _is_run_result_complete,
+    _run_single_experiment,
     _validate_and_store_partial_result,
 )
 
@@ -159,3 +160,38 @@ def test_run_status_is_successful_requires_completion():
     complete_results = {run_key: {"loss_history": [1.0, 0.8, 0.6], "expected_steps": 3}}
     status_complete = RunStatus(run_key, complete_results, set(), num_steps=3, no_save=False)
     assert status_complete.is_successful is True
+
+
+def test_run_single_experiment_uses_default_dataset_loader(monkeypatch):
+    loader_sentinel = object()
+
+    class DummyExperiment:
+        optimizer = None
+        loss_type = None
+        num_epochs = 1
+
+        def __repr__(self):
+            return "DummyExperiment"
+
+        def get_default_dataset_loader(self):
+            return loader_sentinel
+
+    captured = {}
+
+    def fake_run_experiment_sweep(*, experiment, batch_sizes, etas, **run_options):
+        captured["loader"] = run_options.get("dataset_loader")
+        captured["experiment"] = experiment
+        captured["batch_sizes"] = batch_sizes
+        captured["etas"] = etas
+
+    monkeypatch.setattr("batch_size_studies.runner.run_experiment_sweep", fake_run_experiment_sweep)
+
+    _run_single_experiment(
+        name="dummy",
+        experiment_config=DummyExperiment(),
+        batch_sizes=[1],
+        etas=[0.1],
+    )
+
+    assert captured["loader"] is loader_sentinel
+    assert captured["experiment"].__class__ is DummyExperiment
