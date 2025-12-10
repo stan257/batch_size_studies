@@ -11,6 +11,7 @@ from batch_size_studies.cli import (
 from batch_size_studies.definitions import RunKey
 from batch_size_studies.experiments import ExperimentBase
 from batch_size_studies.runner import (
+    RunStatus,
     _all_runs_accounted_for,
     _is_run_result_complete,
     _validate_and_store_partial_result,
@@ -147,3 +148,14 @@ class TestPreFlightHelpers:
         results = {}
         failed = {RunKey(1, 0.1)}
         assert _all_runs_accounted_for(experiment, [1], [0.1], results, failed) is True
+
+
+def test_run_status_is_successful_requires_completion():
+    run_key = RunKey(32, 0.1)
+    partial_results = {run_key: {"loss_history": [1.0], "expected_steps": 3}}
+    status_partial = RunStatus(run_key, partial_results, set(), num_steps=3, no_save=False)
+    assert status_partial.is_successful is False
+
+    complete_results = {run_key: {"loss_history": [1.0, 0.8, 0.6], "expected_steps": 3}}
+    status_complete = RunStatus(run_key, complete_results, set(), num_steps=3, no_save=False)
+    assert status_complete.is_successful is True

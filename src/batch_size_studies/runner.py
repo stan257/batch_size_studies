@@ -139,7 +139,18 @@ class RunStatus:
         if self.no_save or self.run_key not in self.results_dict:
             return False
         result = self.results_dict.get(self.run_key, {})
-        return self.run_key in self.results_dict and "loss_history" in result
+        expected_steps = result.get("expected_steps")
+        expected_epochs = result.get("expected_epochs")
+        loss_history = result.get("loss_history", [])
+        epoch_accs = result.get("epoch_test_accuracies", [])
+
+        if expected_steps is not None:
+            return len(loss_history) >= expected_steps
+        if expected_epochs is not None:
+            return len(epoch_accs) >= expected_epochs
+
+        # Fallback to current sweep request if no explicit expectations are stored.
+        return len(loss_history) >= self.num_steps
 
     @property
     def should_run(self) -> bool:
