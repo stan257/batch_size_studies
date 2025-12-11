@@ -24,7 +24,7 @@ from .experiment_types.synthetic import (
     SyntheticExperimentNoisyLinearTeacher,
 )
 
-MNIST_GAMMA_SWEEP = [1e-5, 0.01, 0.1, 1.0, 10.0, 100.0, 1e5]
+MNIST_GAMMA_SWEEP = [0.01, 0.1, 1.0, 10.0, 100.0]
 
 
 def _format_linear_name(prefix: str, P: int, epochs: int, rho: float | None = None) -> str:
