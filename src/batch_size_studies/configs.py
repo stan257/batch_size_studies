@@ -9,10 +9,11 @@ from typing import Sequence
 
 import numpy as np
 
-# Ensure registration side-effects run.
-from . import registered_experiments  # noqa: F401  pylint: disable=unused-import
 from .definitions import LossType, OptimizerType
 from .experiment_registry import ExperimentSpec, list_registered_specs
+
+# Ensure registration side-effects run.
+from .studies import catalog as _catalog  # noqa: F401  pylint: disable=unused-import
 
 
 def get_main_hyperparameter_grids():
