@@ -119,6 +119,8 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
 
     def to_params_dict(self):
         params = super().to_params_dict()
+        # Keep unsampled MNIST-1M artifacts on the original filename pattern so
+        # historical sweep directories remain directly comparable/reloadable.
         if params.get("max_train_samples") is None:
             params.pop("max_train_samples", None)
         return params
@@ -187,5 +189,6 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
 
 @dataclass(frozen=True)
 class MNIST1MSampledExperiment(MNIST1MExperiment):
-    max_train_samples: int
     """Backward-compatible alias for sampled MNIST-1M configurations."""
+
+    max_train_samples: int

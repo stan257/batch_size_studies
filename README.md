@@ -8,20 +8,30 @@ This repository captures the code used to generate our batch size and learning r
 src/batch_size_studies/
 ├── constants.py        # shared configuration, seeds, and eval defaults
 ├── experiments.py      # experiment configurations and dataset preparation
-├── runner.py           # sweep orchestration, resumability, stability checks
-├── trainer.py          # TrialRunner implementations (MNIST vs. synthetic)
-├── data_iterators.py   # offline vs. online data presentation paradigms
+├── runner.py           # launches/resumes full (B, η) sweeps
+├── trainer.py          # per-trial optimization loop and metric logging
+├── data_iterators.py   # deterministic offline/online data presentation
 ├── models.py           # SP/µP MLPs, linear baselines, centered wrapper
-├── checkpoint_utils.py # checkpoints, metadata, legacy compatibility
-├── storage_utils.py    # atomic pickle helpers
+├── checkpoint_utils.py # resume state + weight snapshots for analysis
+├── storage_utils.py    # atomic artifact writes
 ├── configs.py          # surfaces registered experiments + grids
-├── registered_experiments.py  # declarative sweep specs
+├── registered_experiments.py  # registered study catalogs
 ├── definitions.py      # enums and run key types shared across modules
-├── protocols.py        # shared interfaces (TrialRunner, DataIterator, ModelProtocol)
-└── plotting_utils.py   # plotting helpers used in notebooks
+├── protocols.py        # shared interfaces (runner/trainer/iterators)
+├── plotting_utils.py   # plotting helpers used in notebooks
+├── engine/             # execution core used by sweep runs
+└── studies/            # study-specific catalog definitions
 scripts/                # CLI entry points for sweeps & post-processing
 notebooks/              # analysis notebooks accompanying the paper
 ```
+
+## Typical research cycle
+
+1. Define or select a study from the experiment catalog.
+2. Run a `(B, η)` sweep with `scripts/run_experiments.py`.
+3. Resume interrupted runs from checkpoints without changing seeds.
+4. Analyze outcomes in notebooks and, if needed, compute Hessian spectra.
+5. Iterate by changing study parameters or adding new catalog entries.
 
 ## Running the sweeps
 
