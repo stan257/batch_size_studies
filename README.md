@@ -19,11 +19,17 @@ src/batch_size_studies/
 ├── definitions.py      # enums and run key types shared across modules
 ├── protocols.py        # shared interfaces (runner/trainer/iterators)
 ├── plotting_utils.py   # plotting helpers used in notebooks
+├── runtime/            # canonical runtime API (sweeps, trials, iterators)
+├── io/                 # canonical artifact + checkpoint API
+├── analysis/           # canonical plotting/results API
 ├── engine/             # execution core used by sweep runs
 └── studies/            # study-specific catalog definitions
 scripts/                # CLI entry points for sweeps & post-processing
 notebooks/              # analysis notebooks accompanying the paper
 ```
+
+The top-level modules (`runner.py`, `trainer.py`, `checkpoint_utils.py`, etc.) are
+kept as compatibility shims so older notebooks and pickled artifacts continue to load.
 
 ## Typical research cycle
 
@@ -79,6 +85,15 @@ notebooks/              # analysis notebooks accompanying the paper
    * `_checkpoints/` contain live resume files, cleaned automatically when runs finish successfully.
 
 6. Use the notebooks in `notebooks/` (together with `src/batch_size_studies/plotting_utils.py`) to regenerate figures and bespoke summaries for each experiment family.
+
+## Backward compatibility guarantees
+
+To keep historical results analyzable, this codebase preserves:
+* legacy import paths (`batch_size_studies.runner`, `batch_size_studies.experiments`, etc.),
+* legacy pickle class remapping for experiment dataclasses,
+* legacy filename loading variants for older result/weight files.
+
+New runs also emit a JSON sidecar manifest (`*_manifest.json`) next to weight files for human-readable provenance, without changing the existing pickle schemas.
 
 The test suite (`pytest`) focuses on regression coverage for checkpoints, runner orchestration, and iterator behaviour to ensure the code reproduces the results described in the accompanying manuscript.
 

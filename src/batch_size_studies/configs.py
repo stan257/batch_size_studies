@@ -11,9 +11,7 @@ import numpy as np
 
 from .definitions import LossType, OptimizerType
 from .experiment_registry import ExperimentSpec, list_registered_specs
-
-# Ensure registration side-effects run.
-from .studies import catalog as _catalog  # noqa: F401  pylint: disable=unused-import
+from .studies.catalog import register_default_studies
 
 
 def get_main_hyperparameter_grids():
@@ -39,6 +37,7 @@ def get_main_experiment_configs(
     optimizer: OptimizerType | None = None,
     loss_type: LossType | None = None,
 ):
+    register_default_studies()
     experiments_to_run = {}
     specs = list_registered_specs()
     for spec in _filter_specs(specs, experiment_types, optimizer, loss_type):
@@ -47,4 +46,5 @@ def get_main_experiment_configs(
 
 
 def list_main_experiment_specs():
+    register_default_studies()
     return list_registered_specs()

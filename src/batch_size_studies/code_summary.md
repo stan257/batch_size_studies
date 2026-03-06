@@ -9,6 +9,7 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 * **Run sweeps** through `scripts/run_experiments.py`, which delegates to `cli.py` and `engine/runner.py`.
 * **Resume and preserve state** through checkpoints and weight snapshots in `engine/checkpoint_utils.py`.
 * **Analyze outcomes** with `plotting_utils.py`, notebooks, and optional Hessian tooling under `spectral/`.
+* **Use canonical namespaces** from `runtime/`, `io/`, and `analysis/` for new code; top-level modules remain compatibility shims.
 
 ## Experiment Types (`experiment_types/`)
 * `experiment_types/base.py` defines shared mixins (`MLPStudentExperiment`, `LinearStudentExperiment`) and `ExperimentBase` with filename IO helpers.
@@ -77,7 +78,7 @@ This repository captures the code we use to run batch-size/learning-rate sweeps 
 
 ## Study Catalogs (`studies/`)
 * Study definitions are split by domain (`studies/linear_teacher_catalog.py`, `studies/mnist1m_catalog.py`).
-* `studies/catalog.py` aggregates them for registry side effects used by `configs.py`.
+* `studies/catalog.py` now exposes explicit, idempotent registration (`register_default_studies`) used by `configs.py`.
 * In practice, this is where you add new paper-specific sweep families.
 
 ## Hessian Tooling (`spectral/hessian.py`, `spectral/hessian_evaluator.py`)

@@ -18,6 +18,7 @@ from tqdm.auto import tqdm
 
 from ..constants import EVAL_SUBSAMPLE_SEED_OFFSET
 from ..definitions import RunKey
+from ..io.run_manifest import build_sweep_manifest_payload, save_run_manifest
 from ..paths import EXPERIMENTS_DIR
 from .checkpoint_utils import CheckpointManager
 from .protocols import ModelProtocol, TrainingOptions
@@ -485,6 +486,25 @@ def run_experiment_sweep(
     sweep_metadata.update(experiment.get_sweep_metadata(init_key))
     if not no_save:
         checkpoint_manager.save_sweep_metadata(sweep_metadata)
+        try:
+            run_options = {
+                "eta_stability_search_depth": eta_stability_search_depth,
+                "max_eval_samples": max_eval_samples,
+                "save_interstitial_snapshots": bool(save_interstitial_snapshots),
+                "save_epoch_snapshots": save_epoch_snapshots,
+            }
+            manifest_payload = build_sweep_manifest_payload(
+                experiment_type=experiment.experiment_type,
+                experiment_params=experiment.to_params_dict(),
+                batch_sizes=batch_sizes,
+                etas=etas,
+                init_key=init_key,
+                status="running",
+                run_options=run_options,
+            )
+            save_run_manifest(checkpoint_manager.weights_filepath, manifest_payload, merge=True)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logging.warning("Failed to update run manifest sidecar: %s", exc)
 
     # Subsample test set for faster evaluation if requested
     if max_eval_samples is not None and test_ds is not None:
@@ -533,6 +553,19 @@ def run_experiment_sweep(
         git_hash = _get_git_revision()
         metadata = {"git_commit": git_hash}
         checkpoint_manager.save_sweep_metadata(metadata)
+        try:
+            manifest_payload = build_sweep_manifest_payload(
+                experiment_type=experiment.experiment_type,
+                experiment_params=experiment.to_params_dict(),
+                batch_sizes=batch_sizes,
+                etas=etas,
+                init_key=init_key,
+                status="completed",
+                git_commit=git_hash,
+            )
+            save_run_manifest(checkpoint_manager.weights_filepath, manifest_payload, merge=True)
+        except Exception as exc:  # pragma: no cover - defensive logging only
+            logging.warning("Failed to finalize run manifest sidecar: %s", exc)
     return results_dict.copy(), failed_runs.copy()
 
 
