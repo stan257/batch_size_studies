@@ -17,6 +17,6 @@ repos:
     hooks:
       - id: pytest-smoke
         name: pytest-smoke
-        entry: conda run -n batch-size-studies python -m pytest -m smoke
+        entry: bash -lc 'JAX_PLATFORMS=cpu /Users/stanislav/miniforge3/bin/conda run -n batch-size-studies python -m pytest -m smoke'
         language: system
         pass_filenames: false

@@ -112,4 +112,13 @@ The smoke suite runs `pytest -m smoke`, which exercises a tiny synthetic sweep a
 
 The full suite ships with `pytest-xdist`, so you can run `pytest -n auto` to fan tests across all CPU cores and decrease significantly the runtime on tests.
 
+## CI quality gates
+
+Pull requests and `main` pushes run three required checks:
+* `ruff check` + `ruff format --check`
+* `pytest -m smoke`
+* a critical regression subset (`test_runner`, `test_hessian`, `test_runner_flow`, `test_sweep`)
+
+These checks are defined in `.github/workflows/quality-gates.yml` and are intended to stay green before merge.
+
 This project is licensed under the MIT License - see the LICENSE file for details.
