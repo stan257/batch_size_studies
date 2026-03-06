@@ -82,3 +82,8 @@ jobs:
             tests/unit/test_hessian.py \
             tests/integration/test_runner_flow.py \
             tests/integration/test_sweep.py
+
+      - name: Run critical markers
+        env:
+          JAX_PLATFORMS: cpu
+        run: pytest -m critical

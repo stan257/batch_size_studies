@@ -188,6 +188,23 @@ def test_mlp_model_smoke_test():
         pytest.fail(f"JaxHessian failed to run with MLP model: {e}")
 
 
+@pytest.mark.critical
+def test_tree_random_like_rademacher_splits_prng_key_per_leaf(monkeypatch):
+    target_tree = [jnp.zeros((2,), dtype=jnp.float32) for _ in range(3)]
+    key = jax.random.PRNGKey(7)
+    seen_keys: list[tuple[int, int]] = []
+
+    def _fake_rademacher(leaf_key, shape, dtype):
+        seen_keys.append(tuple(np.asarray(leaf_key).tolist()))
+        return jnp.ones(shape, dtype=dtype)
+
+    monkeypatch.setattr(jax.random, "rademacher", _fake_rademacher)
+    _ = tree_random_like(key, target_tree, rademacher=True)
+    assert len(seen_keys) == len(target_tree)
+    assert len(set(seen_keys)) == len(target_tree)
+
+
+@pytest.mark.critical
 def test_tree_random_like_rademacher_uses_independent_leaf_keys():
     target_tree = [jnp.zeros((64,), dtype=jnp.float32), jnp.zeros((64,), dtype=jnp.float32)]
     key = jax.random.PRNGKey(0)
