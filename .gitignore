@@ -38,6 +38,11 @@ Thumbs.db
 /data/mnist1m/mnist1m.npz
 /data/mnist1m/raw/*.zip
 
+# Local scratch / notes
+random.py
+/notebooks/scratch/
+/notes/
+
 # Jupyter Notebook & Test outputs
 .ipynb_checkpoints
 .pytest_cache/
