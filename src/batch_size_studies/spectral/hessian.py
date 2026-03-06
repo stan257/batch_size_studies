@@ -50,12 +50,12 @@ def tree_random_like(key, target_tree, rademacher=False):
     """Creates a random pytree with the same structure as target_tree."""
     target_struct = tree_structure(target_tree)
     leaves = tree_leaves(target_tree)
+    keys = jax.random.split(key, len(leaves))
     if rademacher:
         # Generate Rademacher random variables {-1, 1}
-        new_leaves = [jax.random.rademacher(key, shape=leaf.shape, dtype=leaf.dtype) for leaf in leaves]
+        new_leaves = [jax.random.rademacher(k, shape=leaf.shape, dtype=leaf.dtype) for k, leaf in zip(keys, leaves)]
     else:
         # Generate standard normal random variables
-        keys = jax.random.split(key, len(leaves))
         new_leaves = [jax.random.normal(k, shape=l.shape, dtype=l.dtype) for k, l in zip(keys, leaves)]  # noqa: E741
     return tree_unflatten(target_struct, new_leaves)
 
