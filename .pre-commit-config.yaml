@@ -20,3 +20,8 @@ repos:
         entry: bash -lc 'JAX_PLATFORMS=cpu /Users/stanislav/miniforge3/bin/conda run -n batch-size-studies python -m pytest -m smoke'
         language: system
         pass_filenames: false
+      - id: require-notebook-label
+        name: require-notebook-label
+        entry: python3 scripts/hooks/require_notebook_commit_label.py
+        language: system
+        stages: [commit-msg]
