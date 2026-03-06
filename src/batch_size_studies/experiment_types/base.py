@@ -7,7 +7,7 @@ from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pprint import pprint
-from typing import Type
+from typing import Any, Type
 
 import numpy as np
 
@@ -168,7 +168,7 @@ class ExperimentBase(ABC):
         pprint(self)
 
     @abstractmethod
-    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool: ...
+    def should_skip_batch_size(self, batch_size: int, train_ds: Any | None = None) -> bool: ...
 
     @abstractmethod
     def get_trial_runner_class(self) -> Type["TrialRunner"]: ...
@@ -177,7 +177,7 @@ class ExperimentBase(ABC):
         return {}
 
     @abstractmethod
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]: ...
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[Any, Any]: ...
 
     def get_default_dataset_loader(self):
         """Optional hook for experiments to provide a default dataset loader callable."""
@@ -193,7 +193,7 @@ class ExperimentBase(ABC):
     def get_adjusted_eta(self, base_eta: float) -> float: ...
 
     @abstractmethod
-    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]: ...
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]: ...
 
     def is_online_experiment(self) -> bool:
         return False

@@ -10,6 +10,7 @@ import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import dataclass, replace
+from typing import Any
 
 from .configs import get_main_experiment_configs, get_main_hyperparameter_grids
 from .definitions import LossType, OptimizerType, Parameterization, RunKey
@@ -25,7 +26,7 @@ from .runner import (
 @dataclass
 class RunTask:
     name: str
-    config: any
+    config: Any
 
 
 @dataclass

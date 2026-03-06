@@ -117,8 +117,9 @@ The full suite ships with `pytest-xdist`, so you can run `pytest -n auto` to fan
 
 ## CI quality gates
 
-Pull requests and `main` pushes run three required checks:
+Pull requests and `main` pushes run required checks:
 * `ruff check` + `ruff format --check`
+* `mypy` on core modules
 * `pytest -m smoke`
 * a critical regression subset (`test_runner`, `test_hessian`, `test_runner_flow`, `test_sweep`)
 

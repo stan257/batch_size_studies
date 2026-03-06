@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Type
+from typing import Any, Type
 
 import jax.numpy as jnp
 import jax.random as jr
@@ -57,13 +57,13 @@ class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, Synthet
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
 
-    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: Any | None = None) -> bool:
         if batch_size <= 0 or batch_size > self.P:
             logging.warning(f"Skipping batch size {batch_size} > synthetic block size P ({self.P}).")
             return True
         return False
 
-    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:
         return self.num_steps, 1
 
     def is_online_experiment(self) -> bool:
@@ -74,7 +74,7 @@ class SyntheticExperimentFixedTime(MLPStudentExperiment, ExperimentBase, Synthet
 
         return SyntheticFixedTimeTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[Any, Any]:
         return None, None
 
 
@@ -115,12 +115,12 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
             line2 += f", Epochs={num_epochs}"
         return f"{line1}\n{line2}"
 
-    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
         steps_per_epoch = self.P // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
 
-    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: Any | None = None) -> bool:
         if batch_size <= 0 or batch_size > self.P:
             logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
             return True
@@ -131,7 +131,7 @@ class SyntheticExperimentFixedData(MLPStudentExperiment, ExperimentBase, Synthet
 
         return SyntheticFixedDataTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[Any, Any]:
         data_key = jr.PRNGKey(self.seed)
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None
@@ -172,10 +172,10 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
         line2 = f"{model_name} in {self.parameterization.value} w/ $N={self.N}, L={self.L}, \\gamma={self.gamma}$"
         return f"{line1}\n{line2}"
 
-    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: Any | None = None) -> bool:
         return False
 
-    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:
         return self.num_steps, 1
 
     def get_trial_runner_class(self) -> Type[TrialRunner]:
@@ -183,7 +183,7 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
 
         return SyntheticFixedTimeTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[Any, Any]:
         return None, None
 
     def is_online_experiment(self) -> bool:
@@ -238,12 +238,12 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
         )
         return f"{line1}\n{line2}"
 
-    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
         steps_per_epoch = self.P // batch_size
         return epochs_to_run * steps_per_epoch, epochs_to_run
 
-    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: Any | None = None) -> bool:
         if batch_size <= 0 or batch_size > self.P:
             logging.warning(f"Skipping batch size {batch_size} > dataset size P ({self.P}).")
             return True
@@ -254,7 +254,7 @@ class SyntheticExperimentLinearTeacher(LinearStudentExperiment, ExperimentBase, 
 
         return SyntheticFixedDataTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[Any, Any]:
         data_key = jr.PRNGKey(self.seed)
         X_data, y_data = self.generate_data(data_key)
         return (X_data, y_data), None

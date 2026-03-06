@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import Type
+from typing import Any, Type
 
 import jax.random as jr
 import numpy as np
@@ -65,7 +65,7 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
         line2 = f"Epochs={self.num_epochs}, Optimizer={self.optimizer.value}"
         return f"{line1}\n{line2}"
 
-    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: Any | None = None) -> bool:
         if train_ds is None:
             return False
         train_ds_size = len(train_ds["image"])
@@ -79,7 +79,7 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
 
         return MNISTTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[Any, Any]:
         return _load_mnist_dataset(
             self,
             init_key,
@@ -90,7 +90,7 @@ class MNISTExperiment(MLPStudentExperiment, ExperimentBase):
     def get_default_dataset_loader(self):
         return load_datasets
 
-    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:
         assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
         num_train_samples = len(train_ds["image"])
@@ -139,7 +139,7 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
             line2 += f", Samples={self.max_train_samples}"
         return f"{line1}\n{line2}"
 
-    def should_skip_batch_size(self, batch_size: int, train_ds: any | None = None) -> bool:
+    def should_skip_batch_size(self, batch_size: int, train_ds: Any | None = None) -> bool:
         if train_ds is None:
             effective_size = self.max_train_samples
         else:
@@ -160,7 +160,7 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
 
         return MNISTTrialRunner
 
-    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[any, any]:
+    def prepare_datasets(self, init_key: int, **kwargs) -> tuple[Any, Any]:
         return _load_mnist_dataset(
             self,
             init_key,
@@ -176,7 +176,7 @@ class MNIST1MExperiment(MLPStudentExperiment, ExperimentBase):
             return {}
         return {"subsample_seed": init_key}
 
-    def compute_num_steps(self, batch_size: int, train_ds: any, num_epochs: int | None) -> tuple[int, int]:
+    def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:
         assert train_ds is not None, "compute_num_steps requires a non-None train_ds for this experiment."
         epochs_to_run = num_epochs if num_epochs is not None else self.num_epochs
         num_train_samples = len(train_ds["image"])

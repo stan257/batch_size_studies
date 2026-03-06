@@ -47,6 +47,20 @@ exclude = [
 # Use double quotes for strings, like Black.
 quote-style = "double"
 
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_unused_ignores = true
+ignore_missing_imports = true
+files = [
+    "src/batch_size_studies/cli.py",
+    "src/batch_size_studies/engine/checkpoint_utils.py",
+    "src/batch_size_studies/engine/runner.py",
+    "src/batch_size_studies/experiment_types/base.py",
+    "src/batch_size_studies/experiment_types/mnist.py",
+    "src/batch_size_studies/experiment_types/synthetic.py",
+]
+
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"

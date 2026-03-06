@@ -1,6 +1,7 @@
 import logging
 import os
 import pickle
+from typing import Any
 
 import jax
 import numpy as np
@@ -265,7 +266,7 @@ class CheckpointManager:
             logging.error(f"Could not load weight history for {run_key}. Error: {e}")
             return {}
 
-    def load_final_params_for_all_runs(self) -> dict[RunKey, any]:
+    def load_final_params_for_all_runs(self) -> dict[RunKey, Any]:
         """
         Loads the final parameters for every run stored in the weights file.
         """
@@ -285,8 +286,8 @@ class CheckpointManager:
             logging.error(f"initial_params missing from weights file {self.weights_filepath}")
             return {}
 
-        weight_snapshots: dict[RunKey, dict[int, any]] = data.get("weight_snapshots", {})
-        final_params: dict[RunKey, any] = {}
+        weight_snapshots: dict[RunKey, dict[int, Any]] = data.get("weight_snapshots", {})
+        final_params: dict[RunKey, Any] = {}
         for run_key, step_map in weight_snapshots.items():
             if not step_map:
                 continue
@@ -346,7 +347,7 @@ def load_experiment_weights(
 def load_final_weights_for_experiment(
     experiment,
     directory: str | os.PathLike[str] | None = None,
-) -> dict[RunKey, any]:
+) -> dict[RunKey, Any]:
     """
     Loads the final parameters for every completed run of the given experiment.
     """
