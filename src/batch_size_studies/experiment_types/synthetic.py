@@ -173,6 +173,9 @@ class SyntheticExperimentMLPTeacher(MLPStudentExperiment, ExperimentBase, Synthe
         return f"{line1}\n{line2}"
 
     def should_skip_batch_size(self, batch_size: int, train_ds: Any | None = None) -> bool:
+        if batch_size <= 0 or batch_size > self.P:
+            logging.warning(f"Skipping batch size {batch_size} > synthetic block size P ({self.P}).")
+            return True
         return False
 
     def compute_num_steps(self, batch_size: int, train_ds: Any, num_epochs: int | None) -> tuple[int, int]:

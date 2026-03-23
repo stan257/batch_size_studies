@@ -53,6 +53,7 @@ def _run_single_experiment(
     max_eval_samples: int | None = None,
     save_interstitial_snapshots: bool | None = None,
     save_epoch_snapshots: bool | None = None,
+    **extra_run_options,
 ):
     """
     A wrapper function to run a single experiment trial. This is designed
@@ -73,6 +74,8 @@ def _run_single_experiment(
         run_options["save_interstitial_snapshots"] = save_interstitial_snapshots
     if save_epoch_snapshots is not None:
         run_options["save_epoch_snapshots"] = save_epoch_snapshots
+    if extra_run_options:
+        run_options.update(extra_run_options)
 
     # Selectively apply a default number of epochs only if the experiment
     # configuration does not already specify one.

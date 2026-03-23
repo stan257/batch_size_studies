@@ -556,7 +556,7 @@ class TestExperimentUtilities:
         assert num_steps == mnist1m_sampled_config.num_epochs * (len(train_ds["image"]) // 50)
         assert epochs == mnist1m_sampled_config.num_epochs
 
-    def test_synthetic_experiment_behaviors(self, fixed_time_config, fixed_data_config):
+    def test_synthetic_experiment_behaviors(self, fixed_time_config, fixed_data_config, mlp_teacher_config):
         assert fixed_time_config.is_online_experiment()
         assert not fixed_time_config.should_skip_batch_size(16)
         X_online, y_online = fixed_time_config.generate_data(jr.PRNGKey(0))
@@ -566,6 +566,8 @@ class TestExperimentUtilities:
         train_ds = {"image": np.zeros((fixed_data_config.P, 1)), "label": np.zeros(fixed_data_config.P)}
         assert not fixed_data_config.should_skip_batch_size(32, train_ds)
         assert fixed_data_config.should_skip_batch_size(fixed_data_config.P + 1, train_ds)
+        assert not mlp_teacher_config.should_skip_batch_size(32)
+        assert mlp_teacher_config.should_skip_batch_size(mlp_teacher_config.P + 1)
 
         num_steps, epochs = fixed_data_config.compute_num_steps(batch_size=32, train_ds=train_ds, num_epochs=None)
         assert epochs == fixed_data_config.num_epochs

@@ -5,11 +5,12 @@ This module owns argparse wiring so that runner.py can focus on orchestration.
 """
 
 import argparse
+import importlib
 import logging
 import os
 from collections import defaultdict
 from concurrent.futures import ProcessPoolExecutor, as_completed
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from typing import Any
 
 from .configs import get_main_experiment_configs, get_main_hyperparameter_grids
@@ -41,10 +42,23 @@ class RunPlan:
     save_interstitial_snapshots: bool | None
     save_epoch_snapshots: bool | None
     num_processes: int
+    extra_run_options: dict[str, Any] = field(default_factory=dict)
     dry_run_task: RunTask | None = None
     dry_run_batch: int | None = None
     dry_run_eta: float | None = None
     dry_run_steps: int = 0
+
+
+RUNTIME_OVERRIDE_KEYS = frozenset(
+    {
+        "max_eval_samples",
+        "save_interstitial_snapshots",
+        "save_epoch_snapshots",
+        "disable_eval_dataset",
+        "dataset_loader",
+        "forced_subsample_seed",
+    }
+)
 
 
 class RunPlanner:
@@ -57,12 +71,29 @@ class RunPlanner:
 
     def build(self) -> RunPlan | None:
         experiments = self.experiments
+        runtime_overrides: dict[str, Any] = {}
         if not experiments:
             logging.error("No experiments match the provided filters. Nothing to run.")
             return None
 
         if getattr(self.args, "override", None):
-            experiments = _apply_overrides(experiments, self.args.override)
+            try:
+                experiments, runtime_overrides = _split_overrides(experiments, self.args.override)
+            except ValueError as exc:
+                logging.error(str(exc))
+                return None
+
+        max_eval_samples = _resolve_runtime_override(self.args.max_eval_samples, runtime_overrides, "max_eval_samples")
+        save_interstitial_snapshots = _resolve_runtime_override(
+            self.args.save_interstitial_snapshots,
+            runtime_overrides,
+            "save_interstitial_snapshots",
+        )
+        save_epoch_snapshots = _resolve_runtime_override(
+            self.args.save_epoch_snapshots,
+            runtime_overrides,
+            "save_epoch_snapshots",
+        )
 
         if getattr(self.args, "dry_run", False):
             first_item = next(iter(experiments.items()), None)
@@ -80,10 +111,11 @@ class RunPlanner:
                 tasks=[],
                 no_save=True,
                 eta_stability_depth=None,
-                max_eval_samples=self.args.max_eval_samples,
-                save_interstitial_snapshots=None,
-                save_epoch_snapshots=None,
+                max_eval_samples=max_eval_samples,
+                save_interstitial_snapshots=save_interstitial_snapshots,
+                save_epoch_snapshots=save_epoch_snapshots,
                 num_processes=1,
+                extra_run_options=runtime_overrides,
                 dry_run_task=dry_task,
                 dry_run_batch=dry_batch,
                 dry_run_eta=mid_eta,
@@ -132,10 +164,11 @@ class RunPlanner:
             tasks=tasks,
             no_save=self.args.no_save,
             eta_stability_depth=self.args.eta_stability_depth,
-            max_eval_samples=self.args.max_eval_samples,
-            save_interstitial_snapshots=self.args.save_interstitial_snapshots,
-            save_epoch_snapshots=self.args.save_epoch_snapshots,
+            max_eval_samples=max_eval_samples,
+            save_interstitial_snapshots=save_interstitial_snapshots,
+            save_epoch_snapshots=save_epoch_snapshots,
             num_processes=self.args.num_processes,
+            extra_run_options=runtime_overrides,
         )
 
 
@@ -161,6 +194,11 @@ class RunExecutor:
             no_save=True,
             eta_stability_search_depth=None,
             max_eval_samples=plan.max_eval_samples,
+            save_interstitial_snapshots=bool(plan.save_interstitial_snapshots)
+            if plan.save_interstitial_snapshots is not None
+            else False,
+            save_epoch_snapshots=plan.save_epoch_snapshots,
+            **plan.extra_run_options,
         )
 
     def execute(self, plan: RunPlan):
@@ -180,6 +218,7 @@ class RunExecutor:
                         plan.max_eval_samples,
                         plan.save_interstitial_snapshots,
                         plan.save_epoch_snapshots,
+                        **plan.extra_run_options,
                     )
                 except Exception as exc:  # pragma: no cover - logged for visibility
                     logging.error(f"Experiment '{task.name}' generated an exception: {exc}")
@@ -199,6 +238,7 @@ class RunExecutor:
                         plan.max_eval_samples,
                         plan.save_interstitial_snapshots,
                         plan.save_epoch_snapshots,
+                        **plan.extra_run_options,
                     ): task.name
                     for task in plan.tasks
                 }
@@ -263,7 +303,7 @@ def describe_supported_overrides() -> str:
             "  - save_interstitial_snapshots=<bool>: enable/disable dense weight snapshots.",
             "  - save_epoch_snapshots=<bool>: toggle per-epoch snapshots for fixed-data synthetic runs.",
             "  - disable_eval_dataset=<bool>: skip deterministic synthetic eval dataset (saves memory).",
-            "  - dataset_loader=<callable>: alternate loader for MNIST-style datasets.",
+            "  - dataset_loader=<module.path:callable>: alternate loader for MNIST-style datasets.",
             "  - forced_subsample_seed=<int>: deterministic seed for subsampled datasets.",
         ]
     )
@@ -325,24 +365,108 @@ def _handle_list_command(args: argparse.Namespace, experiments_to_run: dict) -> 
     print(f"{separator}\n")
 
 
-def _apply_overrides(experiments_to_run: dict, overrides_list: list[str]) -> dict:
-    overrides = {}
-    for override_str in overrides_list:
-        key, value_str = override_str.split("=", 1)
-        try:
-            value = int(value_str)
-        except ValueError:
-            try:
-                value = float(value_str)
-            except ValueError:
-                if key == "parameterization":
-                    value = Parameterization[value_str.upper()]
-                else:
-                    value = value_str
-        overrides[key] = value
+def _resolve_import_path(path: str):
+    module_name = ""
+    attr_path = ""
+    if ":" in path:
+        module_name, _, attr_path = path.partition(":")
+    else:
+        module_name, _, attr_path = path.rpartition(".")
+    if not module_name or not attr_path:
+        raise ValueError(
+            "dataset_loader overrides must use an import path like "
+            "'package.module:callable' or 'package.module.callable'."
+        )
 
-    logging.info(f"Applying overrides: {overrides}")
-    return {name: replace(config, **overrides) for name, config in experiments_to_run.items()}
+    try:
+        obj = importlib.import_module(module_name)
+    except ImportError as exc:
+        raise ValueError(f"Could not import dataset loader module '{module_name}': {exc}") from exc
+
+    try:
+        for attr in attr_path.split("."):
+            obj = getattr(obj, attr)
+    except AttributeError as exc:
+        raise ValueError(f"Dataset loader '{path}' does not resolve to an attribute.") from exc
+
+    if not callable(obj):
+        raise ValueError(f"Dataset loader '{path}' did not resolve to a callable.")
+    return obj
+
+
+def _parse_override_value(key: str, value: Any):
+    if key == "dataset_loader":
+        if callable(value):
+            return value
+        return _resolve_import_path(str(value).strip())
+
+    if not isinstance(value, str):
+        return value
+
+    candidate = value.strip()
+    lowered = candidate.lower()
+    if lowered in {"none", "null"}:
+        return None
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if key == "parameterization":
+        return Parameterization[candidate.upper()]
+    if key == "optimizer":
+        return _coerce_enum(argparse.ArgumentParser(), OptimizerType, candidate, key)
+    if key == "loss_type":
+        return _coerce_enum(argparse.ArgumentParser(), LossType, candidate, key)
+    try:
+        return int(candidate)
+    except ValueError:
+        try:
+            return float(candidate)
+        except ValueError:
+            return candidate
+
+
+def _config_override_fields(config: Any) -> set[str]:
+    if not is_dataclass(config):
+        return set()
+    return {field_info.name for field_info in fields(config) if field_info.init}
+
+
+def _split_overrides(experiments_to_run: dict, overrides_list: list[str]) -> tuple[dict, dict[str, Any]]:
+    experiment_overrides = {}
+    runtime_overrides = {}
+    for override_str in overrides_list:
+        if "=" not in override_str:
+            raise ValueError(f"Overrides must use KEY=VALUE syntax. Got: {override_str!r}")
+        key, value_str = override_str.split("=", 1)
+        key = key.strip()
+        if not key:
+            raise ValueError(f"Overrides must use a non-empty key. Got: {override_str!r}")
+        value = _parse_override_value(key, value_str)
+        if key in RUNTIME_OVERRIDE_KEYS:
+            runtime_overrides[key] = value
+            continue
+
+        unsupported = [
+            name for name, config in experiments_to_run.items() if key not in _config_override_fields(config)
+        ]
+        if unsupported:
+            unsupported_names = ", ".join(sorted(unsupported))
+            raise ValueError(f"Override '{key}' is not supported for: {unsupported_names}.")
+        experiment_overrides[key] = value
+
+    logging.info("Applying experiment overrides: %s", experiment_overrides)
+    if runtime_overrides:
+        logging.info("Applying runtime overrides: %s", runtime_overrides)
+    updated_experiments = {name: replace(config, **experiment_overrides) for name, config in experiments_to_run.items()}
+    return updated_experiments, runtime_overrides
+
+
+def _resolve_runtime_override(explicit_value: Any, runtime_overrides: dict[str, Any], key: str):
+    if explicit_value is not None:
+        runtime_overrides.pop(key, None)
+        return explicit_value
+    return runtime_overrides.pop(key, None)
 
 
 def _handle_run_command(args: argparse.Namespace, experiments_to_run: dict) -> None:

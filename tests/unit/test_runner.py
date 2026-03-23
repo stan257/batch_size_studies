@@ -1,15 +1,18 @@
 import argparse
+import json
 from types import SimpleNamespace
 from unittest.mock import Mock
 
 import pytest
 
 from batch_size_studies.cli import (
+    RunPlanner,
     _handle_list_command,
     _resolve_experiment_configs,
+    _split_overrides,
 )
-from batch_size_studies.definitions import RunKey
-from batch_size_studies.experiments import ExperimentBase
+from batch_size_studies.definitions import LossType, OptimizerType, Parameterization, RunKey
+from batch_size_studies.experiments import ExperimentBase, SyntheticExperimentFixedData
 from batch_size_studies.runner import (
     RunStatus,
     _all_runs_accounted_for,
@@ -58,6 +61,125 @@ def test_handle_list_command_shows_overrides(capsys):
     _handle_list_command(args, {})
     out = capsys.readouterr().out
     assert "Supported override keys" in out
+
+
+def test_split_overrides_separates_experiment_and_runtime_options():
+    experiment = SyntheticExperimentFixedData(
+        D=8,
+        P=32,
+        N=16,
+        K=2,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+    )
+
+    updated, runtime_overrides = _split_overrides(
+        {"exp": experiment},
+        [
+            "num_epochs=2",
+            "parameterization=mup",
+            "save_interstitial_snapshots=false",
+            "save_epoch_snapshots=true",
+            "disable_eval_dataset=true",
+            "forced_subsample_seed=17",
+            "dataset_loader=json.loads",
+        ],
+    )
+
+    updated_experiment = updated["exp"]
+    assert updated_experiment.num_epochs == 2
+    assert updated_experiment.parameterization == Parameterization.MUP
+    assert runtime_overrides == {
+        "save_interstitial_snapshots": False,
+        "save_epoch_snapshots": True,
+        "disable_eval_dataset": True,
+        "forced_subsample_seed": 17,
+        "dataset_loader": json.loads,
+    }
+
+
+def test_run_planner_applies_runtime_overrides_to_plan():
+    experiment = SyntheticExperimentFixedData(
+        D=8,
+        P=32,
+        N=16,
+        K=2,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+    )
+    args = argparse.Namespace(
+        override=[
+            "num_epochs=2",
+            "max_eval_samples=11",
+            "save_interstitial_snapshots=false",
+            "save_epoch_snapshots=true",
+            "disable_eval_dataset=true",
+            "forced_subsample_seed=5",
+            "dataset_loader=json.loads",
+        ],
+        dry_run=False,
+        dry_run_steps=5,
+        max_eval_samples=None,
+        save_interstitial_snapshots=None,
+        save_epoch_snapshots=None,
+        no_save=True,
+        eta_stability_depth=None,
+        num_processes=1,
+    )
+
+    planner = RunPlanner(args, {"exp": experiment}, [4], [0.1], "/tmp")
+    plan = planner.build()
+
+    assert plan is not None
+    assert plan.max_eval_samples == 11
+    assert plan.save_interstitial_snapshots is False
+    assert plan.save_epoch_snapshots is True
+    assert plan.tasks[0].config.num_epochs == 2
+    assert plan.extra_run_options == {
+        "disable_eval_dataset": True,
+        "forced_subsample_seed": 5,
+        "dataset_loader": json.loads,
+    }
+
+
+def test_run_planner_prefers_explicit_flags_over_runtime_overrides():
+    experiment = SyntheticExperimentFixedData(
+        D=8,
+        P=32,
+        N=16,
+        K=2,
+        gamma=1.0,
+        L=2,
+        parameterization=Parameterization.SP,
+        optimizer=OptimizerType.SGD,
+        loss_type=LossType.MSE,
+    )
+    args = argparse.Namespace(
+        override=["max_eval_samples=11", "save_interstitial_snapshots=false", "save_epoch_snapshots=true"],
+        dry_run=False,
+        dry_run_steps=5,
+        max_eval_samples=99,
+        save_interstitial_snapshots=True,
+        save_epoch_snapshots=False,
+        no_save=True,
+        eta_stability_depth=None,
+        num_processes=1,
+    )
+
+    planner = RunPlanner(args, {"exp": experiment}, [4], [0.1], "/tmp")
+    plan = planner.build()
+
+    assert plan is not None
+    assert plan.max_eval_samples == 99
+    assert plan.save_interstitial_snapshots is True
+    assert plan.save_epoch_snapshots is False
+    assert plan.extra_run_options == {}
 
 
 class Test_validate_and_store_partial_result:
